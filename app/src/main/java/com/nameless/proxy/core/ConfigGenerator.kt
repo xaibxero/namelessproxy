@@ -7,8 +7,15 @@ enum class ProxyType {
     SOCKS5, SOCKS4, HTTP
 }
 
+enum class IpMode {
+    IPV4_ONLY,
+    DUAL_STACK,
+    IPV6_ONLY
+}
+
 data class ProxySettings(
     val type: ProxyType = ProxyType.SOCKS5,
+    val ipMode: IpMode = IpMode.IPV4_ONLY,
     val host: String = "127.0.0.1",
     val port: Int = 1080,
     val username: String = "",
@@ -19,19 +26,25 @@ object ConfigGenerator {
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
-        // 1. Log configuration
+        // 1. Core logging
         val log = JSONObject().apply {
             put("level", "info")
             put("timestamp", true)
         }
         root.put("log", log)
 
-        // 2. Inbound: Linux iptables REDIRECT target
+        // 2. Inbound: Bind based on IP Mode
+        val listenAddress = when (settings.ipMode) {
+            IpMode.IPV4_ONLY -> "127.0.0.1"
+            IpMode.DUAL_STACK -> "::"       // Wildcard dual-stack: accepts both IPv4 and IPv6
+            IpMode.IPV6_ONLY -> "::1"
+        }
+
         val inbounds = JSONArray()
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
-            put("listen", "127.0.0.1")
+            put("listen", listenAddress)
             put("listen_port", inboundPort)
         }
         inbounds.put(redirectInbound)
