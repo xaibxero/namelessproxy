@@ -22,10 +22,10 @@ data class ProxySettings(
     val type: ProxyType = ProxyType.SOCKS5,
     val transportMode: TransportMode = TransportMode.TCP_AND_UDP,
     val ipMode: IpMode = IpMode.IPV4_ONLY,
-    val host: String = "48.45.153.215",
-    val port: Int = 46508,
-    val username: String = "FgCH4MnS3EQDohq",
-    val password: String = "SzrAO5ADxzz81RP"
+    val host: String = "",
+    val port: Int = 1080,
+    val username: String = "",
+    val password: String = ""
 )
 
 object ConfigGenerator {
