@@ -26,17 +26,17 @@ object ConfigGenerator {
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
-        // 1. Core logging
+        // 1. Logging
         val log = JSONObject().apply {
             put("level", "info")
             put("timestamp", true)
         }
         root.put("log", log)
 
-        // 2. Inbound: Bind based on IP Mode
+        // 2. Inbound
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "127.0.0.1"
-            IpMode.DUAL_STACK -> "::"       // Wildcard dual-stack: accepts both IPv4 and IPv6
+            IpMode.DUAL_STACK -> "::"
             IpMode.IPV6_ONLY -> "::1"
         }
 
@@ -50,7 +50,7 @@ object ConfigGenerator {
         inbounds.put(redirectInbound)
         root.put("inbounds", inbounds)
 
-        // 3. Outbound: Upstream Remote Proxy
+        // 3. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject()
 
@@ -86,13 +86,20 @@ object ConfigGenerator {
         }
         outbounds.put(proxyOutbound)
 
-        // Direct outbound fallback
+        // Direct outbound
         val directOutbound = JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
         }
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
+
+        // 4. Route block
+        val route = JSONObject().apply {
+            put("auto_detect_interface", true)
+            put("final", "proxy-out")
+        }
+        root.put("route", route)
 
         return root.toString(2)
     }
