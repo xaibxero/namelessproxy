@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Cyber Shield Outer Silhouette -->
+    <path
+        android:fillColor="#151926"
+        android:strokeColor="#00E676"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,25 L75,33 C75,55 67,69 54,81 C41,69 33,55 33,33 Z" />
+
+    <!-- Shield Inner Geometric Core -->
+    <path
+        android:fillColor="#1B2133"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="1.2"
+        android:pathData="M54,32 L68,38 C68,54 62,64 54,73 C46,64 40,54 40,38 Z" />
+
+    <!-- Stylized "N" Data Tunnel & Bypass Node -->
+    <!-- Left Pillar -->
+    <path
+        android:strokeColor="#00E676"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M47,44 L47,62" />
+
+    <!-- Right Pillar -->
+    <path
+        android:strokeColor="#00E676"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M61,44 L61,62" />
+
+    <!-- Diagonal Data Stream -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M47,45 L61,61" />
+
+    <!-- Pulse Packet Center Indicator -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,51 A2,2 0 1,0 54,55 A2,2 0 1,0 54,51 Z" />
+</vector>
