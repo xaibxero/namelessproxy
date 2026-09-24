@@ -39,7 +39,43 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. Inbound bind address
+        // 2. DNS Engine (Resolves queries through remote proxy tunnel)
+        val dns = JSONObject()
+        val dnsServers = JSONArray()
+
+        val remoteDns = JSONObject().apply {
+            put("tag", "dns-remote")
+            put("address", "tcp://8.8.8.8")
+            put("detour", "proxy-out")
+        }
+        dnsServers.put(remoteDns)
+
+        val directDns = JSONObject().apply {
+            put("tag", "dns-direct")
+            put("address", "1.1.1.1")
+            put("detour", "direct-out")
+        }
+        dnsServers.put(directDns)
+        dns.put("servers", dnsServers)
+
+        when (settings.ipMode) {
+            IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
+            IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
+            IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
+        }
+
+        val dnsRules = JSONArray()
+        val directDnsRule = JSONObject().apply {
+            put("outbound", "direct-out")
+            put("server", "dns-direct")
+        }
+        dnsRules.put(directDnsRule)
+        dns.put("rules", dnsRules)
+        dns.put("final", "dns-remote")
+
+        root.put("dns", dns)
+
+        // 3. Inbounds
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "127.0.0.1"
             IpMode.DUAL_STACK -> "::"
@@ -48,7 +84,7 @@ object ConfigGenerator {
 
         val inbounds = JSONArray()
 
-        // TCP Inbound (Kernel REDIRECT)
+        // TCP Inbound
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -57,7 +93,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // UDP Inbound (Kernel TPROXY for WebRTC, STUN, and UDP streams)
+        // UDP Inbound (WebRTC & UDP DNS Interception)
         if (settings.transportMode == TransportMode.TCP_AND_UDP && settings.type == ProxyType.SOCKS5) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -71,10 +107,17 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 3. Outbounds
+        // 4. Outbounds
         val outbounds = JSONArray()
-        val proxyOutbound = JSONObject()
 
+        // Internal DNS Handler Outbound
+        val dnsOutbound = JSONObject().apply {
+            put("type", "dns")
+            put("tag", "dns-out")
+        }
+        outbounds.put(dnsOutbound)
+
+        val proxyOutbound = JSONObject()
         when (settings.type) {
             ProxyType.SOCKS5 -> {
                 proxyOutbound.put("type", "socks")
@@ -114,10 +157,20 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 4. Default Routing
-        val route = JSONObject().apply {
-            put("final", "proxy-out")
+        // 5. Routing Rules
+        val route = JSONObject()
+        val routeRules = JSONArray()
+
+        // Divert port 53 traffic into internal DNS engine
+        val dnsRouteRule = JSONObject().apply {
+            val portArray = JSONArray().apply { put(53) }
+            put("port", portArray)
+            put("outbound", "dns-out")
         }
+        routeRules.put(dnsRouteRule)
+
+        route.put("rules", routeRules)
+        route.put("final", "proxy-out")
         root.put("route", route)
 
         return root.toString(2)
