@@ -192,6 +192,18 @@ fun MainScreen(
     var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
     var startOnBoot by remember { mutableStateOf(prefs.getBoolean("start_on_boot", false)) }
 
+    fun getCurrentSettings(): ProxySettings {
+        return ProxySettings(
+            type = proxyType,
+            transportMode = transportMode,
+            ipMode = ipMode,
+            host = host.trim(),
+            port = port.toIntOrNull() ?: 1080,
+            username = username.trim(),
+            password = password.trim()
+        )
+    }
+
     fun saveConfig() {
         prefs.edit()
             .putString("proxy_type", proxyType.name)
@@ -204,6 +216,9 @@ fun MainScreen(
             .putBoolean("route_whole_profile", routeWholeProfile)
             .putBoolean("start_on_boot", startOnBoot)
             .apply()
+
+        // Sync early-boot service script
+        BootManager.syncBootState(context, startOnBoot, getCurrentSettings())
     }
 
     var testStatus by remember { mutableStateOf<String?>(null) }
@@ -213,15 +228,29 @@ fun MainScreen(
 
     var publicIpInfo by remember { mutableStateOf<GeoIpResult?>(null) }
     var isFetchingIp by remember { mutableStateOf(false) }
+    var ipFetchFailed by remember { mutableStateOf(false) }
     var selectedUids by remember { mutableStateOf(setOf<Int>()) }
 
     val coroutineScope = rememberCoroutineScope()
 
     fun triggerPublicIpCheck() {
         isFetchingIp = true
+        ipFetchFailed = false
         coroutineScope.launch {
-            val result = IpFetcher.getPublicIpInfo()
-            publicIpInfo = result
+            // Give tunnel socket 600ms to open
+            delay(600)
+            var result = IpFetcher.getPublicIpInfo()
+            if (result == null) {
+                // Second retry attempt
+                delay(1200)
+                result = IpFetcher.getPublicIpInfo()
+            }
+            if (result != null) {
+                publicIpInfo = result
+                ipFetchFailed = false
+            } else {
+                ipFetchFailed = true
+            }
             isFetchingIp = false
         }
     }
@@ -231,38 +260,39 @@ fun MainScreen(
             triggerPublicIpCheck()
         } else {
             publicIpInfo = null
+            ipFetchFailed = false
         }
     }
 
     // ========================================================
-    // DYNAMIC LIVING AMBIENT BACKGROUND ANIMATION
+    // LUMINOUS LIVING CYBER BACKGROUND ANIMATION
     // ========================================================
     val bgTopColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0xFF072618) else Color(0xFF0B0C14),
-        animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+        targetValue = if (isProxyActive) Color(0xFF073822) else Color(0xFF0F111A),
+        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
         label = "bgTop"
     )
     val bgMidColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0xFF05170E) else Color(0xFF080910),
-        animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+        targetValue = if (isProxyActive) Color(0xFF052115) else Color(0xFF0A0C13),
+        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
         label = "bgMid"
     )
     val bgBottomColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0xFF06090D) else Color(0xFF060608),
-        animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+        targetValue = if (isProxyActive) Color(0xFF070B12) else Color(0xFF05060A),
+        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
         label = "bgBottom"
     )
 
-    // Breathing pulse for the ambient aura
-    val infiniteTransition = rememberInfiniteTransition(label = "ambientPulse")
-    val pulseAuraAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.75f,
+    // Breathing pulse for the glowing aura
+    val infiniteTransition = rememberInfiniteTransition(label = "auraTransition")
+    val auraAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "pulseAuraAlpha"
+        label = "auraAlpha"
     )
 
     Box(
@@ -274,18 +304,18 @@ fun MainScreen(
                 )
             )
     ) {
-        // Living Radial Aura Orb at the top
+        // Living Radial Aura Light (Connected state)
         if (isProxyActive) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(360.dp)
-                    .alpha(pulseAuraAlpha)
+                    .height(420.dp)
+                    .alpha(auraAlpha)
                     .background(
                         brush = Brush.radialGradient(
-                            colors = listOf(Color(0x3300E676), Color.Transparent),
-                            center = Offset(Float.POSITIVE_INFINITY / 2f, 150f),
-                            radius = 700f
+                            colors = listOf(Color(0x4400E676), Color(0x1100E5FF), Color.Transparent),
+                            center = Offset(Float.POSITIVE_INFINITY / 2f, 180f),
+                            radius = 650f
                         )
                     )
             )
@@ -300,7 +330,7 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Top Header Bar
+            // App Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -317,7 +347,7 @@ fun MainScreen(
                     Text(
                         text = "Profile ${ProfileManager.profileId} • TProxy Engine",
                         fontSize = 11.sp,
-                        color = if (isProxyActive) Color(0xFF00E676) else Color.Gray,
+                        color = if (isProxyActive) Color(0xFF00E676) else Color(0xFF81C784),
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -325,9 +355,9 @@ fun MainScreen(
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = when (rootState) {
-                        RootState.GRANTED -> Color(0x1F00E676)
-                        RootState.DENIED -> Color(0x1FFF5252)
-                        RootState.CHECKING -> Color(0x1FFFD600)
+                        RootState.GRANTED -> Color(0x2200E676)
+                        RootState.DENIED -> Color(0x22FF5252)
+                        RootState.CHECKING -> Color(0x22FFD600)
                     },
                     modifier = Modifier
                         .border(
@@ -374,10 +404,11 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 3-Tab Segmented Switcher
+            // Modern Tab Switcher
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0x9913151F),
+                color = Color(0x66181D2E),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -390,12 +421,12 @@ fun MainScreen(
                     tabTitles.forEachIndexed { index, title ->
                         val isSelected = selectedTab == index
                         val tabBg by animateColorAsState(
-                            targetValue = if (isSelected) Color(0xFF1E2436) else Color.Transparent,
+                            targetValue = if (isSelected) Color(0x992B344D) else Color.Transparent,
                             animationSpec = tween(300),
                             label = "tabBg"
                         )
                         val textColor by animateColorAsState(
-                            targetValue = if (isSelected) Color(0xFF00E676) else Color.Gray,
+                            targetValue = if (isSelected) Color(0xFF00E676) else Color(0xFFA0A5B5),
                             animationSpec = tween(300),
                             label = "tabText"
                         )
@@ -436,6 +467,7 @@ fun MainScreen(
                             isProxyActive = isProxyActive,
                             publicIpInfo = publicIpInfo,
                             isFetchingIp = isFetchingIp,
+                            ipFetchFailed = ipFetchFailed,
                             activePid = activePid,
                             proxyType = proxyType,
                             transportMode = transportMode,
@@ -446,15 +478,7 @@ fun MainScreen(
                                 if (isProxyActive) {
                                     onStopProxy { }
                                 } else {
-                                    val settings = ProxySettings(
-                                        type = proxyType,
-                                        transportMode = transportMode,
-                                        ipMode = ipMode,
-                                        host = host.trim(),
-                                        port = port.toIntOrNull() ?: 1080,
-                                        username = username.trim(),
-                                        password = password.trim()
-                                    )
+                                    val settings = getCurrentSettings()
                                     val targets = if (routeWholeProfile) null else selectedUids.toList()
                                     onStartProxy(settings, targets) { success, error ->
                                         if (!success) {
@@ -471,15 +495,7 @@ fun MainScreen(
                                 saveConfig()
                                 isTesting = true
                                 testStatus = "Testing socket..."
-                                val settings = ProxySettings(
-                                    type = proxyType,
-                                    transportMode = transportMode,
-                                    ipMode = ipMode,
-                                    host = host.trim(),
-                                    port = port.toIntOrNull() ?: 1080,
-                                    username = username.trim(),
-                                    password = password.trim()
-                                )
+                                val settings = getCurrentSettings()
                                 coroutineScope.launch {
                                     when (val res = ProxyTester.testProxy(settings)) {
                                         is TestResult.Success -> testStatus = "Valid (⚡ ${res.latencyMs} ms)"
@@ -523,7 +539,10 @@ fun MainScreen(
                             ipMode = ipMode,
                             onIpModeChange = { ipMode = it; saveConfig() },
                             startOnBoot = startOnBoot,
-                            onStartOnBootChange = { startOnBoot = it; saveConfig() }
+                            onStartOnBootChange = {
+                                startOnBoot = it
+                                saveConfig()
+                            }
                         )
                     }
                 }
@@ -620,6 +639,7 @@ fun DashboardTab(
     isProxyActive: Boolean,
     publicIpInfo: GeoIpResult?,
     isFetchingIp: Boolean,
+    ipFetchFailed: Boolean,
     activePid: String?,
     proxyType: ProxyType,
     transportMode: TransportMode,
@@ -644,22 +664,22 @@ fun DashboardTab(
 
     val buttonBgColor by animateColorAsState(
         targetValue = if (isProxyActive) Color(0xFFE53935) else Color(0xFF00E676),
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 500),
         label = "btnColor"
     )
 
     val cardBorderColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0x6600E676) else Color(0x1FFFFFFF),
-        animationSpec = tween(durationMillis = 600),
+        targetValue = if (isProxyActive) Color(0x8800E676) else Color(0x26FFFFFF),
+        animationSpec = tween(durationMillis = 500),
         label = "cardBorder"
     )
 
-    // Frosted Glassmorphism Card
+    // Frosted Translucent Glass Card
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, cardBorderColor, RoundedCornerShape(22.dp)),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCC11141E)),
+            .border(1.5.dp, cardBorderColor, RoundedCornerShape(22.dp)),
+        colors = CardDefaults.cardColors(containerColor = Color(0x33121C2B)),
         shape = RoundedCornerShape(22.dp)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -684,7 +704,7 @@ fun DashboardTab(
                         text = if (isProxyActive) "TRANSPARENT TUNNEL ACTIVE" else "ENGINE DISCONNECTED",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isProxyActive) Color(0xFF00E676) else Color.Gray,
+                        color = if (isProxyActive) Color(0xFF00E676) else Color(0xFFA0A5B5),
                         letterSpacing = 0.5.sp
                     )
                 }
@@ -696,10 +716,11 @@ fun DashboardTab(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Country Flag & Public IP Surface
+            // Country Flag & Public IP Surface (Glass Subcard)
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0x99171C28),
+                color = Color(0x55192336),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = isProxyActive && !isFetchingIp) { onRefreshIp() }
@@ -718,19 +739,28 @@ fun DashboardTab(
                         Column {
                             Text(
                                 text = if (isProxyActive) {
-                                    if (isFetchingIp) "Detecting endpoint..."
-                                    else (publicIpInfo?.ip ?: "Resolving IP...")
+                                    when {
+                                        isFetchingIp -> "Detecting endpoint..."
+                                        publicIpInfo != null -> publicIpInfo.ip
+                                        ipFetchFailed -> "Failed to resolve IP"
+                                        else -> "Resolving..."
+                                    }
                                 } else "Offline / Direct Wi-Fi",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isProxyActive) Color.White else Color.Gray,
+                                color = if (isProxyActive) Color.White else Color(0xFFA0A5B5),
                                 fontFamily = FontFamily.Monospace
                             )
-                            if (isProxyActive && publicIpInfo != null && !isFetchingIp) {
+                            if (isProxyActive) {
                                 Text(
-                                    text = publicIpInfo.country,
+                                    text = when {
+                                        isFetchingIp -> "Querying route telemetry..."
+                                        publicIpInfo != null -> publicIpInfo.country
+                                        ipFetchFailed -> "Tap to retry"
+                                        else -> "Connecting..."
+                                    },
                                     fontSize = 11.sp,
-                                    color = Color(0xFF00E676),
+                                    color = if (ipFetchFailed) Color(0xFFFFB74D) else Color(0xFF00E676),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -750,13 +780,13 @@ fun DashboardTab(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Running Kernel Specs Bar
+            // Specs Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 val pillModifier = Modifier
-                    .background(Color(0x991E2436), RoundedCornerShape(8.dp))
+                    .background(Color(0x661E273D), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 5.dp)
 
                 Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillModifier)
@@ -785,14 +815,14 @@ fun DashboardTab(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Isolated Speed Telemetry Gauges
+            // Telemetry Gauges
             TelemetryGauges(isProxyActive = isProxyActive)
         }
     }
 
     Spacer(modifier = Modifier.height(18.dp))
 
-    // Primary Action Button
+    // Connect / Disconnect Action Button
     Button(
         onClick = onToggleProxy,
         modifier = Modifier
@@ -921,7 +951,8 @@ fun TelemetryGauges(isProxyActive: Boolean) {
         Surface(
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(14.dp),
-            color = Color(0x99171C28)
+            color = Color(0x44192336),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text("DOWNLOAD", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
@@ -935,7 +966,7 @@ fun TelemetryGauges(isProxyActive: Boolean) {
                 Text(
                     text = "Total: $totalDown",
                     fontSize = 11.sp,
-                    color = Color(0xFF757575)
+                    color = Color(0xFFA0A5B5)
                 )
             }
         }
@@ -943,7 +974,8 @@ fun TelemetryGauges(isProxyActive: Boolean) {
         Surface(
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(14.dp),
-            color = Color(0x99171C28)
+            color = Color(0x44192336),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text("UPLOAD", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
@@ -957,7 +989,7 @@ fun TelemetryGauges(isProxyActive: Boolean) {
                 Text(
                     text = "Total: $totalUp",
                     fontSize = 11.sp,
-                    color = Color(0xFF757575)
+                    color = Color(0xFFA0A5B5)
                 )
             }
         }
@@ -988,7 +1020,8 @@ fun ProxySetupTab(
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xCC11141E)),
+            colors = CardDefaults.cardColors(containerColor = Color(0x33121C2B)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x26FFFFFF)),
             shape = RoundedCornerShape(16.dp)
         ) {
             Row(
@@ -1000,15 +1033,15 @@ fun ProxySetupTab(
             ) {
                 Column {
                     Text(
-                        text = "Start on System Boot",
+                        text = "Early Fast Boot (Root)",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
-                        text = "Automatically initialize proxy at device restart",
+                        text = "Auto-runs via /data/adb/service.d/ (sleep 5s)",
                         fontSize = 11.sp,
-                        color = Color.Gray
+                        color = Color(0xFF00E676)
                     )
                 }
                 Switch(
@@ -1159,7 +1192,8 @@ fun AppFilterTab(
     Column(modifier = Modifier.fillMaxSize()) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xCC11141E)),
+            colors = CardDefaults.cardColors(containerColor = Color(0x33121C2B)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x26FFFFFF)),
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -1276,7 +1310,7 @@ private fun formatBytes(bytes: Long): String {
     return when {
         bytes >= 1024 * 1024 * 1024 -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
         bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-        bytes >= 1024 -> String.format("%.1f KB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
     }
 }
