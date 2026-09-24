@@ -339,8 +339,8 @@ fun MainScreen(
             shape = RoundedCornerShape(20.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                // Status Header with slow pulsing dot
-                StatusHeader(isProxyActive = isProxyRunningState)
+                // Fixed: Pass isProxyActive instead of isProxyRunningState
+                StatusHeader(isProxyActive = isProxyActive)
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -433,8 +433,8 @@ fun MainScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Telemetry Section (Isolated recomposition prevents scroll lag)
-                TelemetrySection(isProxyActive = isProxyRunningState)
+                // Fixed: Pass isProxyActive instead of isProxyRunningState
+                TelemetrySection(isProxyActive = isProxyActive)
             }
         }
 
@@ -891,7 +891,7 @@ fun StatusHeader(isProxyActive: Boolean) {
         initialValue = 0.35f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1400, easing = EaseInOut),
+            animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulseAlpha"
@@ -971,7 +971,6 @@ fun TelemetrySection(isProxyActive: Boolean) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Download Box
         Surface(
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(12.dp),
@@ -994,7 +993,6 @@ fun TelemetrySection(isProxyActive: Boolean) {
             }
         }
 
-        // Upload Box
         Surface(
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(12.dp),
