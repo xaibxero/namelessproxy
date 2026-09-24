@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private var rootState by mutableStateOf(RootState.CHECKING)
     private var rootLabel by mutableStateOf("Checking Root...")
     private var isProxyRunningState by mutableStateOf(false)
+    private var activePidState by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,11 +79,12 @@ class MainActivity : ComponentActivity() {
                         rootState = rootState,
                         rootLabel = rootLabel,
                         isProxyActive = isProxyRunningState,
+                        activePid = activePidState,
                         onRecheckRoot = { refreshRootStatus() },
                         installedApps = installedApps,
-                        onStartProxy = { settings, blockWebRtc, selectedUids, onResult ->
+                        onStartProxy = { settings, selectedUids, onResult ->
                             lifecycleScope.launch(Dispatchers.IO) {
-                                val result = ProxyController.startProxy(this@MainActivity, settings, blockWebRtc, selectedUids)
+                                val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
                                 withContext(Dispatchers.Main) {
                                     syncDaemonStatus()
                                     onResult(result.success, result.errorMessage)
@@ -107,8 +109,10 @@ class MainActivity : ComponentActivity() {
     private fun syncDaemonStatus() {
         lifecycleScope.launch(Dispatchers.IO) {
             val running = ProxyController.isRunning()
+            val pid = if (running) ProxyController.getActivePid() else null
             withContext(Dispatchers.Main) {
                 isProxyRunningState = running
+                activePidState = pid
             }
         }
     }
@@ -144,9 +148,10 @@ fun MainScreen(
     rootState: RootState,
     rootLabel: String,
     isProxyActive: Boolean,
+    activePid: String?,
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
-    onStartProxy: (ProxySettings, Boolean, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
+    onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
@@ -156,8 +161,18 @@ fun MainScreen(
         mutableStateOf(
             try {
                 ProxyType.valueOf(prefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 ProxyType.SOCKS5
+            }
+        )
+    }
+
+    var transportMode by remember {
+        mutableStateOf(
+            try {
+                TransportMode.valueOf(prefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name)
+            } catch (_: Exception) {
+                TransportMode.TCP_AND_UDP
             }
         )
     }
@@ -166,7 +181,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 IpMode.valueOf(prefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 IpMode.IPV4_ONLY
             }
         )
@@ -177,18 +192,17 @@ fun MainScreen(
     var username by remember { mutableStateOf(prefs.getString("username", "FgCH4MnS3EQDohq") ?: "FgCH4MnS3EQDohq") }
     var password by remember { mutableStateOf(prefs.getString("password", "SzrAO5ADxzz81RP") ?: "SzrAO5ADxzz81RP") }
     var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
-    var blockWebRtc by remember { mutableStateOf(prefs.getBoolean("block_webrtc", true)) }
 
     fun saveConfig() {
         prefs.edit()
             .putString("proxy_type", proxyType.name)
+            .putString("transport_mode", transportMode.name)
             .putString("ip_mode", ipMode.name)
             .putString("host", host.trim())
             .putString("port", port.trim())
             .putString("username", username.trim())
             .putString("password", password.trim())
             .putBoolean("route_whole_profile", routeWholeProfile)
-            .putBoolean("block_webrtc", blockWebRtc)
             .apply()
     }
 
@@ -197,18 +211,34 @@ fun MainScreen(
     var showLogsDialog by remember { mutableStateOf(false) }
     var currentLogs by remember { mutableStateOf("") }
 
+    var publicIpStr by remember { mutableStateOf<String?>("--") }
+    var isFetchingIp by remember { mutableStateOf(false) }
+
     var selectedUids by remember { mutableStateOf(setOf<Int>()) }
     var showAppPicker by remember { mutableStateOf(false) }
 
-    // Live Speed & Session Data Counters
     var downSpeedStr by remember { mutableStateOf("0 B/s") }
     var upSpeedStr by remember { mutableStateOf("0 B/s") }
     var totalDownloadedStr by remember { mutableStateOf("0 B") }
     var totalUploadedStr by remember { mutableStateOf("0 B") }
     var connectionDurationSec by remember { mutableStateOf(0L) }
 
+    val coroutineScope = rememberCoroutineScope()
+
+    fun triggerPublicIpCheck() {
+        isFetchingIp = true
+        publicIpStr = "Detecting..."
+        coroutineScope.launch {
+            val detected = IpFetcher.getPublicIp()
+            publicIpStr = detected ?: "Failed to resolve"
+            isFetchingIp = false
+        }
+    }
+
     LaunchedEffect(isProxyActive) {
         if (isProxyActive) {
+            triggerPublicIpCheck()
+
             var prevRx = TrafficStats.getTotalRxBytes()
             var prevTx = TrafficStats.getTotalTxBytes()
             val startRx = prevRx
@@ -240,10 +270,9 @@ fun MainScreen(
             downSpeedStr = "0 B/s"
             upSpeedStr = "0 B/s"
             connectionDurationSec = 0L
+            publicIpStr = "--"
         }
     }
-
-    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -328,7 +357,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Live Dashboard & Speed Card
+        // Hero Card (Status, Public IP, Live Specs, Speeds)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -341,6 +370,7 @@ fun MainScreen(
             shape = RoundedCornerShape(18.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
+                // Status Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -375,9 +405,81 @@ fun MainScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Public IP Banner
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF1A1C26),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = isProxyActive && !isFetchingIp) { triggerPublicIpCheck() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🌐", fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Public IP: $publicIpStr",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isProxyActive) Color.White else Color.Gray,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        if (isProxyActive) {
+                            Text(
+                                text = if (isFetchingIp) "..." else "Refresh",
+                                fontSize = 11.sp,
+                                color = Color(0xFF00E676),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Active Specs Bar (Pills showing running configuration)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val badgeModifier = Modifier
+                        .background(Color(0xFF202330), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+
+                    Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = badgeModifier)
+                    Text(
+                        if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP (WebRTC)" else "TCP Only",
+                        fontSize = 10.sp,
+                        color = Color(0xFF00E676),
+                        fontWeight = FontWeight.Bold,
+                        modifier = badgeModifier
+                    )
+                    Text(
+                        when (ipMode) {
+                            IpMode.IPV4_ONLY -> "IPv4"
+                            IpMode.DUAL_STACK -> "Dual-Stack"
+                            IpMode.IPV6_ONLY -> "IPv6"
+                        },
+                        fontSize = 10.sp,
+                        color = Color.LightGray,
+                        fontWeight = FontWeight.Bold,
+                        modifier = badgeModifier
+                    )
+                    if (activePid != null) {
+                        Text("PID: $activePid", fontSize = 10.sp, color = Color.Gray, fontFamily = FontFamily.Monospace, modifier = badgeModifier)
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Real-Time Speed Displays
+                // Speed Display
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -404,28 +506,6 @@ fun MainScreen(
                         Text("Session: $totalUploadedStr", fontSize = 11.sp, color = Color(0xFF9E9E9E))
                     }
                 }
-
-                Spacer(modifier = Modifier.height(14.dp))
-                Divider(color = Color(0x1AFFFFFF), thickness = 1.dp)
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Loopback Port: ${ProfileManager.localInboundPort}",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = "UID: ${ProfileManager.uidStart}-${ProfileManager.uidEnd}",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
-                }
             }
         }
 
@@ -440,6 +520,7 @@ fun MainScreen(
                 } else {
                     val settings = ProxySettings(
                         type = proxyType,
+                        transportMode = transportMode,
                         ipMode = ipMode,
                         host = host.trim(),
                         port = port.toIntOrNull() ?: 1080,
@@ -447,7 +528,7 @@ fun MainScreen(
                         password = password.trim()
                     )
                     val targets = if (routeWholeProfile) null else selectedUids.toList()
-                    onStartProxy(settings, blockWebRtc, targets) { success, error ->
+                    onStartProxy(settings, targets) { success, error ->
                         if (!success) {
                             testStatus = "Start Failed: ${error ?: "Unknown error"}"
                         } else {
@@ -465,7 +546,7 @@ fun MainScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                text = if (isProxyActive) "DISCONNECT TRANSPARENT PROXY" else "CONNECT TRANSPARENT PROXY",
+                text = if (isProxyActive) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Black,
                 color = if (isProxyActive) Color.White else Color.Black
@@ -486,6 +567,7 @@ fun MainScreen(
                     testStatus = "Testing socket..."
                     val settings = ProxySettings(
                         type = proxyType,
+                        transportMode = transportMode,
                         ipMode = ipMode,
                         host = host.trim(),
                         port = port.toIntOrNull() ?: 1080,
@@ -536,7 +618,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Settings Section
         Text(
             text = "KERNEL ROUTING CONFIGURATION",
             fontSize = 11.sp,
@@ -547,7 +628,31 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Transport Mode Selector (TCP Only vs TCP+UDP)
+        Text("Transport Protocols", color = Color.Gray, fontSize = 12.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                TransportMode.TCP_AND_UDP to "TCP + UDP (WebRTC Support)",
+                TransportMode.TCP_ONLY to "TCP Only"
+            ).forEach { (mode, label) ->
+                FilterChip(
+                    selected = transportMode == mode,
+                    onClick = {
+                        transportMode = mode
+                        saveConfig()
+                    },
+                    label = { Text(label) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
         // Protocol Selector
+        Text("Proxy Protocol", color = Color.Gray, fontSize = 12.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -564,9 +669,10 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // IP Mode Selector
+        Text("IP Routing Mode", color = Color.Gray, fontSize = 12.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -647,45 +753,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // WebRTC Leak Prevention Toggle
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF13151D)),
-            shape = RoundedCornerShape(14.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "WebRTC & UDP Leak Shield",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Blocks UDP STUN to prevent browser leaks",
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
-                }
-                Switch(
-                    checked = blockWebRtc,
-                    onCheckedChange = {
-                        blockWebRtc = it
-                        saveConfig()
-                    }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Routing Scope Toggle
+        // Routing Scope Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF13151D)),
@@ -787,7 +855,7 @@ fun MainScreen(
         }
     }
 
-    // Diagnostic Logs Dialog
+    // Diagnostics Dialog
     if (showLogsDialog) {
         AlertDialog(
             onDismissRequest = { showLogsDialog = false },
