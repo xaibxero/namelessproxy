@@ -17,6 +17,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,7 +30,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -53,6 +53,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -277,58 +278,99 @@ fun MainScreen(
         }
     }
 
-    // Dynamic Multi-Layered Aurora Ambient Background
-    val infiniteTransition = rememberInfiniteTransition(label = "auroraMotion")
-    val auroraPhase by infiniteTransition.animateFloat(
+    // ========================================================
+    // FULL-SCREEN LIVING CHROMATIC AURORA ENGINE
+    // ========================================================
+    val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
+    val auroraAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = (2 * Math.PI).toFloat(),
+        targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
+            animation = tween(durationMillis = 10000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "auroraPhase"
+        label = "auroraAngle"
     )
 
-    val activeAuraAlpha by animateFloatAsState(
-        targetValue = if (isProxyActive) 0.35f else 0.08f,
-        animationSpec = tween(1200, easing = FastOutSlowInEasing),
-        label = "activeAuraAlpha"
+    val auraPulse by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "auraPulse"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF030712))
+            .background(Color(0xFF020408))
     ) {
-        // Living Dynamic Gradient Orbs
-        val xOffset1 = (sin(auroraPhase.toDouble()) * 80).dp
-        val yOffset1 = (cos(auroraPhase.toDouble()) * 40).dp
-        val xOffset2 = (cos(auroraPhase.toDouble()) * -80).dp
-        val yOffset2 = (sin(auroraPhase.toDouble()) * 50).dp
+        // Living Multi-Center Chromatic Aura Canvas
+        Canvas(modifier = Modifier.fillMaxSize().alpha(if (isProxyActive) auraPulse else 0.25f)) {
+            val w = size.width
+            val h = size.height
+            val rad = Math.toRadians(auroraAngle.toDouble())
 
-        Box(
-            modifier = Modifier
-                .size(360.dp)
-                .offset(x = (-20).dp + xOffset1, y = (-40).dp + yOffset1)
-                .alpha(activeAuraAlpha)
-                .blur(95.dp)
-                .background(
-                    if (isProxyActive) Color(0xFF00F5A0) else Color(0xFF38BDF8),
-                    CircleShape
-                )
-        )
+            val orb1X = (w * 0.35f) + (cos(rad) * 140f).toFloat()
+            val orb1Y = (h * 0.25f) + (sin(rad) * 90f).toFloat()
 
-        Box(
-            modifier = Modifier
-                .size(400.dp)
-                .offset(x = 100.dp + xOffset2, y = 140.dp + yOffset2)
-                .alpha(activeAuraAlpha)
-                .blur(110.dp)
-                .background(
-                    if (isProxyActive) Color(0xFF00D9F5) else Color(0xFF6366F1),
-                    CircleShape
+            val orb2X = (w * 0.75f) - (sin(rad) * 160f).toFloat()
+            val orb2Y = (h * 0.50f) + (cos(rad) * 110f).toFloat()
+
+            val orb3X = (w * 0.40f) + (sin(rad * 1.5) * 120f).toFloat()
+            val orb3Y = (h * 0.80f) - (cos(rad * 1.5) * 80f).toFloat()
+
+            if (isProxyActive) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x6600FF88), Color(0x2200FF88), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.75f
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = w * 0.75f
                 )
-        )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x5500D9F5), Color(0x1800D9F5), Color.Transparent),
+                        center = Offset(orb2X, orb2Y),
+                        radius = w * 0.85f
+                    ),
+                    center = Offset(orb2X, orb2Y),
+                    radius = w * 0.85f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x44059669), Color(0x10059669), Color.Transparent),
+                        center = Offset(orb3X, orb3Y),
+                        radius = w * 0.70f
+                    ),
+                    center = Offset(orb3X, orb3Y),
+                    radius = w * 0.70f
+                )
+            } else {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x253B82F6), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.65f
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = w * 0.65f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x206366F1), Color.Transparent),
+                        center = Offset(orb2X, orb2Y),
+                        radius = w * 0.75f
+                    ),
+                    center = Offset(orb2X, orb2Y),
+                    radius = w * 0.75f
+                )
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -337,9 +379,9 @@ fun MainScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Navigation Top Bar
+            // App Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -354,9 +396,9 @@ fun MainScreen(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "PROFILE ${ProfileManager.profileId} • KERNEL TPROXY",
+                        text = "PROFILE ${ProfileManager.profileId} • KERNEL TUNNEL",
                         fontSize = 10.sp,
-                        color = if (isProxyActive) Color(0xFF00F5A0) else Color(0xFF64748B),
+                        color = if (isProxyActive) Color(0xFF00FF88) else Color(0xFF64748B),
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp
                     )
@@ -365,13 +407,13 @@ fun MainScreen(
                 // Root Badge
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0x1AFFFFFF),
+                    color = Color(0x1FFFFFFF),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
                         when (rootState) {
-                            RootState.GRANTED -> Color(0x5500F5A0)
-                            RootState.DENIED -> Color(0x55F43F5E)
-                            RootState.CHECKING -> Color(0x55F59E0B)
+                            RootState.GRANTED -> Color(0x8800FF88)
+                            RootState.DENIED -> Color(0x88F43F5E)
+                            RootState.CHECKING -> Color(0x88F59E0B)
                         }
                     ),
                     modifier = Modifier.clickable { onRecheckRoot() }
@@ -385,7 +427,7 @@ fun MainScreen(
                                 .size(6.dp)
                                 .background(
                                     color = when (rootState) {
-                                        RootState.GRANTED -> Color(0xFF00F5A0)
+                                        RootState.GRANTED -> Color(0xFF00FF88)
                                         RootState.DENIED -> Color(0xFFF43F5E)
                                         RootState.CHECKING -> Color(0xFFF59E0B)
                                     },
@@ -408,37 +450,37 @@ fun MainScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Capsule Tabs Switcher
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0x22111827),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0x330B1120),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(4.dp),
+                        .padding(5.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     val tabTitles = listOf("Console", "Config", "Apps (${selectedUids.size})")
                     tabTitles.forEachIndexed { index, title ->
                         val isSelected = selectedTab == index
                         val tabBg by animateColorAsState(
-                            targetValue = if (isSelected) Color(0x28FFFFFF) else Color.Transparent,
-                            animationSpec = tween(250),
+                            targetValue = if (isSelected) Color(0x3DFFFFFF) else Color.Transparent,
+                            animationSpec = tween(240),
                             label = "tabBg"
                         )
                         val textColor by animateColorAsState(
                             targetValue = if (isSelected) Color.White else Color(0xFF94A3B8),
-                            animationSpec = tween(250),
+                            animationSpec = tween(240),
                             label = "tabText"
                         )
 
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             color = tabBg,
                             modifier = Modifier
                                 .weight(1f)
@@ -460,7 +502,7 @@ fun MainScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             when (selectedTab) {
                 0 -> {
@@ -641,7 +683,7 @@ fun MainScreen(
 }
 
 // -------------------------------------------------------------
-// UNIFIED CYBER COMMAND DECK (Hero HUD, Rolling Graph & Action)
+// UNIFIED COMMAND DECK (Rotating Glowing Border + River Wave)
 // -------------------------------------------------------------
 @Composable
 fun ConsoleHUDTab(
@@ -665,28 +707,54 @@ fun ConsoleHUDTab(
         initialValue = 0.4f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
+            animation = tween(1400, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulseAlpha"
     )
 
-    val borderGlow by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0x6600F5A0) else Color(0x1AFFFFFF),
-        animationSpec = tween(600),
-        label = "borderGlow"
+    // Animated Rotating Border Gradient
+    val sweepAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 6000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "borderSweep"
     )
 
-    // Primary Unified Glass Deck
-    Card(
+    val borderBrush = if (isProxyActive) {
+        Brush.sweepGradient(
+            colors = listOf(
+                Color(0xFF00FF88),
+                Color(0xFF00E5FF),
+                Color(0x3300FF88),
+                Color(0xFF00FF88)
+            )
+        )
+    } else {
+        Brush.sweepGradient(
+            colors = listOf(
+                Color(0x22FFFFFF),
+                Color(0x4438BDF8),
+                Color(0x11FFFFFF),
+                Color(0x22FFFFFF)
+            )
+        )
+    }
+
+    // Sculpted Command Deck
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.5.dp, borderGlow, RoundedCornerShape(26.dp)),
-        colors = CardDefaults.cardColors(containerColor = Color(0x28111827)),
-        shape = RoundedCornerShape(26.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .border(1.5.dp, borderBrush, RoundedCornerShape(28.dp))
+            .background(Color(0x400A101D))
+            .padding(20.dp)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            // Deck Header Status
+        Column {
+            // Header Status Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -695,19 +763,19 @@ fun ConsoleHUDTab(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(9.dp)
+                            .size(10.dp)
                             .alpha(if (isProxyActive) pulseAlpha else 1f)
                             .background(
-                                if (isProxyActive) Color(0xFF00F5A0) else Color(0xFF64748B),
+                                if (isProxyActive) Color(0xFF00FF88) else Color(0xFF64748B),
                                 CircleShape
                             )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isProxyActive) "TRANSPARENT TUNNEL ACTIVE" else "TUNNEL OFFLINE",
+                        text = if (isProxyActive) "TRANSPARENT TUNNEL ONLINE" else "TUNNEL OFFLINE",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = if (isProxyActive) Color(0xFF00F5A0) else Color(0xFF94A3B8),
+                        color = if (isProxyActive) Color(0xFF00FF88) else Color(0xFF94A3B8),
                         letterSpacing = 0.5.sp
                     )
                 }
@@ -719,29 +787,29 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Real-Time Rolling Throughput Engine
-            LiveThroughputEngine(isProxyActive = isProxyActive)
+            // Dynamic Dual-Frequency Fluid River Waveform
+            LiveThroughputRiverEngine(isProxyActive = isProxyActive)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Integrated Location & Endpoint Surface
+            // Geolocation & Route Surface
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0x330F172A),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0x440F172A),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = isProxyActive && !isFetchingIp) { onRefreshIp() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "⚪",
-                            fontSize = 22.sp
+                            fontSize = 24.sp
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
@@ -753,8 +821,8 @@ fun ConsoleHUDTab(
                                         ipFetchFailed -> "Timeout - Tap to retry"
                                         else -> "Resolving..."
                                     }
-                                } else "Native Connection",
-                                fontSize = 14.sp,
+                                } else "Native Interface",
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isProxyActive) Color.White else Color(0xFF94A3B8),
                                 fontFamily = FontFamily.Monospace
@@ -768,7 +836,7 @@ fun ConsoleHUDTab(
                                         else -> "Stabilizing..."
                                     },
                                     fontSize = 11.sp,
-                                    color = if (ipFetchFailed) Color(0xFFFBBF24) else Color(0xFF00D9F5),
+                                    color = if (ipFetchFailed) Color(0xFFFBBF24) else Color(0xFF00E5FF),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -777,15 +845,15 @@ fun ConsoleHUDTab(
 
                     if (isProxyActive) {
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0x1A00F5A0)
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0x2200FF88)
                         ) {
                             Text(
                                 text = if (isFetchingIp) "..." else "Refresh",
                                 fontSize = 11.sp,
-                                color = Color(0xFF00F5A0),
+                                color = Color(0xFF00FF88),
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
                     }
@@ -800,15 +868,15 @@ fun ConsoleHUDTab(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 val pillModifier = Modifier
-                    .background(Color(0x331F2937), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                    .background(Color(0x441F2937), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
 
                 Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillModifier)
                 Text(
                     if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP (WebRTC)" else "TCP Only",
                     fontSize = 10.sp,
-                    color = Color(0xFF00F5A0),
+                    color = Color(0xFF00FF88),
                     fontWeight = FontWeight.Bold,
                     modifier = pillModifier
                 )
@@ -819,7 +887,7 @@ fun ConsoleHUDTab(
                         IpMode.IPV6_ONLY -> "IPv6"
                     },
                     fontSize = 10.sp,
-                    color = Color(0xFF00D9F5),
+                    color = Color(0xFF00E5FF),
                     fontWeight = FontWeight.Bold,
                     modifier = pillModifier
                 )
@@ -830,40 +898,15 @@ fun ConsoleHUDTab(
         }
     }
 
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(18.dp))
 
-    // Fluid Neon Master Action Capsule
-    val buttonBrush = if (isProxyActive) {
-        Brush.horizontalGradient(listOf(Color(0xFFE11D48), Color(0xFFF43F5E)))
-    } else {
-        Brush.horizontalGradient(listOf(Color(0xFF00F5A0), Color(0xFF00D9F5)))
-    }
+    // Pulse Radar Living Master Button
+    LivingRadarMasterButton(
+        isProxyActive = isProxyActive,
+        onClick = onToggleProxy
+    )
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .clickable { onToggleProxy() },
-        color = Color.Transparent
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(buttonBrush),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isProxyActive) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Black,
-                color = if (isProxyActive) Color.White else Color(0xFF030712),
-                letterSpacing = 0.5.sp
-            )
-        }
-    }
-
-    Spacer(modifier = Modifier.height(12.dp))
+    Spacer(modifier = Modifier.height(14.dp))
 
     // Diagnostics Bar
     Row(
@@ -873,8 +916,9 @@ fun ConsoleHUDTab(
         OutlinedButton(
             onClick = onTestUpstream,
             modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00D9F5)),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E5FF)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3300E5FF)),
             enabled = !isTesting
         ) {
             Text(if (isTesting) "Pinging..." else "Ping Latency")
@@ -883,7 +927,8 @@ fun ConsoleHUDTab(
         OutlinedButton(
             onClick = onViewLogs,
             modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
         ) {
             Text("Core Logs")
@@ -894,7 +939,7 @@ fun ConsoleHUDTab(
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = testStatus,
-            color = if (testStatus.startsWith("Online")) Color(0xFF00F5A0) else Color(0xFFF43F5E),
+            color = if (testStatus.startsWith("Online")) Color(0xFF00FF88) else Color(0xFFF43F5E),
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )
@@ -904,17 +949,14 @@ fun ConsoleHUDTab(
 }
 
 // -------------------------------------------------------------
-// LIVE ROLLING THROUGHPUT AREA CHART (Sparkline + Gauges)
+// DUAL-LAYER FLUID RIVER ENGINE (Real Multi-Wave Motion)
 // -------------------------------------------------------------
 @Composable
-fun LiveThroughputEngine(isProxyActive: Boolean) {
+fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
     var rawRxRate by remember { mutableLongStateOf(0L) }
     var rawTxRate by remember { mutableLongStateOf(0L) }
     var totalRxBytes by remember { mutableLongStateOf(0L) }
     var totalTxBytes by remember { mutableLongStateOf(0L) }
-
-    // Rolling History Buffer (last 24 seconds)
-    val historyPoints = remember { mutableStateListOf<Float>().apply { repeat(24) { add(0f) } } }
 
     LaunchedEffect(isProxyActive) {
         if (isProxyActive) {
@@ -936,13 +978,6 @@ fun LiveThroughputEngine(isProxyActive: Boolean) {
                 totalRxBytes = (currRx - startRx).coerceAtLeast(0)
                 totalTxBytes = (currTx - startTx).coerceAtLeast(0)
 
-                // Push new data point onto rolling graph
-                val totalRateKb = (rawRxRate + rawTxRate) / 1024f
-                if (historyPoints.size >= 24) {
-                    historyPoints.removeAt(0)
-                }
-                historyPoints.add(totalRateKb)
-
                 prevRx = currRx
                 prevTx = currTx
                 prevTime = currTime
@@ -952,13 +987,34 @@ fun LiveThroughputEngine(isProxyActive: Boolean) {
             rawTxRate = 0L
             totalRxBytes = 0L
             totalTxBytes = 0L
-            historyPoints.clear()
-            repeat(24) { historyPoints.add(0f) }
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "riverMotion")
+    val wavePhase1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (isProxyActive) 1600 else 4000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase1"
+    )
+
+    val wavePhase2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -(2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (isProxyActive) 2400 else 6000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase2"
+    )
+
+    val mbps = ((rawRxRate + rawTxRate) * 8.0) / (1024.0 * 1024.0)
+    val dynamicAmp = if (!isProxyActive) 5f else (10f + (mbps * 2.5f).toFloat()).coerceIn(10f, 32f)
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Massive Live Readout
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -994,7 +1050,7 @@ fun LiveThroughputEngine(isProxyActive: Boolean) {
                     text = formatSpeed(rawTxRate),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF00D9F5),
+                    color = Color(0xFF00E5FF),
                     fontFamily = FontFamily.Monospace
                 )
             }
@@ -1002,72 +1058,102 @@ fun LiveThroughputEngine(isProxyActive: Boolean) {
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Live Area Sparkline Canvas
+        // Multi-Layer Undulating Fluid Canvas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(90.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0x330B1120))
-                .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(14.dp))
+                .height(86.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x33060C18))
+                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(16.dp))
         ) {
-            Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp)) {
-                val width = size.width
-                val height = size.height
-                val maxVal = (historyPoints.maxOrNull() ?: 10f).coerceAtLeast(20f)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val midY = h * 0.55f
 
-                val linePath = Path()
-                val fillPath = Path()
+                // Layer 1: Back Cyan Wave
+                val path1 = Path()
+                val fill1 = Path()
+                fill1.moveTo(0f, h)
 
-                val stepX = width / (historyPoints.size - 1).coerceAtLeast(1)
-
-                historyPoints.forEachIndexed { i, value ->
-                    val normY = height - ((value / maxVal) * (height * 0.85f))
-                    val x = i * stepX
+                val points = 60
+                for (i in 0..points) {
+                    val x = (i.toFloat() / points) * w
+                    val nx = (i.toFloat() / points) * (3 * PI).toFloat()
+                    val y = midY + (sin(nx + wavePhase2) * (dynamicAmp * 0.75f)).toFloat()
 
                     if (i == 0) {
-                        linePath.moveTo(x, normY)
-                        fillPath.moveTo(x, height)
-                        fillPath.lineTo(x, normY)
+                        path1.moveTo(x, y)
+                        fill1.lineTo(x, y)
                     } else {
-                        linePath.lineTo(x, normY)
-                        fillPath.lineTo(x, normY)
+                        path1.lineTo(x, y)
+                        fill1.lineTo(x, y)
                     }
                 }
+                fill1.lineTo(w, h)
+                fill1.close()
 
-                fillPath.lineTo(width, height)
-                fillPath.close()
-
-                // Draw Gradient Fill under line
                 if (isProxyActive) {
                     drawPath(
-                        path = fillPath,
+                        path = fill1,
                         brush = Brush.verticalGradient(
-                            listOf(Color(0x3300F5A0), Color.Transparent)
+                            listOf(Color(0x2500E5FF), Color.Transparent)
                         )
                     )
                 }
 
-                // Draw Smooth Line
                 drawPath(
-                    path = linePath,
+                    path = path1,
+                    color = if (isProxyActive) Color(0x8800E5FF) else Color(0x22475569),
+                    style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                )
+
+                // Layer 2: Front Emerald Wave
+                val path2 = Path()
+                val fill2 = Path()
+                fill2.moveTo(0f, h)
+
+                for (i in 0..points) {
+                    val x = (i.toFloat() / points) * w
+                    val nx = (i.toFloat() / points) * (4 * PI).toFloat()
+                    val y = midY + (sin(nx + wavePhase1) * dynamicAmp).toFloat()
+
+                    if (i == 0) {
+                        path2.moveTo(x, y)
+                        fill2.lineTo(x, y)
+                    } else {
+                        path2.lineTo(x, y)
+                        fill2.lineTo(x, y)
+                    }
+                }
+                fill2.lineTo(w, h)
+                fill2.close()
+
+                if (isProxyActive) {
+                    drawPath(
+                        path = fill2,
+                        brush = Brush.verticalGradient(
+                            listOf(Color(0x3800FF88), Color.Transparent)
+                        )
+                    )
+                }
+
+                drawPath(
+                    path = path2,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            if (isProxyActive) Color(0xFF00F5A0) else Color(0x33475569),
-                            if (isProxyActive) Color(0xFF00D9F5) else Color(0x33475569)
+                            if (isProxyActive) Color(0xFF00FF88) else Color(0x33475569),
+                            if (isProxyActive) Color(0xFF00E5FF) else Color(0x33475569)
                         )
                     ),
-                    style = Stroke(
-                        width = if (isProxyActive) 2.5.dp.toPx() else 1.5.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
+                    style = Stroke(width = if (isProxyActive) 2.8.dp.toPx() else 1.5.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Session Totals Footnote
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -1083,6 +1169,80 @@ fun LiveThroughputEngine(isProxyActive: Boolean) {
                 fontSize = 11.sp,
                 color = Color(0xFF94A3B8),
                 fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// LIVING PULSE RADAR MASTER BUTTON
+// -------------------------------------------------------------
+@Composable
+fun LivingRadarMasterButton(
+    isProxyActive: Boolean,
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "btnMotion")
+    val sweepOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sweepOffset"
+    )
+
+    val activeGlowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "activeGlowAlpha"
+    )
+
+    val gradientBrush = if (isProxyActive) {
+        Brush.horizontalGradient(
+            colors = listOf(Color(0xFFE11D48), Color(0xFFF43F5E), Color(0xFFE11D48)),
+            startX = sweepOffset * 1000f,
+            endX = (sweepOffset * 1000f) + 600f
+        )
+    } else {
+        Brush.horizontalGradient(
+            colors = listOf(Color(0xFF00FF88), Color(0xFF00E5FF), Color(0xFF00FF88)),
+            startX = sweepOffset * 1000f,
+            endX = (sweepOffset * 1000f) + 600f
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { onClick() }
+    ) {
+        // Living Pulse Glow Behind Button
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(if (isProxyActive) activeGlowAlpha else 0.4f)
+                .background(gradientBrush)
+        )
+
+        // Foreground Content
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (isProxyActive) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+                color = if (isProxyActive) Color.White else Color(0xFF020408),
+                letterSpacing = 0.8.sp
             )
         }
     }
@@ -1108,13 +1268,13 @@ fun ActiveTimer() {
         text = timeStr,
         fontFamily = FontFamily.Monospace,
         fontSize = 12.sp,
-        color = Color(0xFF00F5A0),
+        color = Color(0xFF00FF88),
         fontWeight = FontWeight.Bold
     )
 }
 
 // -------------------------------------------------------------
-// TAB 1: PROXY CONFIGURATION
+// TAB 1: PROXY CONFIGURATION (Translucent Living Glass)
 // -------------------------------------------------------------
 @Composable
 fun ProxySetupTab(
@@ -1139,9 +1299,9 @@ fun ProxySetupTab(
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0x1A1F2937),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0x330B1120),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -1161,15 +1321,15 @@ fun ProxySetupTab(
                     Text(
                         text = "Runs via /data/adb/service.d after 5s",
                         fontSize = 11.sp,
-                        color = if (startOnBoot) Color(0xFF00F5A0) else Color(0xFF64748B)
+                        color = if (startOnBoot) Color(0xFF00FF88) else Color(0xFF64748B)
                     )
                 }
                 Switch(
                     checked = startOnBoot,
                     onCheckedChange = onStartOnBootChange,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF030712),
-                        checkedTrackColor = Color(0xFF00F5A0)
+                        checkedThumbColor = Color(0xFF020408),
+                        checkedTrackColor = Color(0xFF00FF88)
                     )
                 )
             }
@@ -1240,7 +1400,7 @@ fun ProxySetupTab(
             onValueChange = onHostChange,
             label = { Text("Server Host / IP") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
             singleLine = true
         )
 
@@ -1251,7 +1411,7 @@ fun ProxySetupTab(
             onValueChange = onPortChange,
             label = { Text("Server Port") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
             singleLine = true
         )
 
@@ -1266,7 +1426,7 @@ fun ProxySetupTab(
                 onValueChange = onUsernameChange,
                 label = { Text("Username") },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
             OutlinedTextField(
@@ -1278,14 +1438,14 @@ fun ProxySetupTab(
                     Text(
                         text = if (passwordVisible) "Hide" else "Show",
                         fontSize = 11.sp,
-                        color = Color(0xFF00F5A0),
+                        color = Color(0xFF00FF88),
                         modifier = Modifier
                             .clickable { passwordVisible = !passwordVisible }
                             .padding(end = 12.dp)
                     )
                 },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
         }
@@ -1318,9 +1478,9 @@ fun AppFilterTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0x1A1F2937),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0x330B1120),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1346,8 +1506,8 @@ fun AppFilterTab(
                         checked = routeWholeProfile,
                         onCheckedChange = onToggleRouteWhole,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color(0xFF030712),
-                            checkedTrackColor = Color(0xFF00F5A0)
+                            checkedThumbColor = Color(0xFF020408),
+                            checkedTrackColor = Color(0xFF00FF88)
                         )
                     )
                 }
@@ -1362,7 +1522,7 @@ fun AppFilterTab(
                 onValueChange = { searchQuery = it },
                 label = { Text("Search installed applications...") },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
 
@@ -1372,7 +1532,7 @@ fun AppFilterTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                TextButton(onClick = onSelectAll) { Text("Select All", color = Color(0xFF00F5A0)) }
+                TextButton(onClick = onSelectAll) { Text("Select All", color = Color(0xFF00FF88)) }
                 TextButton(onClick = onClearAll) { Text("Clear All", color = Color(0xFF94A3B8)) }
             }
 
@@ -1406,8 +1566,8 @@ fun AppFilterTab(
                             checked = isChecked,
                             onCheckedChange = { onToggleUid(app.uid) },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = Color(0xFF00F5A0),
-                                checkmarkColor = Color(0xFF030712)
+                                checkedColor = Color(0xFF00FF88),
+                                checkmarkColor = Color(0xFF020408)
                             )
                         )
                     }
@@ -1422,7 +1582,7 @@ fun AppFilterTab(
                     .weight(1f)
             ) {
                 Text(
-                    text = "All applications in this profile are currently routed.\nDisable switch above to choose specific apps.",
+                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to customize individual apps.",
                     color = Color(0xFF64748B),
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
