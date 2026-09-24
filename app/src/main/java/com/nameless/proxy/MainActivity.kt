@@ -1,5 +1,7 @@
 package com.nameless.proxy
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -28,6 +30,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import com.nameless.proxy.core.*
 import kotlinx.coroutines.Dispatchers
@@ -45,13 +49,21 @@ class MainActivity : ComponentActivity() {
     private var installedApps by mutableStateOf<List<AppItem>>(emptyList())
     private var rootState by mutableStateOf(RootState.CHECKING)
     private var rootLabel by mutableStateOf("Checking Root...")
+    private var isProxyRunningState by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         refreshRootStatus()
+        syncDaemonStatus()
         loadInstalledApps()
+
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                syncDaemonStatus()
+            }
+        })
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -62,12 +74,14 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         rootState = rootState,
                         rootLabel = rootLabel,
+                        isProxyActive = isProxyRunningState,
                         onRecheckRoot = { refreshRootStatus() },
                         installedApps = installedApps,
                         onStartProxy = { settings, selectedUids, onResult ->
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
                                 withContext(Dispatchers.Main) {
+                                    syncDaemonStatus()
                                     onResult(result.success, result.errorMessage)
                                 }
                             }
@@ -76,12 +90,22 @@ class MainActivity : ComponentActivity() {
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val success = ProxyController.stopProxy(this@MainActivity)
                                 withContext(Dispatchers.Main) {
+                                    syncDaemonStatus()
                                     onResult(success)
                                 }
                             }
                         }
                     )
                 }
+            }
+        }
+    }
+
+    private fun syncDaemonStatus() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val running = ProxyController.isRunning()
+            withContext(Dispatchers.Main) {
+                isProxyRunningState = running
             }
         }
     }
@@ -116,6 +140,7 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(
     rootState: RootState,
     rootLabel: String,
+    isProxyActive: Boolean,
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
@@ -124,9 +149,6 @@ fun MainScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("nameless_proxy_config", Context.MODE_PRIVATE) }
 
-    var isConnected by remember { mutableStateOf(false) }
-
-    // Persisted settings with pre-filled test defaults
     var proxyType by remember {
         mutableStateOf(
             try {
@@ -302,12 +324,12 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Connection Action Button
+        // Connection Action Button (Automatically synced with daemon)
         Button(
             onClick = {
                 saveConfig()
-                if (isConnected) {
-                    onStopProxy { isConnected = false }
+                if (isProxyActive) {
+                    onStopProxy { /* State updates via syncDaemonStatus */ }
                 } else {
                     val settings = ProxySettings(
                         type = proxyType,
@@ -319,12 +341,10 @@ fun MainScreen(
                     )
                     val targets = if (routeWholeProfile) null else selectedUids.toList()
                     onStartProxy(settings, targets) { success, error ->
-                        if (success) {
-                            isConnected = true
-                            testStatus = null
-                        } else {
-                            isConnected = false
+                        if (!success) {
                             testStatus = "Start Failed: ${error ?: "Unknown error"}"
+                        } else {
+                            testStatus = null
                         }
                     }
                 }
@@ -333,21 +353,21 @@ fun MainScreen(
                 .fillMaxWidth()
                 .height(56.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isConnected) Color(0xFFD32F2F) else Color(0xFF00E676)
+                containerColor = if (isProxyActive) Color(0xFFD32F2F) else Color(0xFF00E676)
             ),
             shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                text = if (isConnected) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
+                text = if (isProxyActive) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isConnected) Color.White else Color.Black
+                color = if (isProxyActive) Color.White else Color.Black
             )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Diagnostic Buttons (Test & Logs)
+        // Diagnostic Buttons (Test Upstream & Enhanced Core Logs)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -419,7 +439,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Protocol Selector Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -438,7 +457,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // IP Mode Selector Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -461,7 +479,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Host & Port
         OutlinedTextField(
             value = host,
             onValueChange = {
@@ -492,7 +509,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Optional Credentials
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -523,7 +539,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Routing Scope Toggle
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF16171E)),
@@ -625,24 +640,64 @@ fun MainScreen(
         }
     }
 
-    // Live Diagnostics Dialog
+    // Enhanced Full Diagnostic Log Dialog
     if (showLogsDialog) {
         AlertDialog(
             onDismissRequest = { showLogsDialog = false },
             confirmButton = {
-                TextButton(onClick = { showLogsDialog = false }) {
-                    Text("Close")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row {
+                        TextButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", currentLogs))
+                            Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Text("Copy")
+                        }
+                        TextButton(onClick = {
+                            ProxyController.clearLogs()
+                            currentLogs = "Logs cleared."
+                        }) {
+                            Text("Clear")
+                        }
+                    }
+                    Row {
+                        TextButton(onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val logs = ProxyController.getDiagnosticsAndLogs()
+                                withContext(Dispatchers.Main) {
+                                    currentLogs = logs.ifEmpty { "No logs recorded." }
+                                }
+                            }
+                        }) {
+                            Text("Refresh")
+                        }
+                        TextButton(onClick = { showLogsDialog = false }) {
+                            Text("Close")
+                        }
+                    }
                 }
             },
-            title = { Text("Core Diagnostics & Logs") },
+            title = { Text("Core Diagnostics & Live Logs") },
             text = {
-                Text(
-                    text = currentLogs,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = Color.LightGray,
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(380.dp)
+                        .background(Color(0xFF070709), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = currentLogs,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = Color(0xFFC0C0C5),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    )
+                }
             }
         )
     }
