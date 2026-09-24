@@ -174,6 +174,7 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("nameless_proxy_config", Context.MODE_PRIVATE) }
+    val coroutineScope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -201,7 +202,6 @@ fun MainScreen(
         )
     }
 
-    // Clean user defaults: empty strings on fresh install, auto-persisted on edit
     var host by remember { mutableStateOf(prefs.getString("host", "") ?: "") }
     var port by remember { mutableStateOf(prefs.getString("port", "1080") ?: "1080") }
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
@@ -234,7 +234,49 @@ fun MainScreen(
             .putBoolean("start_on_boot", startOnBoot)
             .apply()
 
-        BootManager.syncBootState(context, startOnBoot, getCurrentSettings())
+        val settings = getCurrentSettings()
+        BootManager.syncBootState(context, startOnBoot, settings)
+
+        // Save persistent backup to /data/adb/ to survive Clear Data and Uninstalls
+        if (settings.host.isNotEmpty()) {
+            coroutineScope.launch {
+                PersistentStorage.saveBackup(
+                    context,
+                    ProfileManager.profileId,
+                    settings,
+                    startOnBoot,
+                    routeWholeProfile
+                )
+            }
+        }
+    }
+
+    // Auto-restore from /data/adb/ if local app storage was cleared
+    LaunchedEffect(rootState) {
+        if (rootState == RootState.GRANTED && host.isEmpty()) {
+            val backup = PersistentStorage.loadBackup(ProfileManager.profileId)
+            if (backup != null) {
+                host = backup.optString("host", "")
+                port = backup.optString("port", "1080")
+                username = backup.optString("username", "")
+                password = backup.optString("password", "")
+                startOnBoot = backup.optBoolean("start_on_boot", false)
+                routeWholeProfile = backup.optBoolean("route_whole_profile", true)
+
+                try {
+                    proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name))
+                } catch (_: Exception) {}
+                try {
+                    transportMode = TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name))
+                } catch (_: Exception) {}
+                try {
+                    ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name))
+                } catch (_: Exception) {}
+
+                // Synchronize restored values back into local SharedPreferences
+                saveConfig()
+            }
+        }
     }
 
     var testStatus by remember { mutableStateOf<String?>(null) }
@@ -246,8 +288,6 @@ fun MainScreen(
     var isFetchingIp by remember { mutableStateOf(false) }
     var ipFetchFailed by remember { mutableStateOf(false) }
     var selectedUids by remember { mutableStateOf(setOf<Int>()) }
-
-    val coroutineScope = rememberCoroutineScope()
 
     fun triggerPublicIpCheck() {
         isFetchingIp = true
@@ -1257,7 +1297,7 @@ fun ActiveTimer() {
 }
 
 // -------------------------------------------------------------
-// TAB 1: PROXY CONFIGURATION (Clean User Defaults & Health Check)
+// TAB 1: PROXY CONFIGURATION
 // -------------------------------------------------------------
 @Composable
 fun ProxySetupTab(
