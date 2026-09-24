@@ -25,7 +25,8 @@ data class ProxySettings(
     val host: String = "",
     val port: Int = 1080,
     val username: String = "",
-    val password: String = ""
+    val password: String = "",
+    val routeHotspot: Boolean = true
 )
 
 object ConfigGenerator {
@@ -53,7 +54,7 @@ object ConfigGenerator {
         }
         dnsServers.put(remoteDns)
 
-        // Direct DNS: Bootstrap resolver for domains
+        // Direct DNS: Bootstrap resolver
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
@@ -72,11 +73,12 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 3. Inbounds: Bind to 0.0.0.0 / :: so both local apps (127.0.0.1)
+        // and Hotspot clients (192.168.43.1 / 192.168.42.1) are accepted
         val listenAddress = when (settings.ipMode) {
-            IpMode.IPV4_ONLY -> "127.0.0.1"
+            IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
-            IpMode.IPV6_ONLY -> "::1"
+            IpMode.IPV6_ONLY -> "::"
         }
 
         val inbounds = JSONArray()
@@ -90,7 +92,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // UDP Inbound (Kernel TPROXY for WebRTC & UDP DNS)
+        // UDP Inbound (Kernel TPROXY for WebRTC, Gaming & UDP DNS)
         if (settings.transportMode == TransportMode.TCP_AND_UDP && settings.type == ProxyType.SOCKS5) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -147,7 +149,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (auto_detect_interface removed)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
@@ -155,7 +157,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // Hijack incoming port 53 queries into the internal DNS engine
+        // Hijack port 53 traffic into the internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
