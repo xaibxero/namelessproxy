@@ -11,6 +11,9 @@ object IptablesManager {
         val chainNatV6 = "${ProfileManager.chainName}_V6"
         val chainPreMangle = "NAMELESS_PRE_U${ProfileManager.profileId}"
         val chainOutMangle = "NAMELESS_OUT_U${ProfileManager.profileId}"
+        val chainHotspotNat = "NAMELESS_HS_NAT_U${ProfileManager.profileId}"
+        val chainHotspotMangle = "NAMELESS_HS_MANGLE_U${ProfileManager.profileId}"
+
         val start = ProfileManager.uidStart
         val end = ProfileManager.uidEnd
 
@@ -132,7 +135,6 @@ object IptablesManager {
             commands.add("ip6tables -t nat -N $chainNatV6")
             commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
 
-            // Intercept IPv6 TCP DNS
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
             } else {
@@ -154,6 +156,57 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
         }
 
+        // 5. HOTSPOT & TETHERING ROUTING (Wi-Fi Hotspot, USB Tethering, Bluetooth)
+        if (settings.routeHotspot) {
+            // Enable kernel IP forwarding
+            commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
+            commands.add("echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
+
+            val hotspotGateways = listOf("192.168.42.1", "192.168.43.1", "192.168.44.1", "192.168.49.1", "192.168.50.1")
+            val hotspotSubnets = listOf(
+                "192.168.42.0/24", // USB Tethering
+                "192.168.43.0/24", // Default Android Wi-Fi Hotspot
+                "192.168.44.0/24", // BT Tethering
+                "192.168.49.0/24", // Wi-Fi Direct
+                "192.168.50.0/24"  // Alternate Tethering
+            )
+            val tetherInterfaces = listOf("ap+", "rndis+", "usb+", "softap+", "wlan1", "wlan2", "bt-pan+")
+
+            // Hotspot TCP Redirection (NAT PREROUTING)
+            commands.add("iptables -t nat -N $chainHotspotNat")
+            commands.add("iptables -t nat -A $chainHotspotNat -i lo -j RETURN")
+            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+
+            for (gw in hotspotGateways) {
+                commands.add("iptables -t nat -A $chainHotspotNat -d $gw -j RETURN")
+            }
+            for (subnet in hotspotSubnets) {
+                commands.add("iptables -t nat -A $chainHotspotNat -s $subnet -p tcp -j REDIRECT --to-ports $inboundPort")
+            }
+            for (iface in tetherInterfaces) {
+                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp -j REDIRECT --to-ports $inboundPort")
+            }
+            commands.add("iptables -t nat -A PREROUTING -j $chainHotspotNat")
+
+            // Hotspot UDP TPROXY (MANGLE PREROUTING)
+            if (settings.transportMode == TransportMode.TCP_AND_UDP && settings.type == ProxyType.SOCKS5) {
+                commands.add("iptables -t mangle -N $chainHotspotMangle")
+                commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
+                commands.add("iptables -t mangle -A $chainHotspotMangle -p udp --dport 53 -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+
+                for (gw in hotspotGateways) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -d $gw -j RETURN")
+                }
+                for (subnet in hotspotSubnets) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -s $subnet -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+                }
+                for (iface in tetherInterfaces) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+                }
+                commands.add("iptables -t mangle -A PREROUTING -j $chainHotspotMangle")
+            }
+        }
+
         return commands
     }
 
@@ -162,6 +215,9 @@ object IptablesManager {
         val chainNatV6 = "${ProfileManager.chainName}_V6"
         val chainPreMangle = "NAMELESS_PRE_U${ProfileManager.profileId}"
         val chainOutMangle = "NAMELESS_OUT_U${ProfileManager.profileId}"
+        val chainHotspotNat = "NAMELESS_HS_NAT_U${ProfileManager.profileId}"
+        val chainHotspotMangle = "NAMELESS_HS_MANGLE_U${ProfileManager.profileId}"
+
         val start = ProfileManager.uidStart
         val end = ProfileManager.uidEnd
 
@@ -169,6 +225,14 @@ object IptablesManager {
         val markHex = "0x" + Integer.toHexString(0x2333 + ProfileManager.profileId)
 
         return listOf(
+            // Hotspot cleanup
+            "iptables -t nat -D PREROUTING -j $chainHotspotNat 2>/dev/null",
+            "iptables -t nat -F $chainHotspotNat 2>/dev/null",
+            "iptables -t nat -X $chainHotspotNat 2>/dev/null",
+            "iptables -t mangle -D PREROUTING -j $chainHotspotMangle 2>/dev/null",
+            "iptables -t mangle -F $chainHotspotMangle 2>/dev/null",
+            "iptables -t mangle -X $chainHotspotMangle 2>/dev/null",
+
             // NAT IPv4 cleanup
             "iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4 2>/dev/null",
             "iptables -t nat -F $chainNatV4 2>/dev/null",
