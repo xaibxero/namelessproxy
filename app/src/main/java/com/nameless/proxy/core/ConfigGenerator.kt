@@ -7,6 +7,11 @@ enum class ProxyType {
     SOCKS5, SOCKS4, HTTP
 }
 
+enum class TransportMode {
+    TCP_AND_UDP, // Full transparent proxying (WebRTC enabled through proxy)
+    TCP_ONLY     // TCP only
+}
+
 enum class IpMode {
     IPV4_ONLY,
     DUAL_STACK,
@@ -15,6 +20,7 @@ enum class IpMode {
 
 data class ProxySettings(
     val type: ProxyType = ProxyType.SOCKS5,
+    val transportMode: TransportMode = TransportMode.TCP_AND_UDP,
     val ipMode: IpMode = IpMode.IPV4_ONLY,
     val host: String = "48.45.153.215",
     val port: Int = 46508,
@@ -26,14 +32,14 @@ object ConfigGenerator {
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
-        // 1. Logging without raw terminal color codes
+        // 1. Logging
         val log = JSONObject().apply {
             put("level", "info")
             put("timestamp", true)
         }
         root.put("log", log)
 
-        // 2. Inbound
+        // 2. Inbound bind address
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "127.0.0.1"
             IpMode.DUAL_STACK -> "::"
@@ -41,6 +47,8 @@ object ConfigGenerator {
         }
 
         val inbounds = JSONArray()
+
+        // TCP Inbound (Kernel REDIRECT)
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -48,6 +56,19 @@ object ConfigGenerator {
             put("listen_port", inboundPort)
         }
         inbounds.put(redirectInbound)
+
+        // UDP Inbound (Kernel TPROXY for WebRTC, STUN, and UDP streams)
+        if (settings.transportMode == TransportMode.TCP_AND_UDP && settings.type == ProxyType.SOCKS5) {
+            val tproxyInbound = JSONObject().apply {
+                put("type", "tproxy")
+                put("tag", "tproxy-in")
+                put("listen", listenAddress)
+                put("listen_port", inboundPort)
+                put("network", "udp")
+            }
+            inbounds.put(tproxyInbound)
+        }
+
         root.put("inbounds", inbounds)
 
         // 3. Outbounds
@@ -86,7 +107,6 @@ object ConfigGenerator {
         }
         outbounds.put(proxyOutbound)
 
-        // Direct outbound fallback
         val directOutbound = JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
@@ -94,7 +114,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 4. Default outbound route without auto_detect_interface
+        // 4. Default Routing
         val route = JSONObject().apply {
             put("final", "proxy-out")
         }
