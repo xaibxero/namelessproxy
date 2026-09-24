@@ -32,7 +32,7 @@ object IptablesManager {
                 commands.add("ip -6 route add local ::/0 dev lo table $tableId")
             }
 
-            // MANGLE PREROUTING: Intercept returning marked UDP packets to tproxy listener
+            // MANGLE PREROUTING: Intercept marked UDP packets into tproxy listener
             commands.add("iptables -t mangle -N $chainPreMangle")
             commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
             commands.add("iptables -t mangle -A PREROUTING -j $chainPreMangle")
@@ -40,6 +40,17 @@ object IptablesManager {
             // MANGLE OUTPUT: Mark outbound UDP packets from target UIDs
             commands.add("iptables -t mangle -N $chainOutMangle")
             commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
+
+            // HIJACK UDP PORT 53 FIRST: Intercept DNS even if sent to local router (192.168.x.x)
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
+                }
+            }
+
+            // Bypass reserved subnets for other UDP
             val reservedV4 = listOf(
                 "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
                 "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
@@ -51,6 +62,7 @@ object IptablesManager {
                 commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host} -j RETURN")
             }
 
+            // Mark remaining UDP traffic (WebRTC / Streams)
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("iptables -t mangle -A $chainOutMangle -p udp -j MARK --set-mark $markHex")
             } else {
@@ -72,7 +84,18 @@ object IptablesManager {
             }
         } else {
             commands.add("iptables -t nat -N $chainNatV4")
+            commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
 
+            // HIJACK TCP PORT 53 FIRST: Intercept TCP DNS before subnet bypass
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+                }
+            }
+
+            // Bypass local / reserved subnets for other TCP
             val reservedV4 = listOf(
                 "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
                 "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
@@ -84,8 +107,8 @@ object IptablesManager {
             if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
                 commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
             }
-            commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
 
+            // Redirect all other profile TCP streams
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("iptables -t nat -A $chainNatV4 -p tcp -j REDIRECT --to-ports $inboundPort")
             } else {
@@ -107,9 +130,19 @@ object IptablesManager {
             }
         } else {
             commands.add("ip6tables -t nat -N $chainNatV6")
+            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
+
+            // Intercept IPv6 TCP DNS
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+                }
+            }
+
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
-            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
 
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -j REDIRECT --to-ports $inboundPort")
