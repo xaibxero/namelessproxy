@@ -207,6 +207,7 @@ fun MainScreen(
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
     var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
+    var routeHotspot by remember { mutableStateOf(prefs.getBoolean("route_hotspot", true)) }
     var startOnBoot by remember { mutableStateOf(prefs.getBoolean("start_on_boot", false)) }
 
     fun getCurrentSettings(): ProxySettings {
@@ -217,7 +218,8 @@ fun MainScreen(
             host = host.trim(),
             port = port.toIntOrNull() ?: 1080,
             username = username.trim(),
-            password = password.trim()
+            password = password.trim(),
+            routeHotspot = routeHotspot
         )
     }
 
@@ -231,13 +233,13 @@ fun MainScreen(
             .putString("username", username.trim())
             .putString("password", password.trim())
             .putBoolean("route_whole_profile", routeWholeProfile)
+            .putBoolean("route_hotspot", routeHotspot)
             .putBoolean("start_on_boot", startOnBoot)
             .apply()
 
         val settings = getCurrentSettings()
         BootManager.syncBootState(context, startOnBoot, settings)
 
-        // Save persistent backup to /data/adb/ to survive Clear Data and Uninstalls
         if (settings.host.isNotEmpty()) {
             coroutineScope.launch {
                 PersistentStorage.saveBackup(
@@ -251,7 +253,6 @@ fun MainScreen(
         }
     }
 
-    // Auto-restore from /data/adb/ if local app storage was cleared
     LaunchedEffect(rootState) {
         if (rootState == RootState.GRANTED && host.isEmpty()) {
             val backup = PersistentStorage.loadBackup(ProfileManager.profileId)
@@ -262,6 +263,7 @@ fun MainScreen(
                 password = backup.optString("password", "")
                 startOnBoot = backup.optBoolean("start_on_boot", false)
                 routeWholeProfile = backup.optBoolean("route_whole_profile", true)
+                routeHotspot = backup.optBoolean("route_hotspot", true)
 
                 try {
                     proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name))
@@ -273,7 +275,6 @@ fun MainScreen(
                     ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name))
                 } catch (_: Exception) {}
 
-                // Synchronize restored values back into local SharedPreferences
                 saveConfig()
             }
         }
@@ -632,11 +633,10 @@ fun MainScreen(
                             onTransportModeChange = { transportMode = it; saveConfig() },
                             ipMode = ipMode,
                             onIpModeChange = { ipMode = it; saveConfig() },
+                            routeHotspot = routeHotspot,
+                            onRouteHotspotChange = { routeHotspot = it; saveConfig() },
                             startOnBoot = startOnBoot,
-                            onStartOnBootChange = {
-                                startOnBoot = it
-                                saveConfig()
-                            }
+                            onStartOnBootChange = { startOnBoot = it; saveConfig() }
                         )
                     }
                 }
@@ -1315,6 +1315,8 @@ fun ProxySetupTab(
     onTransportModeChange: (TransportMode) -> Unit,
     ipMode: IpMode,
     onIpModeChange: (IpMode) -> Unit,
+    routeHotspot: Boolean,
+    onRouteHotspotChange: (Boolean) -> Unit,
     startOnBoot: Boolean,
     onStartOnBootChange: (Boolean) -> Unit
 ) {
@@ -1331,34 +1333,64 @@ fun ProxySetupTab(
             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Auto-Start on Boot",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Runs via /data/adb/service.d after 5s",
-                        fontSize = 11.sp,
-                        color = if (startOnBoot) Color(0xFF00FF88) else Color(0xFF64748B)
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-Start on Boot",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Runs via /data/adb/service.d after 5s",
+                            fontSize = 11.sp,
+                            color = if (startOnBoot) Color(0xFF00FF88) else Color(0xFF64748B)
+                        )
+                    }
+                    Switch(
+                        checked = startOnBoot,
+                        onCheckedChange = onStartOnBootChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color(0xFF020408),
+                            checkedTrackColor = Color(0xFF00FF88)
+                        )
                     )
                 }
-                Switch(
-                    checked = startOnBoot,
-                    onCheckedChange = onStartOnBootChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF020408),
-                        checkedTrackColor = Color(0xFF00FF88)
+
+                Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Share via Hotspot / Tethering",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Route connected Wi-Fi AP & USB tethered devices",
+                            fontSize = 11.sp,
+                            color = if (routeHotspot) Color(0xFF00FF88) else Color(0xFF64748B)
+                        )
+                    }
+                    Switch(
+                        checked = routeHotspot,
+                        onCheckedChange = onRouteHotspotChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color(0xFF020408),
+                            checkedTrackColor = Color(0xFF00FF88)
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -1526,7 +1558,8 @@ fun ProxySetupTab(
                                     host = host.trim(),
                                     port = port.toIntOrNull() ?: 1080,
                                     username = username.trim(),
-                                    password = password.trim()
+                                    password = password.trim(),
+                                    routeHotspot = routeHotspot
                                 )
                                 val res = ProxyTester.testProxy(currentSettings)
                                 aliveCheckResult = res
@@ -1735,7 +1768,7 @@ fun AppFilterTab(
                     .weight(1f)
             ) {
                 Text(
-                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to customize individual apps.",
+                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to choose specific apps.",
                     color = Color(0xFF64748B),
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
