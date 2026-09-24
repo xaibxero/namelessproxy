@@ -52,21 +52,19 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(
                         installedApps = installedApps,
-                        onStartProxy = { settings, selectedUids ->
+                        onStartProxy = { settings, selectedUids, onResult ->
                             lifecycleScope.launch(Dispatchers.IO) {
-                                val success = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
+                                val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
                                 withContext(Dispatchers.Main) {
-                                    val msg = if (success) "Proxy activated at kernel level" else "Failed to apply root rules"
-                                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                                    onResult(result.success, result.errorMessage)
                                 }
                             }
                         },
-                        onStopProxy = {
+                        onStopProxy = { onResult ->
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val success = ProxyController.stopProxy(this@MainActivity)
                                 withContext(Dispatchers.Main) {
-                                    val msg = if (success) "Proxy stopped and rules cleared" else "Failed to flush rules"
-                                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                                    onResult(success)
                                 }
                             }
                         }
@@ -95,20 +93,27 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     installedApps: List<AppItem>,
-    onStartProxy: (ProxySettings, List<Int>?) -> Unit,
-    onStopProxy: () -> Unit
+    onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
+    onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
     var isConnected by remember { mutableStateOf(false) }
     var proxyType by remember { mutableStateOf(ProxyType.SOCKS5) }
     var ipMode by remember { mutableStateOf(IpMode.IPV4_ONLY) }
-    var host by remember { mutableStateOf("127.0.0.1") }
-    var port by remember { mutableStateOf("1080") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var host by remember { mutableStateOf("48.45.153.215") }
+    var port by remember { mutableStateOf("46508") }
+    var username by remember { mutableStateOf("FgCH4MnS3EQDohq") }
+    var password by remember { mutableStateOf("SzrAO5ADxzz81RP") }
+
+    var testStatus by remember { mutableStateOf<String?>(null) }
+    var isTesting by remember { mutableStateOf(false) }
+    var showLogsDialog by remember { mutableStateOf(false) }
+    var currentLogs by remember { mutableStateOf("") }
 
     var routeWholeProfile by remember { mutableStateOf(true) }
     var selectedUids by remember { mutableStateOf(setOf<Int>()) }
     var showAppPicker by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -116,7 +121,7 @@ fun MainScreen(
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        // 1. Profile Status Pill
+        // 1. Profile Status Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A22)),
@@ -132,7 +137,7 @@ fun MainScreen(
                         text = "Profile ${ProfileManager.profileId}",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00E676)
+                        color = if (isConnected) Color(0xFF00E676) else Color.White
                     )
                     Text(
                         text = "Port: ${ProfileManager.localInboundPort}",
@@ -143,22 +148,23 @@ fun MainScreen(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "UID: ${ProfileManager.uidStart} - ${ProfileManager.uidEnd}",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = Color.Gray
+                    text = if (isConnected) "● Daemon Running & Routing" else "○ Engine Disconnected",
+                    color = if (isConnected) Color(0xFF00E676) else Color.Gray,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 2. Master Toggle Switch
+        // 2. Connect / Disconnect Toggle Button
         Button(
             onClick = {
                 if (isConnected) {
-                    onStopProxy()
-                    isConnected = false
+                    onStopProxy {
+                        isConnected = false
+                    }
                 } else {
                     val settings = ProxySettings(
                         type = proxyType,
@@ -169,8 +175,14 @@ fun MainScreen(
                         password = password.trim()
                     )
                     val targets = if (routeWholeProfile) null else selectedUids.toList()
-                    onStartProxy(settings, targets)
-                    isConnected = true
+                    onStartProxy(settings, targets) { success, error ->
+                        if (success) {
+                            isConnected = true
+                        } else {
+                            isConnected = false
+                            testStatus = "Start Failed: ${error ?: "Unknown error"}"
+                        }
+                    }
                 }
             },
             modifier = Modifier
@@ -182,16 +194,79 @@ fun MainScreen(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = if (isConnected) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
+                text = if (isConnected) "DISCONNECT TRANSPARENT PROXY" else "CONNECT TRANSPARENT PROXY",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (isConnected) Color.White else Color.Black
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. Protocol Selection
+        // 3. Test Proxy & View Logs Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    isTesting = true
+                    testStatus = "Testing..."
+                    val settings = ProxySettings(
+                        type = proxyType,
+                        ipMode = ipMode,
+                        host = host.trim(),
+                        port = port.toIntOrNull() ?: 1080,
+                        username = username.trim(),
+                        password = password.trim()
+                    )
+                    coroutineScope.launch {
+                        when (val res = ProxyTester.testProxy(settings)) {
+                            is TestResult.Success -> {
+                                testStatus = "Valid (⚡ ${res.latencyMs} ms)"
+                            }
+                            is TestResult.Failure -> {
+                                testStatus = "Failed: ${res.error}"
+                            }
+                        }
+                        isTesting = false
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                enabled = !isTesting
+            ) {
+                Text(if (isTesting) "Testing..." else "Test Proxy")
+            }
+
+            OutlinedButton(
+                onClick = {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val logs = ProxyController.getRecentLogs()
+                        withContext(Dispatchers.Main) {
+                            currentLogs = if (logs.isNotEmpty()) logs else "No logs found."
+                            showLogsDialog = true
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("View Core Logs")
+            }
+        }
+
+        if (testStatus != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = testStatus!!,
+                color = if (testStatus!!.startsWith("Valid")) Color(0xFF00E676) else Color(0xFFFF5252),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 4. Protocol Selection
         Text("Proxy Protocol", color = Color.Gray, fontSize = 13.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -208,7 +283,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 4. IP Mode Selection
+        // 5. IP Routing Mode
         Text("IP Routing Mode", color = Color.Gray, fontSize = 13.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -229,7 +304,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 5. Host & Port Inputs
+        // 6. Host & Port
         OutlinedTextField(
             value = host,
             onValueChange = { host = it },
@@ -250,7 +325,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 6. Optional Auth
+        // 7. Username & Password
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -273,7 +348,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 7. Routing Scope
+        // 8. Routing Scope
         Text("Routing Scope", color = Color.Gray, fontSize = 13.sp)
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -299,6 +374,28 @@ fun MainScreen(
                 Text("Select Apps (${selectedUids.size} Selected)")
             }
         }
+    }
+
+    // Dialog for inspecting sing-box output
+    if (showLogsDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogsDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showLogsDialog = false }) {
+                    Text("Close")
+                }
+            },
+            title = { Text("sing-box Core Logs") },
+            text = {
+                Text(
+                    text = currentLogs,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = Color.LightGray,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
+            }
+        )
     }
 
     if (showAppPicker) {
