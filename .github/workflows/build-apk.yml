@@ -27,16 +27,15 @@ jobs:
       - name: Compile Pure Static sing-box Core (arm64)
         run: |
           mkdir -p app/src/main/assets
-          echo "Cloning latest sing-box source..."
+          echo "Cloning sing-box repository..."
           git clone --depth 1 https://github.com/SagerNet/sing-box.git /tmp/sing-box-src
           cd /tmp/sing-box-src
-          echo "Compiling statically linked sing-box for Android arm64..."
+          echo "Compiling static binary for Android arm64..."
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -ldflags "-s -w -buildid=" ./cmd/sing-box
           mv sing-box $GITHUB_WORKSPACE/app/src/main/assets/sing-box
           cd $GITHUB_WORKSPACE
           chmod 755 app/src/main/assets/sing-box
           ls -lh app/src/main/assets/sing-box
-          file app/src/main/assets/sing-box
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
