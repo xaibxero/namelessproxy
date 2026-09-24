@@ -17,7 +17,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -278,9 +277,7 @@ fun MainScreen(
         }
     }
 
-    // ========================================================
-    // FULL-SCREEN LIVING CHROMATIC AURORA ENGINE
-    // ========================================================
+    // Dynamic Multi-Layered Aurora Engine
     val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
     val auroraAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -683,7 +680,7 @@ fun MainScreen(
 }
 
 // -------------------------------------------------------------
-// UNIFIED COMMAND DECK (Rotating Glowing Border + River Wave)
+// UNIFIED COMMAND DECK
 // -------------------------------------------------------------
 @Composable
 fun ConsoleHUDTab(
@@ -713,17 +710,6 @@ fun ConsoleHUDTab(
         label = "pulseAlpha"
     )
 
-    // Animated Rotating Border Gradient
-    val sweepAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "borderSweep"
-    )
-
     val borderBrush = if (isProxyActive) {
         Brush.sweepGradient(
             colors = listOf(
@@ -744,7 +730,6 @@ fun ConsoleHUDTab(
         )
     }
 
-    // Sculpted Command Deck
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -754,7 +739,6 @@ fun ConsoleHUDTab(
             .padding(20.dp)
     ) {
         Column {
-            // Header Status Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -787,12 +771,10 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Dynamic Dual-Frequency Fluid River Waveform
             LiveThroughputRiverEngine(isProxyActive = isProxyActive)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Geolocation & Route Surface
             Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = Color(0x440F172A),
@@ -862,7 +844,6 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Specs Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -900,7 +881,6 @@ fun ConsoleHUDTab(
 
     Spacer(modifier = Modifier.height(18.dp))
 
-    // Pulse Radar Living Master Button
     LivingRadarMasterButton(
         isProxyActive = isProxyActive,
         onClick = onToggleProxy
@@ -908,7 +888,6 @@ fun ConsoleHUDTab(
 
     Spacer(modifier = Modifier.height(14.dp))
 
-    // Diagnostics Bar
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -949,7 +928,7 @@ fun ConsoleHUDTab(
 }
 
 // -------------------------------------------------------------
-// DUAL-LAYER FLUID RIVER ENGINE (Real Multi-Wave Motion)
+// DUAL-LAYER FLUID RIVER ENGINE
 // -------------------------------------------------------------
 @Composable
 fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
@@ -1058,7 +1037,6 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Multi-Layer Undulating Fluid Canvas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1072,7 +1050,6 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                 val h = size.height
                 val midY = h * 0.55f
 
-                // Layer 1: Back Cyan Wave
                 val path1 = Path()
                 val fill1 = Path()
                 fill1.moveTo(0f, h)
@@ -1109,7 +1086,6 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
                 )
 
-                // Layer 2: Front Emerald Wave
                 val path2 = Path()
                 val fill2 = Path()
                 fill2.moveTo(0f, h)
@@ -1144,7 +1120,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     brush = Brush.horizontalGradient(
                         listOf(
                             if (isProxyActive) Color(0xFF00FF88) else Color(0x33475569),
-                            if (isProxyActive) Color(0xFF00E5FF) else Color(0x33475569)
+                            if (isProxyActive) Color(0xFF00D9F5) else Color(0x33475569)
                         )
                     ),
                     style = Stroke(width = if (isProxyActive) 2.8.dp.toPx() else 1.5.dp.toPx(), cap = StrokeCap.Round)
@@ -1175,7 +1151,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
 }
 
 // -------------------------------------------------------------
-// LIVING PULSE RADAR MASTER BUTTON
+// LIVING RADAR MASTER BUTTON
 // -------------------------------------------------------------
 @Composable
 fun LivingRadarMasterButton(
@@ -1224,7 +1200,6 @@ fun LivingRadarMasterButton(
             .clip(RoundedCornerShape(20.dp))
             .clickable { onClick() }
     ) {
-        // Living Pulse Glow Behind Button
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1232,7 +1207,6 @@ fun LivingRadarMasterButton(
                 .background(gradientBrush)
         )
 
-        // Foreground Content
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -1274,7 +1248,7 @@ fun ActiveTimer() {
 }
 
 // -------------------------------------------------------------
-// TAB 1: PROXY CONFIGURATION (Translucent Living Glass)
+// TAB 1: PROXY CONFIGURATION (With Dedicated Alive / Dead Checker)
 // -------------------------------------------------------------
 @Composable
 fun ProxySetupTab(
@@ -1296,6 +1270,11 @@ fun ProxySetupTab(
     onStartOnBootChange: (Boolean) -> Unit
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
+
+    // Dedicated Alive / Dead Checker States
+    var isCheckingAlive by remember { mutableStateOf(false) }
+    var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(
@@ -1450,6 +1429,124 @@ fun ProxySetupTab(
             )
         }
 
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // DEDICATED PROXY ALIVE / DEAD HEALTH CHECKER CARD
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0x330B1120),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Server Health Check",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Direct socket test without starting tunnel",
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            isCheckingAlive = true
+                            aliveCheckResult = null
+                            coroutineScope.launch {
+                                val currentSettings = ProxySettings(
+                                    type = proxyType,
+                                    transportMode = transportMode,
+                                    ipMode = ipMode,
+                                    host = host.trim(),
+                                    port = port.toIntOrNull() ?: 1080,
+                                    username = username.trim(),
+                                    password = password.trim()
+                                )
+                                val res = ProxyTester.testProxy(currentSettings)
+                                aliveCheckResult = res
+                                isCheckingAlive = false
+                            }
+                        },
+                        enabled = !isCheckingAlive,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF00FF88),
+                            contentColor = Color(0xFF020408)
+                        )
+                    ) {
+                        Text(
+                            text = if (isCheckingAlive) "Checking..." else "Check If Alive",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (aliveCheckResult != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    when (val result = aliveCheckResult) {
+                        is TestResult.Success -> {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0x2200FF88),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x6600FF88)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF00FF88), CircleShape))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "PROXY ALIVE • Latency: ${result.latencyMs} ms",
+                                        color = Color(0xFF00FF88),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                        is TestResult.Failure -> {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0x22F43F5E),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66F43F5E)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFFF43F5E), CircleShape))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "PROXY DEAD • ${result.error}",
+                                        color = Color(0xFFF43F5E),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                        null -> {}
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(30.dp))
     }
 }
@@ -1582,7 +1679,7 @@ fun AppFilterTab(
                     .weight(1f)
             ) {
                 Text(
-                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to customize individual apps.",
+                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to choose specific apps.",
                     color = Color(0xFF64748B),
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
@@ -1605,7 +1702,7 @@ private fun formatBytes(bytes: Long): String {
     return when {
         bytes >= 1024 * 1024 * 1024 -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
         bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-        bytes >= 1024 -> String.format("%.1f KB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
     }
 }
