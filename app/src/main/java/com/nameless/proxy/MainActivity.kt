@@ -1,5 +1,6 @@
 package com.nameless.proxy
 
+import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -22,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -119,20 +121,55 @@ fun MainScreen(
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("nameless_proxy_config", Context.MODE_PRIVATE) }
+
     var isConnected by remember { mutableStateOf(false) }
-    var proxyType by remember { mutableStateOf(ProxyType.SOCKS5) }
-    var ipMode by remember { mutableStateOf(IpMode.IPV4_ONLY) }
-    var host by remember { mutableStateOf("48.45.153.215") }
-    var port by remember { mutableStateOf("46508") }
-    var username by remember { mutableStateOf("FgCH4MnS3EQDohq") }
-    var password by remember { mutableStateOf("SzrAO5ADxzz81RP") }
+
+    // Load persisted settings per profile
+    var proxyType by remember {
+        mutableStateOf(
+            try {
+                ProxyType.valueOf(prefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name)
+            } catch (e: Exception) {
+                ProxyType.SOCKS5
+            }
+        )
+    }
+
+    var ipMode by remember {
+        mutableStateOf(
+            try {
+                IpMode.valueOf(prefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name)
+            } catch (e: Exception) {
+                IpMode.IPV4_ONLY
+            }
+        )
+    }
+
+    var host by remember { mutableStateOf(prefs.getString("host", "") ?: "") }
+    var port by remember { mutableStateOf(prefs.getString("port", "1080") ?: "1080") }
+    var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
+    var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
+    var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
+
+    fun saveConfig() {
+        prefs.edit()
+            .putString("proxy_type", proxyType.name)
+            .putString("ip_mode", ipMode.name)
+            .putString("host", host.trim())
+            .putString("port", port.trim())
+            .putString("username", username.trim())
+            .putString("password", password.trim())
+            .putBoolean("route_whole_profile", routeWholeProfile)
+            .apply()
+    }
 
     var testStatus by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
     var showLogsDialog by remember { mutableStateOf(false) }
     var currentLogs by remember { mutableStateOf("") }
 
-    var routeWholeProfile by remember { mutableStateOf(true) }
     var selectedUids by remember { mutableStateOf(setOf<Int>()) }
     var showAppPicker by remember { mutableStateOf(false) }
 
@@ -168,7 +205,6 @@ fun MainScreen(
                 )
             }
 
-            // Root Status Badge
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = when (rootState) {
@@ -269,6 +305,7 @@ fun MainScreen(
         // Connection Action Button
         Button(
             onClick = {
+                saveConfig()
                 if (isConnected) {
                     onStopProxy { isConnected = false }
                 } else {
@@ -317,6 +354,7 @@ fun MainScreen(
         ) {
             OutlinedButton(
                 onClick = {
+                    saveConfig()
                     isTesting = true
                     testStatus = "Testing socket..."
                     val settings = ProxySettings(
@@ -371,7 +409,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Settings Section Header
         Text(
             text = "CONFIGURATION",
             fontSize = 12.sp,
@@ -390,7 +427,10 @@ fun MainScreen(
             listOf(ProxyType.SOCKS5, ProxyType.SOCKS4, ProxyType.HTTP).forEach { type ->
                 FilterChip(
                     selected = proxyType == type,
-                    onClick = { proxyType = type },
+                    onClick = {
+                        proxyType = type
+                        saveConfig()
+                    },
                     label = { Text(type.name) }
                 )
             }
@@ -410,7 +450,10 @@ fun MainScreen(
             ).forEach { (mode, label) ->
                 FilterChip(
                     selected = ipMode == mode,
-                    onClick = { ipMode = mode },
+                    onClick = {
+                        ipMode = mode
+                        saveConfig()
+                    },
                     label = { Text(label) }
                 )
             }
@@ -421,8 +464,12 @@ fun MainScreen(
         // Host & Port
         OutlinedTextField(
             value = host,
-            onValueChange = { host = it },
+            onValueChange = {
+                host = it
+                saveConfig()
+            },
             label = { Text("Proxy Host / IP") },
+            placeholder = { Text("e.g. 192.168.1.100") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             singleLine = true
@@ -432,8 +479,12 @@ fun MainScreen(
 
         OutlinedTextField(
             value = port,
-            onValueChange = { port = it },
+            onValueChange = {
+                port = it
+                saveConfig()
+            },
             label = { Text("Proxy Port") },
+            placeholder = { Text("1080") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             singleLine = true
@@ -448,7 +499,10 @@ fun MainScreen(
         ) {
             OutlinedTextField(
                 value = username,
-                onValueChange = { username = it },
+                onValueChange = {
+                    username = it
+                    saveConfig()
+                },
                 label = { Text("Username") },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
@@ -456,7 +510,10 @@ fun MainScreen(
             )
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = {
+                    password = it
+                    saveConfig()
+                },
                 label = { Text("Password") },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
@@ -493,7 +550,10 @@ fun MainScreen(
                     }
                     Switch(
                         checked = routeWholeProfile,
-                        onCheckedChange = { routeWholeProfile = it }
+                        onCheckedChange = {
+                            routeWholeProfile = it
+                            saveConfig()
+                        }
                     )
                 }
 
@@ -565,7 +625,7 @@ fun MainScreen(
         }
     }
 
-    // Live sing-box Diagnostics Dialog
+    // Live Diagnostics Dialog
     if (showLogsDialog) {
         AlertDialog(
             onDismissRequest = { showLogsDialog = false },
