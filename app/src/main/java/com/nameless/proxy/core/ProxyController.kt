@@ -3,8 +3,6 @@ package com.nameless.proxy.core
 import android.content.Context
 import java.io.BufferedReader
 import java.io.DataOutputStream
-import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStreamReader
 
 data class StartResult(
@@ -54,24 +52,35 @@ object ProxyController {
         }
     }
 
-    // Unpack sing-box into /data/local/tmp where execution is universally permitted
-    fun prepareBinary(context: Context): String {
+    // Stream APK asset directly into /data/local/tmp/sing-box via root stdin
+    fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = "/data/local/tmp/sing-box"
-        val tempFile = File(context.cacheDir, "sing-box-temp")
-
-        context.assets.open("sing-box").use { input ->
-            FileOutputStream(tempFile).use { output ->
-                input.copyTo(output)
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath"))
+            context.assets.open("sing-box").use { input ->
+                input.copyTo(process.outputStream)
             }
+            process.outputStream.flush()
+            process.outputStream.close()
+            process.waitFor() == 0
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
+    }
 
-        executeSu(listOf(
-            "cp ${tempFile.absolutePath} $targetPath",
-            "chmod 755 $targetPath",
-            "rm -f ${tempFile.absolutePath}"
-        ))
-
-        return targetPath
+    // Stream configuration directly into /data/local/tmp via root stdin
+    fun writeConfigDirectly(configContent: String, configPath: String): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -f $configPath && cat > $configPath && chmod 644 $configPath"))
+            process.outputStream.write(configContent.toByteArray(Charsets.UTF_8))
+            process.outputStream.flush()
+            process.outputStream.close()
+            process.waitFor() == 0
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     fun isRunning(): Boolean {
@@ -82,48 +91,61 @@ object ProxyController {
         return result.contains("RUNNING")
     }
 
-    fun getRecentLogs(): String {
-        val logFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.log"
-        return executeSuWithOutput(listOf("tail -n 25 $logFile 2>/dev/null"))
+    fun getDiagnosticsAndLogs(): String {
+        val profileId = ProfileManager.profileId
+        val logFile = "/data/local/tmp/singbox_u${profileId}.log"
+        return executeSuWithOutput(listOf(
+            "echo '--- BINARY STATUS ---'",
+            "ls -la /data/local/tmp/sing-box 2>&1",
+            "/data/local/tmp/sing-box version 2>&1 | head -n 3",
+            "echo ''",
+            "echo '--- RECENT LOGS ---'",
+            "if [ -f $logFile ]; then tail -n 25 $logFile; else echo 'No log file generated yet.'; fi"
+        ))
     }
 
     fun startProxy(context: Context, settings: ProxySettings, selectedUids: List<Int>? = null): StartResult {
-        val binaryPath = prepareBinary(context)
+        val binaryPath = "/data/local/tmp/sing-box"
         val profileId = ProfileManager.profileId
         val configPath = "/data/local/tmp/singbox_u${profileId}.json"
         val pidFile = "/data/local/tmp/singbox_u${profileId}.pid"
         val logFile = "/data/local/tmp/singbox_u${profileId}.log"
         val port = ProfileManager.localInboundPort
 
-        // 1. Write the sing-box config
+        // 1. Stream sing-box binary to destination if missing
+        val binaryCheck = executeSuWithOutput(listOf("if [ -f $binaryPath ] && [ -x $binaryPath ]; then echo 'EXISTS'; fi"))
+        if (!binaryCheck.contains("EXISTS")) {
+            val extracted = extractBinaryDirectly(context)
+            if (!extracted) {
+                return StartResult(success = false, errorMessage = "Failed to stream sing-box binary to $binaryPath")
+            }
+        }
+
+        // 2. Stream generated configuration directly
         val configContent = ConfigGenerator.generateJson(settings, port)
-        val tempConfig = File(context.cacheDir, "config-temp.json")
-        tempConfig.writeText(configContent)
+        val configWritten = writeConfigDirectly(configContent, configPath)
+        if (!configWritten) {
+            return StartResult(success = false, errorMessage = "Failed to write configuration to $configPath")
+        }
 
-        executeSu(listOf(
-            "cp ${tempConfig.absolutePath} $configPath",
-            "chmod 644 $configPath",
-            "rm -f ${tempConfig.absolutePath}"
-        ))
-
-        // 2. Kill existing instance
+        // 3. Terminate any previous instance
         stopProxy(context)
 
-        // 3. Launch sing-box with nohup & setsid so it survives su session termination
+        // 4. Launch sing-box daemon in background under root
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
         executeSu(listOf(runCmd))
 
-        // 4. Wait 600ms and verify process health
+        // 5. Wait 600ms and verify process health
         Thread.sleep(600)
         if (!isRunning()) {
-            val failureLog = getRecentLogs()
+            val failureInfo = getDiagnosticsAndLogs()
             return StartResult(
                 success = false,
-                errorMessage = if (failureLog.isNotEmpty()) failureLog else "sing-box failed to start or crashed"
+                errorMessage = failureInfo.ifEmpty { "sing-box failed to start or crashed" }
             )
         }
 
-        // 5. Apply iptables redirection rules
+        // 6. Apply Netfilter redirection rules
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings.ipMode, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
