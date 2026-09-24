@@ -24,6 +24,17 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Download and Bundle sing-box arm64 Core
+        run: |
+          mkdir -p app/src/main/assets
+          echo "Fetching latest sing-box linux-arm64 release..."
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep "browser_download_url.*linux-arm64.tar.gz\"" | head -n 1 | cut -d '"' -f 4)
+          curl -sL "$DOWNLOAD_URL" -o sing-box.tar.gz
+          tar -xzf sing-box.tar.gz
+          find . -name "sing-box" -type f -exec mv {} app/src/main/assets/sing-box \;
+          chmod 755 app/src/main/assets/sing-box
+          ls -lh app/src/main/assets/sing-box
+
       - name: Compile Debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
