@@ -6,12 +6,15 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -38,19 +41,26 @@ data class AppItem(
 class MainActivity : ComponentActivity() {
 
     private var installedApps by mutableStateOf<List<AppItem>>(emptyList())
+    private var rootState by mutableStateOf(RootState.CHECKING)
+    private var rootLabel by mutableStateOf("Checking Root...")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
+        refreshRootStatus()
         loadInstalledApps()
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0F0F12)
+                    color = Color(0xFF0C0D11)
                 ) {
                     MainScreen(
+                        rootState = rootState,
+                        rootLabel = rootLabel,
+                        onRecheckRoot = { refreshRootStatus() },
                         installedApps = installedApps,
                         onStartProxy = { settings, selectedUids, onResult ->
                             lifecycleScope.launch(Dispatchers.IO) {
@@ -74,6 +84,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun refreshRootStatus() {
+        lifecycleScope.launch {
+            rootState = RootState.CHECKING
+            rootLabel = "Requesting Root..."
+            val (state, label) = RootChecker.verifyRoot()
+            rootState = state
+            rootLabel = label
+        }
+    }
+
     private fun loadInstalledApps() {
         lifecycleScope.launch(Dispatchers.IO) {
             val pm = packageManager
@@ -92,6 +112,9 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
+    rootState: RootState,
+    rootLabel: String,
+    onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
@@ -118,53 +141,136 @@ fun MainScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        // 1. Profile Status Card
-        Card(
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Top App Bar & Live Root Status
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A22)),
-            shape = RoundedCornerShape(12.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column {
+                Text(
+                    text = "Nameless Proxy",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                Text(
+                    text = "Kernel TProxy Engine",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+            }
+
+            // Root Status Badge
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = when (rootState) {
+                    RootState.GRANTED -> Color(0x2200E676)
+                    RootState.DENIED -> Color(0x22FF5252)
+                    RootState.CHECKING -> Color(0x22FFD600)
+                },
+                modifier = Modifier
+                    .border(
+                        1.dp,
+                        when (rootState) {
+                            RootState.GRANTED -> Color(0xFF00E676)
+                            RootState.DENIED -> Color(0xFFFF5252)
+                            RootState.CHECKING -> Color(0xFFFFD600)
+                        },
+                        RoundedCornerShape(20.dp)
+                    )
+                    .clickable { onRecheckRoot() }
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Profile ${ProfileManager.profileId}",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isConnected) Color(0xFF00E676) else Color.White
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(
+                                color = when (rootState) {
+                                    RootState.GRANTED -> Color(0xFF00E676)
+                                    RootState.DENIED -> Color(0xFFFF5252)
+                                    RootState.CHECKING -> Color(0xFFFFD600)
+                                },
+                                shape = CircleShape
+                            )
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Port: ${ProfileManager.localInboundPort}",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        color = Color.LightGray
+                        text = when (rootState) {
+                            RootState.GRANTED -> "Root Active"
+                            RootState.DENIED -> "No Root"
+                            RootState.CHECKING -> "Checking..."
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = if (isConnected) "● Daemon Running & Routing" else "○ Engine Disconnected",
-                    color = if (isConnected) Color(0xFF00E676) else Color.Gray,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 2. Connect / Disconnect Toggle Button
+        // Profile & Kernel Port Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF16171E)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Android Profile ${ProfileManager.profileId}",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00E676)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "UIDs: ${ProfileManager.uidStart} - ${ProfileManager.uidEnd}",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF22242E)
+                ) {
+                    Text(
+                        text = "Port: ${ProfileManager.localInboundPort}",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Connection Action Button
         Button(
             onClick = {
                 if (isConnected) {
-                    onStopProxy {
-                        isConnected = false
-                    }
+                    onStopProxy { isConnected = false }
                 } else {
                     val settings = ProxySettings(
                         type = proxyType,
@@ -178,6 +284,7 @@ fun MainScreen(
                     onStartProxy(settings, targets) { success, error ->
                         if (success) {
                             isConnected = true
+                            testStatus = null
                         } else {
                             isConnected = false
                             testStatus = "Start Failed: ${error ?: "Unknown error"}"
@@ -191,19 +298,19 @@ fun MainScreen(
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isConnected) Color(0xFFD32F2F) else Color(0xFF00E676)
             ),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                text = if (isConnected) "DISCONNECT TRANSPARENT PROXY" else "CONNECT TRANSPARENT PROXY",
-                fontSize = 16.sp,
+                text = if (isConnected) "DISCONNECT PROXY" else "CONNECT TRANSPARENT PROXY",
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (isConnected) Color.White else Color.Black
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // 3. Test Proxy & View Logs Row
+        // Diagnostic Buttons (Test & Logs)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -211,7 +318,7 @@ fun MainScreen(
             OutlinedButton(
                 onClick = {
                     isTesting = true
-                    testStatus = "Testing..."
+                    testStatus = "Testing socket..."
                     val settings = ProxySettings(
                         type = proxyType,
                         ipMode = ipMode,
@@ -222,20 +329,17 @@ fun MainScreen(
                     )
                     coroutineScope.launch {
                         when (val res = ProxyTester.testProxy(settings)) {
-                            is TestResult.Success -> {
-                                testStatus = "Valid (⚡ ${res.latencyMs} ms)"
-                            }
-                            is TestResult.Failure -> {
-                                testStatus = "Failed: ${res.error}"
-                            }
+                            is TestResult.Success -> testStatus = "Valid (⚡ ${res.latencyMs} ms)"
+                            is TestResult.Failure -> testStatus = "Test Failed: ${res.error}"
                         }
                         isTesting = false
                     }
                 },
                 modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
                 enabled = !isTesting
             ) {
-                Text(if (isTesting) "Testing..." else "Test Proxy")
+                Text(if (isTesting) "Pinging..." else "Test Upstream")
             }
 
             OutlinedButton(
@@ -243,14 +347,15 @@ fun MainScreen(
                     coroutineScope.launch(Dispatchers.IO) {
                         val logs = ProxyController.getDiagnosticsAndLogs()
                         withContext(Dispatchers.Main) {
-                            currentLogs = logs.ifEmpty { "No logs found." }
+                            currentLogs = logs.ifEmpty { "No logs recorded." }
                             showLogsDialog = true
                         }
                     }
                 },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("View Core Logs")
+                Text("Core Logs")
             }
         }
 
@@ -259,15 +364,25 @@ fun MainScreen(
             Text(
                 text = testStatus!!,
                 color = if (testStatus!!.startsWith("Valid")) Color(0xFF00E676) else Color(0xFFFF5252),
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // 4. Protocol Selection
-        Text("Proxy Protocol", color = Color.Gray, fontSize = 13.sp)
+        // Settings Section Header
+        Text(
+            text = "CONFIGURATION",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Gray,
+            letterSpacing = 1.sp
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Protocol Selector Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -281,10 +396,9 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // 5. IP Routing Mode
-        Text("IP Routing Mode", color = Color.Gray, fontSize = 13.sp)
+        // IP Mode Selector Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -302,30 +416,32 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // 6. Host & Port
+        // Host & Port
         OutlinedTextField(
             value = host,
             onValueChange = { host = it },
-            label = { Text("Server Host / IP") },
+            label = { Text("Proxy Host / IP") },
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
             singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         OutlinedTextField(
             value = port,
             onValueChange = { port = it },
-            label = { Text("Server Port") },
+            label = { Text("Proxy Port") },
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
             singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // 7. Username & Password
+        // Optional Credentials
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -335,6 +451,7 @@ fun MainScreen(
                 onValueChange = { username = it },
                 label = { Text("Username") },
                 modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
                 singleLine = true
             )
             OutlinedTextField(
@@ -342,77 +459,80 @@ fun MainScreen(
                 onValueChange = { password = it },
                 label = { Text("Password") },
                 modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
                 singleLine = true
             )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 8. Routing Scope
-        Text("Routing Scope", color = Color.Gray, fontSize = 13.sp)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clickable { routeWholeProfile = !routeWholeProfile }
+        // Routing Scope Toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF16171E)),
+            shape = RoundedCornerShape(14.dp)
         ) {
-            Switch(
-                checked = routeWholeProfile,
-                onCheckedChange = { routeWholeProfile = it }
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = if (routeWholeProfile) "Route Entire User Profile" else "Filter Apps (Per-App Proxy)",
-                color = Color.White
-            )
-        }
-
-        if (!routeWholeProfile) {
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { showAppPicker = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Select Apps (${selectedUids.size} Selected)")
-            }
-        }
-    }
-
-    // Dialog for inspecting sing-box output
-    if (showLogsDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogsDialog = false },
-            confirmButton = {
-                TextButton(onClick = { showLogsDialog = false }) {
-                    Text("Close")
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Route Entire Profile",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = if (routeWholeProfile) "All apps redirected" else "Per-App filter active",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    Switch(
+                        checked = routeWholeProfile,
+                        onCheckedChange = { routeWholeProfile = it }
+                    )
                 }
-            },
-            title = { Text("sing-box Core Logs") },
-            text = {
-                Text(
-                    text = currentLogs,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = Color.LightGray,
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                )
+
+                if (!routeWholeProfile) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { showAppPicker = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Select Target Apps (${selectedUids.size} Selected)")
+                    }
+                }
             }
-        )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 
+    // Modal Sheet for Per-App Picker
     if (showAppPicker) {
         ModalBottomSheet(
             onDismissRequest = { showAppPicker = false },
-            containerColor = Color(0xFF16161D)
+            containerColor = Color(0xFF16171E)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
                 Text(
-                    text = "Per-App Routing (Profile ${ProfileManager.profileId})",
+                    text = "Select Apps (Profile ${ProfileManager.profileId})",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LazyColumn(modifier = Modifier.fillMaxHeight(0.7f)) {
+                LazyColumn(modifier = Modifier.fillMaxHeight(0.6f)) {
                     items(installedApps) { app ->
                         Row(
                             modifier = Modifier
@@ -443,5 +563,27 @@ fun MainScreen(
                 }
             }
         }
+    }
+
+    // Live sing-box Diagnostics Dialog
+    if (showLogsDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogsDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showLogsDialog = false }) {
+                    Text("Close")
+                }
+            },
+            title = { Text("Core Diagnostics & Logs") },
+            text = {
+                Text(
+                    text = currentLogs,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = Color.LightGray,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
+            }
+        )
     }
 }
