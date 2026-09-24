@@ -23,6 +23,10 @@ object BootManager {
         }
     }
 
+    fun removeBootScript(): Boolean {
+        return executeSu(listOf("rm -f $SERVICE_SCRIPT_PATH"))
+    }
+
     fun syncBootState(
         context: Context,
         enabled: Boolean,
@@ -30,7 +34,7 @@ object BootManager {
         selectedUids: List<Int>? = null
     ): Boolean {
         if (!enabled) {
-            return executeSu(listOf("rm -f $SERVICE_SCRIPT_PATH"))
+            return removeBootScript()
         }
 
         val profileId = ProfileManager.profileId
@@ -40,15 +44,35 @@ object BootManager {
         val pidFile = "/data/local/tmp/singbox_u${profileId}.pid"
         val logFile = "/data/local/tmp/singbox_u${profileId}.log"
 
+        // Ensure current configuration is synced to disk
+        val configJson = ConfigGenerator.generateJson(settings, port)
+        ProxyController.writeConfigDirectly(configJson, configPath)
+
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
 
         val scriptContent = buildString {
             appendLine("#!/system/bin/sh")
-            appendLine("# Nameless Proxy Early Boot Service (KernelSU / Magisk / APatch)")
+            appendLine("# Nameless Proxy Fast Boot Script (Root / service.d)")
             appendLine("sleep 5")
-            appendLine("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
-            appendLine("nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile")
+            appendLine("export PATH=/system/bin:/system/xbin:\$PATH")
+            appendLine("")
+            appendLine("# Verify required files exist")
+            appendLine("if [ ! -f $binaryPath ] || [ ! -f $configPath ]; then")
+            appendLine("  exit 1")
+            appendLine("fi")
+            appendLine("")
+            appendLine("# Kill old instance if lingering")
+            appendLine("if [ -f $pidFile ]; then")
+            appendLine("  kill -9 \$(cat $pidFile) 2>/dev/null")
+            appendLine("  rm -f $pidFile")
+            appendLine("fi")
+            appendLine("")
+            appendLine("# Launch daemon")
+            appendLine("nohup $binaryPath run -c $configPath > $logFile 2>&1 &")
+            appendLine("echo \$! > $pidFile")
             appendLine("sleep 1")
+            appendLine("")
+            appendLine("# Apply Netfilter Rules")
             for (cmd in iptablesCmds) {
                 appendLine(cmd)
             }
