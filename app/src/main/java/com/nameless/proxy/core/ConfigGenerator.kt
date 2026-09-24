@@ -39,7 +39,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. Modern DNS Engine
+        // 2. DNS Engine
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -53,13 +53,12 @@ object ConfigGenerator {
         }
         dnsServers.put(remoteDns)
 
-        // Direct DNS: Bootstrap resolver for proxy domains
+        // Direct DNS: System resolver (no detour needed)
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
             put("server", "1.1.1.1")
             put("server_port", 53)
-            put("detour", "direct-out")
         }
         dnsServers.put(directDns)
         dns.put("servers", dnsServers)
@@ -68,22 +67,6 @@ object ConfigGenerator {
             IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
             IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
-        }
-
-        // Domain bootstrap: Resolve proxy hostname directly if user entered a domain
-        val isDomain = settings.host.isNotEmpty() &&
-                !settings.host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")) &&
-                !settings.host.contains(":")
-
-        if (isDomain) {
-            val dnsRules = JSONArray()
-            val hostRule = JSONObject().apply {
-                put("domain", JSONArray().apply { put(settings.host) })
-                put("action", "route")
-                put("server", "dns-direct")
-            }
-            dnsRules.put(hostRule)
-            dns.put("rules", dnsRules)
         }
 
         dns.put("final", "dns-remote")
@@ -121,7 +104,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds (Legacy "dns" outbound removed for sing-box 1.13+)
+        // 4. Outbounds
         val outbounds = JSONArray()
 
         val proxyOutbound = JSONObject()
@@ -164,15 +147,16 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Using modern "action": "hijack-dns")
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", true)
+            put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
 
-        // Modern Rule Action: Intercept port 53 into the internal DNS module
+        // Hijack incoming port 53 queries into the internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
