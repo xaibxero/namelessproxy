@@ -108,11 +108,15 @@ object ProxyController {
             "echo '=== RECENT LOG ENTRIES ==='",
             "if [ -f $logFile ]; then tail -n 120 $logFile; else echo 'No log file found.'; fi"
         ))
-        // Strip raw ANSI terminal color codes for clear reading
         return raw.replace(Regex("\u001B\\[[;\\d]*m"), "")
     }
 
-    fun startProxy(context: Context, settings: ProxySettings, selectedUids: List<Int>? = null): StartResult {
+    fun startProxy(
+        context: Context,
+        settings: ProxySettings,
+        blockWebRtc: Boolean = true,
+        selectedUids: List<Int>? = null
+    ): StartResult {
         val binaryPath = "/data/local/tmp/sing-box"
         val profileId = ProfileManager.profileId
         val configPath = "/data/local/tmp/singbox_u${profileId}.json"
@@ -120,7 +124,6 @@ object ProxyController {
         val logFile = "/data/local/tmp/singbox_u${profileId}.log"
         val port = ProfileManager.localInboundPort
 
-        // Verify executable status
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
@@ -149,7 +152,7 @@ object ProxyController {
             )
         }
 
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, blockWebRtc, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
         return if (ipSuccess) {
