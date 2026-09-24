@@ -23,7 +23,6 @@ object ProxyController {
         }
     }
 
-    // Unpack sing-box binary from APK assets into internal storage
     fun extractCoreBinary(context: Context): File {
         val binaryFile = File(context.filesDir, "sing-box")
         if (!binaryFile.exists() || binaryFile.length() == 0L) {
@@ -43,19 +42,19 @@ object ProxyController {
         val pidFile = File(context.filesDir, "sing-box.pid")
         val port = ProfileManager.localInboundPort
 
-        // 1. Write the sing-box config
+        // 1. Write the sing-box configuration
         val configContent = ConfigGenerator.generateJson(settings, port)
         configFile.writeText(configContent)
 
-        // 2. Kill any stale sing-box instance for this profile
+        // 2. Kill existing daemon instance for this profile
         stopProxy(context)
 
         // 3. Launch sing-box daemon in background under root
         val runCommand = "${binary.absolutePath} run -c ${configFile.absolutePath} & echo \$! > ${pidFile.absolutePath}"
         executeSu(listOf(runCommand))
 
-        // 4. Apply iptables REDIRECT rules
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, selectedUids)
+        // 4. Apply dual-stack or single-stack Netfilter rules
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings.ipMode, selectedUids)
         return executeSu(iptablesCmds)
     }
 
@@ -71,7 +70,7 @@ object ProxyController {
             pidFile.delete()
         }
 
-        // Remove iptables rules
+        // Flush and restore both IPv4 & IPv6 firewall rules
         commands.addAll(IptablesManager.generateDisableCommands())
         return executeSu(commands)
     }
