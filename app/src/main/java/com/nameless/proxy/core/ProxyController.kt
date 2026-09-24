@@ -52,7 +52,7 @@ object ProxyController {
         }
     }
 
-    // Stream APK asset directly into /data/local/tmp/sing-box via root stdin
+    // Force-extract the bundled binary directly via root stream
     fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = "/data/local/tmp/sing-box"
         return try {
@@ -69,7 +69,6 @@ object ProxyController {
         }
     }
 
-    // Stream configuration directly into /data/local/tmp via root stdin
     fun writeConfigDirectly(configContent: String, configPath: String): Boolean {
         return try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -f $configPath && cat > $configPath && chmod 644 $configPath"))
@@ -112,40 +111,39 @@ object ProxyController {
         val logFile = "/data/local/tmp/singbox_u${profileId}.log"
         val port = ProfileManager.localInboundPort
 
-        // 1. Stream sing-box binary to destination if missing
-        val binaryCheck = executeSuWithOutput(listOf("if [ -f $binaryPath ] && [ -x $binaryPath ]; then echo 'EXISTS'; fi"))
-        if (!binaryCheck.contains("EXISTS")) {
+        // Verify if the binary can execute. If it fails with 'No such file or directory', re-extract it.
+        val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
+        if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
             if (!extracted) {
-                return StartResult(success = false, errorMessage = "Failed to stream sing-box binary to $binaryPath")
+                return StartResult(success = false, errorMessage = "Failed to extract binary to $binaryPath")
             }
         }
 
-        // 2. Stream generated configuration directly
+        // Write configuration
         val configContent = ConfigGenerator.generateJson(settings, port)
         val configWritten = writeConfigDirectly(configContent, configPath)
         if (!configWritten) {
-            return StartResult(success = false, errorMessage = "Failed to write configuration to $configPath")
+            return StartResult(success = false, errorMessage = "Failed to write config to $configPath")
         }
 
-        // 3. Terminate any previous instance
+        // Kill any previous daemon instance
         stopProxy(context)
 
-        // 4. Launch sing-box daemon in background under root
+        // Launch sing-box daemon in background under root
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
         executeSu(listOf(runCmd))
 
-        // 5. Wait 600ms and verify process health
         Thread.sleep(600)
         if (!isRunning()) {
             val failureInfo = getDiagnosticsAndLogs()
             return StartResult(
                 success = false,
-                errorMessage = failureInfo.ifEmpty { "sing-box failed to start or crashed" }
+                errorMessage = failureInfo.ifEmpty { "sing-box daemon failed to start" }
             )
         }
 
-        // 6. Apply Netfilter redirection rules
+        // Apply iptables redirection
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings.ipMode, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
