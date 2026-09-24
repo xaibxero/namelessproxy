@@ -53,7 +53,7 @@ object ConfigGenerator {
         }
         dnsServers.put(remoteDns)
 
-        // Direct DNS: System resolver (no detour needed)
+        // Direct DNS: Bootstrap resolver for domains
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
@@ -147,9 +147,8 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (auto_detect_interface removed)
         val route = JSONObject().apply {
-            put("auto_detect_interface", true)
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
