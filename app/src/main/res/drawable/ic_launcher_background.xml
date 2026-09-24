@@ -20,7 +20,6 @@
     <path
         android:strokeColor="#1F2436"
         android:strokeWidth="1"
-        android:strokeDasharray="4,4"
         android:pathData="M54,26 A28,28 0 1,0 54,82 A28,28 0 1,0 54,26 Z" />
 
     <!-- Subtle Center Radial Glow -->
