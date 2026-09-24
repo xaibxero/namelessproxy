@@ -89,6 +89,14 @@ object ProxyController {
         return result.contains("RUNNING")
     }
 
+    fun getActivePid(): String? {
+        val pidFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.pid"
+        val result = executeSuWithOutput(listOf(
+            "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then cat $pidFile; fi"
+        ))
+        return result.trim().ifEmpty { null }
+    }
+
     fun clearLogs() {
         val logFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.log"
         executeSu(listOf("> $logFile"))
@@ -114,7 +122,6 @@ object ProxyController {
     fun startProxy(
         context: Context,
         settings: ProxySettings,
-        blockWebRtc: Boolean = true,
         selectedUids: List<Int>? = null
     ): StartResult {
         val binaryPath = "/data/local/tmp/sing-box"
@@ -152,7 +159,7 @@ object ProxyController {
             )
         }
 
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, blockWebRtc, selectedUids)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
         return if (ipSuccess) {
