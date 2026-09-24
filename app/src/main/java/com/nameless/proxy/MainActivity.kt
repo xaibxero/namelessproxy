@@ -17,6 +17,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,10 +30,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -51,7 +54,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.cos
 import kotlin.math.sin
 
 data class AppItem(
@@ -275,69 +277,51 @@ fun MainScreen(
         }
     }
 
-    // Dynamic Electric Background Palette
-    val bgTopColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0xFF1E1038) else Color(0xFF0F111D),
-        animationSpec = tween(1200, easing = FastOutSlowInEasing),
-        label = "bgTop"
+    // OLED Deep Base with Aurora Top Pools
+    val auroraMintAlpha by animateFloatAsState(
+        targetValue = if (isProxyActive) 0.18f else 0.04f,
+        animationSpec = tween(1400, easing = FastOutSlowInEasing),
+        label = "mintAlpha"
     )
-    val bgMidColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0xFF120E26) else Color(0xFF0A0C16),
-        animationSpec = tween(1200, easing = FastOutSlowInEasing),
-        label = "bgMid"
-    )
-    val bgBottomColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0xFF0B0D18) else Color(0xFF06070D),
-        animationSpec = tween(1200, easing = FastOutSlowInEasing),
-        label = "bgBottom"
-    )
-
-    val infiniteTransition = rememberInfiniteTransition(label = "auroraGlow")
-    val auraAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "auraAlpha"
+    val auroraCyanAlpha by animateFloatAsState(
+        targetValue = if (isProxyActive) 0.22f else 0.02f,
+        animationSpec = tween(1400, easing = FastOutSlowInEasing),
+        label = "cyanAlpha"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    listOf(bgTopColor, bgMidColor, bgBottomColor)
-                )
-            )
+            .background(Color(0xFF000000))
     ) {
-        if (isProxyActive) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(480.dp)
-                    .alpha(auraAlpha)
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Color(0x557C3AED), Color(0x2206B6D4), Color.Transparent),
-                            center = Offset(Float.POSITIVE_INFINITY / 2f, 160f),
-                            radius = 700f
-                        )
-                    )
-            )
-        }
+        // Ambient Fluid Aurora Pools
+        Box(
+            modifier = Modifier
+                .size(340.dp)
+                .offset(x = (-40).dp, y = (-20).dp)
+                .alpha(auroraMintAlpha)
+                .blur(90.dp)
+                .background(Color(0xFF00F5A0), CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .size(380.dp)
+                .offset(x = 120.dp, y = 40.dp)
+                .alpha(auroraCyanAlpha)
+                .blur(100.dp)
+                .background(Color(0xFF00D9F5), CircleShape)
+        )
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 22.dp)
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Header Row
+            // Navigation & Root Status Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -349,29 +333,26 @@ fun MainScreen(
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Black,
                         color = Color.White,
-                        letterSpacing = (-0.5).sp
+                        letterSpacing = (-0.8).sp
                     )
                     Text(
-                        text = "Profile ${ProfileManager.profileId} • Direct Tunnel",
+                        text = "Profile ${ProfileManager.profileId} • Transparent Core",
                         fontSize = 11.sp,
-                        color = if (isProxyActive) Color(0xFFA78BFA) else Color(0xFF64748B),
-                        fontWeight = FontWeight.SemiBold
+                        color = if (isProxyActive) Color(0xFF00F5A0) else Color(0xFF475569),
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
+                // Minimalist Glass Root Capsule
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = when (rootState) {
-                        RootState.GRANTED -> Color(0x257C3AED)
-                        RootState.DENIED -> Color(0x25F43F5E)
-                        RootState.CHECKING -> Color(0x25F59E0B)
-                    },
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0x0FFFFFFF),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
                         when (rootState) {
-                            RootState.GRANTED -> Color(0xFF8B5CF6)
-                            RootState.DENIED -> Color(0xFFF43F5E)
-                            RootState.CHECKING -> Color(0xFFF59E0B)
+                            RootState.GRANTED -> Color(0x3300F5A0)
+                            RootState.DENIED -> Color(0x33FF4466)
+                            RootState.CHECKING -> Color(0x33FFB74D)
                         }
                     ),
                     modifier = Modifier.clickable { onRecheckRoot() }
@@ -382,12 +363,12 @@ fun MainScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(7.dp)
+                                .size(6.dp)
                                 .background(
                                     color = when (rootState) {
-                                        RootState.GRANTED -> Color(0xFFA78BFA)
-                                        RootState.DENIED -> Color(0xFFF43F5E)
-                                        RootState.CHECKING -> Color(0xFFF59E0B)
+                                        RootState.GRANTED -> Color(0xFF00F5A0)
+                                        RootState.DENIED -> Color(0xFFFF4466)
+                                        RootState.CHECKING -> Color(0xFFFFB74D)
                                     },
                                     shape = CircleShape
                                 )
@@ -400,7 +381,7 @@ fun MainScreen(
                                 RootState.CHECKING -> "Checking..."
                             },
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.SemiBold,
                             color = Color.White
                         )
                     }
@@ -409,30 +390,30 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Capsule Tabs
+            // Minimalist Floating Glass Tab Bar
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0x401E293B),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                color = Color(0x0DFFFFFF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x14FFFFFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(5.dp),
+                        .padding(4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val tabTitles = listOf("Cockpit", "Config", "Apps (${selectedUids.size})")
+                    val tabTitles = listOf("Tunnel", "Settings", "Apps (${selectedUids.size})")
                     tabTitles.forEachIndexed { index, title ->
                         val isSelected = selectedTab == index
                         val tabBg by animateColorAsState(
-                            targetValue = if (isSelected) Color(0xFF6366F1) else Color.Transparent,
-                            animationSpec = tween(280),
+                            targetValue = if (isSelected) Color(0x1FFFFFFF) else Color.Transparent,
+                            animationSpec = tween(240),
                             label = "tabBg"
                         )
                         val textColor by animateColorAsState(
-                            targetValue = if (isSelected) Color.White else Color(0xFF94A3B8),
-                            animationSpec = tween(280),
+                            targetValue = if (isSelected) Color.White else Color(0xFF64748B),
+                            animationSpec = tween(240),
                             label = "tabText"
                         )
 
@@ -445,12 +426,12 @@ fun MainScreen(
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(vertical = 10.dp)
+                                modifier = Modifier.padding(vertical = 9.dp)
                             ) {
                                 Text(
                                     text = title,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     color = textColor
                                 )
                             }
@@ -466,9 +447,10 @@ fun MainScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        DashboardTab(
+                        FluidAuroraDashboard(
                             isProxyActive = isProxyActive,
                             publicIpInfo = publicIpInfo,
                             isFetchingIp = isFetchingIp,
@@ -499,7 +481,7 @@ fun MainScreen(
                             onTestUpstream = {
                                 saveConfig()
                                 isTesting = true
-                                testStatus = "Testing socket..."
+                                testStatus = "Pinging..."
                                 val settings = getCurrentSettings()
                                 coroutineScope.launch {
                                     when (val res = ProxyTester.testProxy(settings)) {
@@ -623,7 +605,7 @@ fun MainScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(380.dp)
-                        .background(Color(0xFF070709), RoundedCornerShape(12.dp))
+                        .background(Color(0xFF08080C), RoundedCornerShape(12.dp))
                         .padding(12.dp)
                 ) {
                     Text(
@@ -639,8 +621,11 @@ fun MainScreen(
     }
 }
 
+// -------------------------------------------------------------
+// FLUID AURORA DASHBOARD (Liquid Orb, Waveform & Floating Glass)
+// -------------------------------------------------------------
 @Composable
-fun DashboardTab(
+fun FluidAuroraDashboard(
     isProxyActive: Boolean,
     publicIpInfo: GeoIpResult?,
     isFetchingIp: Boolean,
@@ -656,250 +641,6 @@ fun DashboardTab(
     onTestUpstream: () -> Unit,
     onViewLogs: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alphaAnim by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
-
-    val cardBorderColor by animateColorAsState(
-        targetValue = if (isProxyActive) Color(0x668B5CF6) else Color(0x1AFFFFFF),
-        animationSpec = tween(500),
-        label = "cardBorder"
-    )
-
-    // Cockpit Gauge Surface Card
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.5.dp, cardBorderColor, RoundedCornerShape(26.dp)),
-        colors = CardDefaults.cardColors(containerColor = Color(0x441E293B)),
-        shape = RoundedCornerShape(26.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Cockpit System Status Bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .alpha(if (isProxyActive) alphaAnim else 1f)
-                            .background(
-                                if (isProxyActive) Color(0xFF06B6D4) else Color(0xFF64748B),
-                                CircleShape
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isProxyActive) "ENGINE RUNNING" else "IGNITION OFF",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (isProxyActive) Color(0xFF38BDF8) else Color(0xFF94A3B8),
-                        letterSpacing = 1.sp
-                    )
-                }
-
-                if (isProxyActive) {
-                    ActiveTimer()
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // THE SUPERBIKE TACHOMETER / SPEEDOMETER GAUGE
-            SuperbikeSpeedometerGauge(isProxyActive = isProxyActive)
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Geolocation Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0x660F172A),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = isProxyActive && !isFetchingIp) { onRefreshIp() }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "⚪",
-                            fontSize = 24.sp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = if (isProxyActive) {
-                                    when {
-                                        isFetchingIp -> "Locking telemetry..."
-                                        publicIpInfo != null -> publicIpInfo.ip
-                                        ipFetchFailed -> "Connection timeout"
-                                        else -> "Resolving..."
-                                    }
-                                } else "Native Interface",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isProxyActive) Color.White else Color(0xFF94A3B8),
-                                fontFamily = FontFamily.Monospace
-                            )
-                            if (isProxyActive) {
-                                Text(
-                                    text = when {
-                                        isFetchingIp -> "Querying route..."
-                                        publicIpInfo != null -> publicIpInfo.country
-                                        ipFetchFailed -> "Tap to retry"
-                                        else -> "Stabilizing..."
-                                    },
-                                    fontSize = 11.sp,
-                                    color = if (ipFetchFailed) Color(0xFFFBBF24) else Color(0xFFA78BFA),
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-
-                    if (isProxyActive) {
-                        Text(
-                            text = if (isFetchingIp) "..." else "Refresh",
-                            fontSize = 11.sp,
-                            color = Color(0xFF38BDF8),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Specs Pill Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val pillModifier = Modifier
-                    .background(Color(0x55334155), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 9.dp, vertical = 5.dp)
-
-                Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillModifier)
-                Text(
-                    if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP" else "TCP",
-                    fontSize = 10.sp,
-                    color = Color(0xFF38BDF8),
-                    fontWeight = FontWeight.Bold,
-                    modifier = pillModifier
-                )
-                Text(
-                    when (ipMode) {
-                        IpMode.IPV4_ONLY -> "IPv4"
-                        IpMode.DUAL_STACK -> "Dual-Stack"
-                        IpMode.IPV6_ONLY -> "IPv6"
-                    },
-                    fontSize = 10.sp,
-                    color = Color(0xFFA78BFA),
-                    fontWeight = FontWeight.Bold,
-                    modifier = pillModifier
-                )
-                if (activePid != null) {
-                    Text("PID: $activePid", fontSize = 10.sp, color = Color(0xFF94A3B8), fontFamily = FontFamily.Monospace, modifier = pillModifier)
-                }
-            }
-        }
-    }
-
-    Spacer(modifier = Modifier.height(18.dp))
-
-    // Ignition / Disconnect Action Button
-    val buttonBrush = if (isProxyActive) {
-        Brush.horizontalGradient(listOf(Color(0xFFE11D48), Color(0xFFF43F5E)))
-    } else {
-        Brush.horizontalGradient(listOf(Color(0xFF4F46E5), Color(0xFF7C3AED)))
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .clickable { onToggleProxy() },
-        color = Color.Transparent
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(buttonBrush),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isProxyActive) "Kill Engine (Disconnect)" else "Ignition (Connect Transparent)",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                letterSpacing = 0.5.sp
-            )
-        }
-    }
-
-    Spacer(modifier = Modifier.height(12.dp))
-
-    // Quick Diagnostics
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        OutlinedButton(
-            onClick = onTestUpstream,
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFA78BFA)),
-            enabled = !isTesting
-        ) {
-            Text(if (isTesting) "Testing..." else "Ping Latency")
-        }
-
-        OutlinedButton(
-            onClick = onViewLogs,
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
-        ) {
-            Text("Core Logs")
-        }
-    }
-
-    if (testStatus != null) {
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = testStatus,
-            color = if (testStatus.startsWith("Online")) Color(0xFF38BDF8) else Color(0xFFF43F5E),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-
-    Spacer(modifier = Modifier.height(24.dp))
-}
-
-// -------------------------------------------------------------
-// BIKE COCKPIT SPEEDOMETER GAUGE COMPONENT
-// -------------------------------------------------------------
-@Composable
-fun SuperbikeSpeedometerGauge(isProxyActive: Boolean) {
     var rawRxRate by remember { mutableLongStateOf(0L) }
     var rawTxRate by remember { mutableLongStateOf(0L) }
     var totalRxBytes by remember { mutableLongStateOf(0L) }
@@ -937,230 +678,449 @@ fun SuperbikeSpeedometerGauge(isProxyActive: Boolean) {
         }
     }
 
-    // Convert speed to a normalized gauge fraction (0.0 to 1.0)
-    // 0 to 50 MB/s dynamic scaling
-    val currentMbps = (rawRxRate * 8.0) / (1024.0 * 1024.0)
-    val gaugeFraction = (currentMbps / 60.0).toFloat().coerceIn(0f, 1f)
+    Spacer(modifier = Modifier.height(18.dp))
 
-    // Bouncy spring animation mimicking physical throttle and tachometer response
-    val animatedSweepFraction by animateFloatAsState(
-        targetValue = if (isProxyActive) gaugeFraction else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "tachometerSpring"
+    // 1. THE LIQUID POWER ORB
+    LiquidPowerOrb(
+        isProxyActive = isProxyActive,
+        onClick = onToggleProxy
     )
 
-    // Gauge Angles: sweeps 240 degrees from 150° (bottom-left) to 390° (bottom-right)
-    val startAngle = 150f
-    val totalSweep = 240f
-    val activeSweep = totalSweep * animatedSweepFraction
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // 2. LIVE FLUID PULSE WAVEFORM (Reacts dynamically to network throughput)
+    DataStreamWaveform(
+        isProxyActive = isProxyActive,
+        trafficRate = rawRxRate + rawTxRate
+    )
+
+    Spacer(modifier = Modifier.height(18.dp))
+
+    // 3. MINIMALIST FLOATING TELEMETRY ISLANDS
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Download Floating Glass Capsule
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0x0AFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x12FFFFFF))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(Color(0xFF00F5A0), CircleShape))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("DOWNLOAD", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = formatSpeed(rawRxRate),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = (-0.5).sp
+                )
+                Text("Total ${formatBytes(totalRxBytes)}", fontSize = 11.sp, color = Color(0xFF475569))
+            }
+        }
+
+        // Upload Floating Glass Capsule
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0x0AFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x12FFFFFF))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(Color(0xFF00D9F5), CircleShape))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("UPLOAD", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = formatSpeed(rawTxRate),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = (-0.5).sp
+                )
+                Text("Total ${formatBytes(totalTxBytes)}", fontSize = 11.sp, color = Color(0xFF475569))
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(14.dp))
+
+    // 4. FLOATING GEOLOCATION & ENDPOINT CAPSULE
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0x0DFFFFFF),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x14FFFFFF)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = isProxyActive && !isFetchingIp) { onRefreshIp() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "⚪",
+                    fontSize = 24.sp
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column {
+                    Text(
+                        text = if (isProxyActive) {
+                            when {
+                                isFetchingIp -> "Securing tunnel..."
+                                publicIpInfo != null -> publicIpInfo.ip
+                                ipFetchFailed -> "Connection timeout"
+                                else -> "Resolving..."
+                            }
+                        } else "Disconnected",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isProxyActive) Color.White else Color(0xFF64748B),
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (isProxyActive) {
+                        Text(
+                            text = when {
+                                isFetchingIp -> "Querying route..."
+                                publicIpInfo != null -> publicIpInfo.country
+                                ipFetchFailed -> "Tap to retry"
+                                else -> "Stabilizing..."
+                            },
+                            fontSize = 11.sp,
+                            color = if (ipFetchFailed) Color(0xFFFFB74D) else Color(0xFF00F5A0),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            if (isProxyActive) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0x1400F5A0)
+                ) {
+                    Text(
+                        text = if (isFetchingIp) "..." else "Refresh",
+                        fontSize = 11.sp,
+                        color = Color(0xFF00F5A0),
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // 5. MINIMALIST ROUTING SPECS PILLS
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        val pillBg = Modifier
+            .background(Color(0x0DFFFFFF), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+
+        Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillBg)
+        Text(
+            if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP (WebRTC)" else "TCP Only",
+            fontSize = 10.sp,
+            color = Color(0xFF00F5A0),
+            fontWeight = FontWeight.Bold,
+            modifier = pillBg
+        )
+        Text(
+            when (ipMode) {
+                IpMode.IPV4_ONLY -> "IPv4"
+                IpMode.DUAL_STACK -> "Dual-Stack"
+                IpMode.IPV6_ONLY -> "IPv6"
+            },
+            fontSize = 10.sp,
+            color = Color(0xFF00D9F5),
+            fontWeight = FontWeight.Bold,
+            modifier = pillBg
+        )
+        if (activePid != null) {
+            Text("PID $activePid", fontSize = 10.sp, color = Color(0xFF64748B), fontFamily = FontFamily.Monospace, modifier = pillBg)
+        }
+    }
+
+    Spacer(modifier = Modifier.height(20.dp))
+
+    // 6. SUBTLE DIAGNOSTIC ACTIONS
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color(0x0AFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x12FFFFFF)),
+            modifier = Modifier
+                .weight(1f)
+                .clickable(enabled = !isTesting) { onTestUpstream() }
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(vertical = 12.dp)
+            ) {
+                Text(
+                    text = if (isTesting) "Testing..." else "Ping Latency",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color(0x0AFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x12FFFFFF)),
+            modifier = Modifier
+                .weight(1f)
+                .clickable { onViewLogs() }
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(vertical = 12.dp)
+            ) {
+                Text(
+                    text = "Core Logs",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+        }
+    }
+
+    if (testStatus != null) {
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = testStatus,
+            color = if (testStatus.startsWith("Online")) Color(0xFF00F5A0) else Color(0xFFFF4466),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+
+    Spacer(modifier = Modifier.height(30.dp))
+}
+
+// -------------------------------------------------------------
+// COMPONENT: LIQUID POWER ORB (Interactive Breathing Center)
+// -------------------------------------------------------------
+@Composable
+fun LiquidPowerOrb(
+    isProxyActive: Boolean,
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "orbPulse")
+
+    // Breathing scale & glow
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    val haloAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "haloAlpha"
+    )
+
+    val coreGradient = if (isProxyActive) {
+        listOf(Color(0xFF00F5A0), Color(0xFF00D9F5))
+    } else {
+        listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(190.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+    ) {
+        // Outer Fluid Halo (Connected state)
+        if (isProxyActive) {
+            Box(
+                modifier = Modifier
+                    .size((160 * pulseScale).dp)
+                    .alpha(haloAlpha)
+                    .blur(28.dp)
+                    .background(
+                        Brush.radialGradient(listOf(Color(0xFF00F5A0), Color(0xFF00D9F5), Color.Transparent)),
+                        CircleShape
+                    )
+            )
+        }
+
+        // Middle Frosted Rim
+        Surface(
+            modifier = Modifier.size(136.dp),
+            shape = CircleShape,
+            color = Color(0x0FFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(
+                1.5.dp,
+                if (isProxyActive) Color(0x5500F5A0) else Color(0x1FFFFFFF)
+            )
+        ) {}
+
+        // Inner Core Orb
+        Surface(
+            modifier = Modifier.size(108.dp),
+            shape = CircleShape,
+            color = Color.Transparent
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colors = coreGradient,
+                            start = Offset(0f, 0f),
+                            end = Offset(300f, 300f)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                // Power Glyph
+                Canvas(modifier = Modifier.size(34.dp)) {
+                    val strokeW = 3.5.dp.toPx()
+                    val iconColor = if (isProxyActive) Color(0xFF05170E) else Color(0xFF94A3B8)
+
+                    // Vertical Power Stalk
+                    drawLine(
+                        color = iconColor,
+                        start = Offset(size.width / 2, 0f),
+                        end = Offset(size.width / 2, size.height * 0.45f),
+                        strokeWidth = strokeW,
+                        cap = StrokeCap.Round
+                    )
+
+                    // Power Arc
+                    drawArc(
+                        color = iconColor,
+                        startAngle = 135f,
+                        sweepAngle = 270f,
+                        useCenter = false,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// COMPONENT: DATA STREAM WAVEFORM (Dynamic Sinusoidal Flow)
+// -------------------------------------------------------------
+@Composable
+fun DataStreamWaveform(
+    isProxyActive: Boolean,
+    trafficRate: Long
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveFlow")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (isProxyActive) 1400 else 3600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase"
+    )
+
+    // Modulate wave height with live throughput
+    val targetAmplitude = if (!isProxyActive) {
+        6f
+    } else {
+        val mbps = (trafficRate * 8.0) / (1024.0 * 1024.0)
+        (12f + (mbps * 2.5f).toFloat()).coerceIn(12f, 32f)
+    }
+
+    val animatedAmplitude by animateFloatAsState(
+        targetValue = targetAmplitude,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "waveAmp"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(230.dp),
+            .height(56.dp),
         contentAlignment = Alignment.Center
     ) {
-        // High-precision Canvas drawing for track, redline, dial ticks, and rev needle
-        Canvas(modifier = Modifier.size(220.dp)) {
-            val strokeWidth = 14.dp.toPx()
-            val radius = (size.minDimension - strokeWidth * 2) / 2
-            val centerOffset = Offset(size.width / 2, size.height / 2)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+            val midY = height / 2
 
-            // 1. Muted Background Track Arc
-            drawArc(
-                color = Color(0x33334155),
-                startAngle = startAngle,
-                sweepAngle = totalSweep,
-                useCenter = false,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
+            val wavePath = Path()
+            val points = 80
+            for (i in 0..points) {
+                val x = (i.toFloat() / points) * width
+                val normalizedX = (i.toFloat() / points) * (4 * Math.PI).toFloat()
+                val y = midY + sin(normalizedX + phase) * animatedAmplitude
 
-            // 2. Redline Zone Background Accent (top 20% of scale)
-            drawArc(
-                color = Color(0x33F43F5E),
-                startAngle = startAngle + (totalSweep * 0.8f),
-                sweepAngle = totalSweep * 0.2f,
-                useCenter = false,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
+                if (i == 0) {
+                    wavePath.moveTo(x, y)
+                } else {
+                    wavePath.lineTo(x, y)
+                }
+            }
 
-            // 3. Dial Hash Ticks (Motorcycle Tachometer Style)
-            val totalTicks = 24
-            for (i in 0..totalTicks) {
-                val tickAngle = startAngle + (i.toFloat() / totalTicks) * totalSweep
-                val rad = Math.toRadians(tickAngle.toDouble())
-                val isRedline = i >= (totalTicks * 0.8f)
-
-                val tickLength = if (i % 4 == 0) 10.dp.toPx() else 5.dp.toPx()
-                val tickColor = if (isRedline) Color(0xFFF43F5E) else Color(0x6694A3B8)
-                val tickStroke = if (i % 4 == 0) 2.dp.toPx() else 1.dp.toPx()
-
-                val startRadius = radius + (strokeWidth / 2) + 3.dp.toPx()
-                val endRadius = startRadius + tickLength
-
-                val startX = centerOffset.x + (startRadius * cos(rad)).toFloat()
-                val startY = centerOffset.y + (startRadius * sin(rad)).toFloat()
-                val endX = centerOffset.x + (endRadius * cos(rad)).toFloat()
-                val endY = centerOffset.y + (endRadius * sin(rad)).toFloat()
-
-                drawLine(
-                    color = tickColor,
-                    start = Offset(startX, startY),
-                    end = Offset(endX, endY),
-                    strokeWidth = tickStroke,
+            // Glow Pass
+            drawPath(
+                path = wavePath,
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        Color.Transparent,
+                        if (isProxyActive) Color(0xFF00F5A0) else Color(0x33475569),
+                        if (isProxyActive) Color(0xFF00D9F5) else Color(0x33475569),
+                        Color.Transparent
+                    )
+                ),
+                style = Stroke(
+                    width = if (isProxyActive) 3.5.dp.toPx() else 1.5.dp.toPx(),
                     cap = StrokeCap.Round
                 )
-            }
-
-            // 4. Active Sweeping Gradient Arc
-            if (activeSweep > 0.5f) {
-                drawArc(
-                    brush = Brush.sweepGradient(
-                        0.0f to Color(0xFF06B6D4),
-                        0.5f to Color(0xFF8B5CF6),
-                        0.85f to Color(0xFFF43F5E),
-                        1.0f to Color(0xFFFF2E63)
-                    ),
-                    startAngle = startAngle,
-                    sweepAngle = activeSweep,
-                    useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-            }
-
-            // 5. Radial Needle Head Indicator Dot
-            if (activeSweep > 0.5f) {
-                val needleAngle = startAngle + activeSweep
-                val needleRad = Math.toRadians(needleAngle.toDouble())
-                val dotCenter = Offset(
-                    centerOffset.x + (radius * cos(needleRad)).toFloat(),
-                    centerOffset.y + (radius * sin(needleRad)).toFloat()
-                )
-                drawCircle(color = Color.White, radius = 5.dp.toPx(), center = dotCenter)
-                drawCircle(color = Color(0xFF38BDF8), radius = 2.5.dp.toPx(), center = dotCenter)
-            }
-        }
-
-        // Center Digital Display (Tachometer Cockpit Readout)
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(top = 8.dp)
-        ) {
-            // Speed Number
-            val formattedSpeed = formatSpeedValueOnly(rawRxRate)
-            Text(
-                text = if (isProxyActive) formattedSpeed.first else "0.0",
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.White,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = (-1.5).sp
             )
-
-            // Speed Unit
-            Text(
-                text = if (isProxyActive) formattedSpeed.second else "KB/s",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color(0xFF38BDF8),
-                letterSpacing = 1.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Superbike Gear Indicator Pill
-            val gearText = when {
-                !isProxyActive -> "NEUTRAL"
-                currentMbps > 40.0 -> "GEAR 6 • REDLINE"
-                currentMbps > 25.0 -> "GEAR 5 • OVERDRIVE"
-                currentMbps > 10.0 -> "GEAR 4 • CRUISE"
-                currentMbps > 3.0 -> "GEAR 3 • ACCEL"
-                currentMbps > 0.5 -> "GEAR 2 • STEADY"
-                else -> "GEAR 1 • IDLE"
-            }
-
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (currentMbps > 40.0) Color(0x33F43F5E) else Color(0x44334155),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (currentMbps > 40.0) Color(0xFFF43F5E) else Color(0x22FFFFFF)
-                )
-            ) {
-                Text(
-                    text = gearText,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (currentMbps > 40.0) Color(0xFFF43F5E) else Color(0xFFA78BFA),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-    }
-
-    // Secondary Telemetry Sub-Cluster (Upload Boost & Session Totals)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column {
-            Text("UPLOAD BOOST", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
-            Text(
-                text = formatSpeed(rawTxRate),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color(0xFFA78BFA),
-                fontFamily = FontFamily.Monospace
-            )
-            Text("Total: ${formatBytes(totalTxBytes)}", fontSize = 10.sp, color = Color(0xFF94A3B8))
-        }
-
-        Column(horizontalAlignment = Alignment.End) {
-            Text("DOWN TOTAL", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
-            Text(
-                text = formatBytes(totalRxBytes),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-                fontFamily = FontFamily.Monospace
-            )
-            Text("Bandwidth Used", fontSize = 10.sp, color = Color(0xFF94A3B8))
         }
     }
 }
 
-@Composable
-fun ActiveTimer() {
-    var seconds by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        val start = System.currentTimeMillis()
-        while (isActive) {
-            delay(1000)
-            seconds = (System.currentTimeMillis() - start) / 1000
-        }
-    }
-
-    val hrs = seconds / 3600
-    val mins = (seconds % 3600) / 60
-    val secs = seconds % 60
-    val timeStr = if (hrs > 0) String.format("%02d:%02d:%02d", hrs, mins, secs) else String.format("%02d:%02d", mins, secs)
-
-    Text(
-        text = timeStr,
-        fontFamily = FontFamily.Monospace,
-        fontSize = 12.sp,
-        color = Color(0xFFA78BFA),
-        fontWeight = FontWeight.Bold
-    )
-}
-
+// -------------------------------------------------------------
+// TAB 1: SETTINGS
+// -------------------------------------------------------------
 @Composable
 fun ProxySetupTab(
     host: String,
@@ -1183,16 +1143,16 @@ fun ProxySetupTab(
     var passwordVisible by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0x441E293B)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1AFFFFFF)),
-            shape = RoundedCornerShape(18.dp)
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0x0DFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x14FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1204,25 +1164,25 @@ fun ProxySetupTab(
                         color = Color.White
                     )
                     Text(
-                        text = "Runs via /data/adb/service.d after 5s",
+                        text = "Executes via /data/adb/service.d after 5s",
                         fontSize = 11.sp,
-                        color = if (startOnBoot) Color(0xFFA78BFA) else Color(0xFF64748B)
+                        color = if (startOnBoot) Color(0xFF00F5A0) else Color(0xFF64748B)
                     )
                 }
                 Switch(
                     checked = startOnBoot,
                     onCheckedChange = onStartOnBootChange,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF6366F1)
+                        checkedThumbColor = Color(0xFF05170E),
+                        checkedTrackColor = Color(0xFF00F5A0)
                     )
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        Text("TRANSPORT PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+        Text("TRANSPORT PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1240,9 +1200,9 @@ fun ProxySetupTab(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Text("PROXY TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+        Text("PROXY TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1257,9 +1217,9 @@ fun ProxySetupTab(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Text("IP MODE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+        Text("IP MODE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1278,14 +1238,14 @@ fun ProxySetupTab(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         OutlinedTextField(
             value = host,
             onValueChange = onHostChange,
             label = { Text("Server Host / IP") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
             singleLine = true
         )
 
@@ -1296,7 +1256,7 @@ fun ProxySetupTab(
             onValueChange = onPortChange,
             label = { Text("Server Port") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
             singleLine = true
         )
 
@@ -1311,7 +1271,7 @@ fun ProxySetupTab(
                 onValueChange = onUsernameChange,
                 label = { Text("Username") },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
             OutlinedTextField(
@@ -1323,14 +1283,14 @@ fun ProxySetupTab(
                     Text(
                         text = if (passwordVisible) "Hide" else "Show",
                         fontSize = 11.sp,
-                        color = Color(0xFFA78BFA),
+                        color = Color(0xFF00F5A0),
                         modifier = Modifier
                             .clickable { passwordVisible = !passwordVisible }
                             .padding(end = 12.dp)
                     )
                 },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
         }
@@ -1339,6 +1299,9 @@ fun ProxySetupTab(
     }
 }
 
+// -------------------------------------------------------------
+// TAB 2: APPS FILTER
+// -------------------------------------------------------------
 @Composable
 fun AppFilterTab(
     installedApps: List<AppItem>,
@@ -1359,13 +1322,13 @@ fun AppFilterTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0x441E293B)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1AFFFFFF)),
-            shape = RoundedCornerShape(18.dp)
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0x0DFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x14FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1381,15 +1344,15 @@ fun AppFilterTab(
                         Text(
                             text = if (routeWholeProfile) "All applications redirected" else "Per-App filter active",
                             fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                            color = Color(0xFF64748B)
                         )
                     }
                     Switch(
                         checked = routeWholeProfile,
                         onCheckedChange = onToggleRouteWhole,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF6366F1)
+                            checkedThumbColor = Color(0xFF05170E),
+                            checkedTrackColor = Color(0xFF00F5A0)
                         )
                     )
                 }
@@ -1397,14 +1360,14 @@ fun AppFilterTab(
         }
 
         if (!routeWholeProfile) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("Search apps...") },
+                label = { Text("Search installed applications...") },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
 
@@ -1414,8 +1377,8 @@ fun AppFilterTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                TextButton(onClick = onSelectAll) { Text("Select All", color = Color(0xFFA78BFA)) }
-                TextButton(onClick = onClearAll) { Text("Clear All", color = Color(0xFF94A3B8)) }
+                TextButton(onClick = onSelectAll) { Text("Select All", color = Color(0xFF00F5A0)) }
+                TextButton(onClick = onClearAll) { Text("Clear All", color = Color(0xFF64748B)) }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -1439,8 +1402,8 @@ fun AppFilterTab(
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = "${app.packageName} • UID: ${app.uid}",
-                                color = Color(0xFF64748B),
+                                text = "${app.packageName} • UID ${app.uid}",
+                                color = Color(0xFF475569),
                                 fontSize = 11.sp
                             )
                         }
@@ -1448,12 +1411,12 @@ fun AppFilterTab(
                             checked = isChecked,
                             onCheckedChange = { onToggleUid(app.uid) },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = Color(0xFF6366F1),
-                                checkmarkColor = Color.White
+                                checkedColor = Color(0xFF00F5A0),
+                                checkmarkColor = Color(0xFF05170E)
                             )
                         )
                     }
-                    Divider(color = Color(0x10FFFFFF), thickness = 0.5.dp)
+                    Divider(color = Color(0x0DFFFFFF), thickness = 0.5.dp)
                 }
             }
         } else {
@@ -1464,22 +1427,14 @@ fun AppFilterTab(
                     .weight(1f)
             ) {
                 Text(
-                    text = "All applications in this profile are currently routed.\nDisable switch above to choose specific apps.",
-                    color = Color(0xFF64748B),
+                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to customize individual apps.",
+                    color = Color(0xFF475569),
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         }
-    }
-}
-
-private fun formatSpeedValueOnly(bytesPerSec: Long): Pair<String, String> {
-    return when {
-        bytesPerSec >= 1024 * 1024 -> Pair(String.format("%.1f", bytesPerSec / (1024.0 * 1024.0)), "MB/s")
-        bytesPerSec >= 1024 -> Pair(String.format("%.1f", bytesPerSec / 1024.0), "KB/s")
-        else -> Pair("$bytesPerSec", "B/s")
     }
 }
 
