@@ -39,11 +39,11 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. Modern DNS Engine (sing-box 1.14+ compatible)
+        // 2. Modern DNS Engine
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        // Remote DNS: Resolves queries through the proxy tunnel to match proxy country
+        // Remote DNS: Resolves queries through proxy tunnel to match proxy country
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
@@ -53,7 +53,7 @@ object ConfigGenerator {
         }
         dnsServers.put(remoteDns)
 
-        // Direct DNS: Fallback & resolves proxy hostname if user entered a domain
+        // Direct DNS: Bootstrap resolver for proxy domains
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
@@ -64,14 +64,13 @@ object ConfigGenerator {
         dnsServers.put(directDns)
         dns.put("servers", dnsServers)
 
-        // Strategy
         when (settings.ipMode) {
             IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
             IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
         }
 
-        // If the proxy host is a domain, resolve it directly so the tunnel can establish
+        // Domain bootstrap: Resolve proxy hostname directly if user entered a domain
         val isDomain = settings.host.isNotEmpty() &&
                 !settings.host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")) &&
                 !settings.host.contains(":")
@@ -80,6 +79,7 @@ object ConfigGenerator {
             val dnsRules = JSONArray()
             val hostRule = JSONObject().apply {
                 put("domain", JSONArray().apply { put(settings.host) })
+                put("action", "route")
                 put("server", "dns-direct")
             }
             dnsRules.put(hostRule)
@@ -107,7 +107,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // UDP Inbound (Kernel TPROXY for WebRTC & UDP Port 53 DNS)
+        // UDP Inbound (Kernel TPROXY for WebRTC & UDP DNS)
         if (settings.transportMode == TransportMode.TCP_AND_UDP && settings.type == ProxyType.SOCKS5) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -121,15 +121,8 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds
+        // 4. Outbounds (Legacy "dns" outbound removed for sing-box 1.13+)
         val outbounds = JSONArray()
-
-        // Internal DNS Handler Outbound
-        val dnsOutbound = JSONObject().apply {
-            put("type", "dns")
-            put("tag", "dns-out")
-        }
-        outbounds.put(dnsOutbound)
 
         val proxyOutbound = JSONObject()
         when (settings.type) {
@@ -171,20 +164,23 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
-        val route = JSONObject()
+        // 5. Routing Rules (Using modern "action": "hijack-dns")
+        val route = JSONObject().apply {
+            put("auto_detect_interface", true)
+            put("final", "proxy-out")
+        }
+
         val routeRules = JSONArray()
 
-        // Divert port 53 traffic into internal DNS engine
+        // Modern Rule Action: Intercept port 53 into the internal DNS module
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
-            put("outbound", "dns-out")
+            put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
 
         route.put("rules", routeRules)
-        route.put("final", "proxy-out")
         root.put("route", route)
 
         return root.toString(2)
