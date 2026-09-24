@@ -50,6 +50,7 @@ object PersistentStorage {
                 put("password", settings.password)
                 put("start_on_boot", startOnBoot)
                 put("route_whole_profile", routeWholeProfile)
+                put("route_hotspot", settings.routeHotspot)
             }
 
             val tempFile = File(context.cacheDir, "temp_p${profileId}_backup.json")
