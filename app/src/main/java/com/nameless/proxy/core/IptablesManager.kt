@@ -13,6 +13,7 @@ object IptablesManager {
         val chainOutMangle = "NAMELESS_OUT_U${ProfileManager.profileId}"
         val chainHotspotNat = "NAMELESS_HS_NAT_U${ProfileManager.profileId}"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_U${ProfileManager.profileId}"
+        val chainHotspotV6Block = "NAMELESS_HS_V6_U${ProfileManager.profileId}"
 
         val start = ProfileManager.uidStart
         val end = ProfileManager.uidEnd
@@ -156,21 +157,28 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
         }
 
-        // 5. HOTSPOT & TETHERING ROUTING (Wi-Fi Hotspot, USB Tethering, Bluetooth)
+        // 5. HOTSPOT & TETHERING ROUTING
         if (settings.routeHotspot) {
-            // Enable kernel IP forwarding
+            // Enable IPv4 forwarding, prevent cellular IPv6 leak to tethered clients
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
-            commands.add("echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
+            commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
 
             val hotspotGateways = listOf("192.168.42.1", "192.168.43.1", "192.168.44.1", "192.168.49.1", "192.168.50.1")
             val hotspotSubnets = listOf(
                 "192.168.42.0/24", // USB Tethering
-                "192.168.43.0/24", // Default Android Wi-Fi Hotspot
+                "192.168.43.0/24", // Wi-Fi Hotspot
                 "192.168.44.0/24", // BT Tethering
                 "192.168.49.0/24", // Wi-Fi Direct
                 "192.168.50.0/24"  // Alternate Tethering
             )
             val tetherInterfaces = listOf("ap+", "rndis+", "usb+", "softap+", "wlan1", "wlan2", "bt-pan+")
+
+            // Block tethered IPv6 bypass: Forces connected Windows laptops to use IPv4
+            commands.add("ip6tables -N $chainHotspotV6Block 2>/dev/null")
+            for (iface in tetherInterfaces) {
+                commands.add("ip6tables -A $chainHotspotV6Block -i $iface -j DROP")
+            }
+            commands.add("ip6tables -I FORWARD -j $chainHotspotV6Block")
 
             // Hotspot TCP Redirection (NAT PREROUTING)
             commands.add("iptables -t nat -N $chainHotspotNat")
@@ -217,6 +225,7 @@ object IptablesManager {
         val chainOutMangle = "NAMELESS_OUT_U${ProfileManager.profileId}"
         val chainHotspotNat = "NAMELESS_HS_NAT_U${ProfileManager.profileId}"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_U${ProfileManager.profileId}"
+        val chainHotspotV6Block = "NAMELESS_HS_V6_U${ProfileManager.profileId}"
 
         val start = ProfileManager.uidStart
         val end = ProfileManager.uidEnd
@@ -225,7 +234,12 @@ object IptablesManager {
         val markHex = "0x" + Integer.toHexString(0x2333 + ProfileManager.profileId)
 
         return listOf(
-            // Hotspot cleanup
+            // Hotspot IPv6 drop cleanup
+            "ip6tables -D FORWARD -j $chainHotspotV6Block 2>/dev/null",
+            "ip6tables -F $chainHotspotV6Block 2>/dev/null",
+            "ip6tables -X $chainHotspotV6Block 2>/dev/null",
+
+            // Hotspot IPv4 cleanup
             "iptables -t nat -D PREROUTING -j $chainHotspotNat 2>/dev/null",
             "iptables -t nat -F $chainHotspotNat 2>/dev/null",
             "iptables -t nat -X $chainHotspotNat 2>/dev/null",
