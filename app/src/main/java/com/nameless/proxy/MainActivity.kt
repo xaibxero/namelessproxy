@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +51,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.cos
+import kotlin.math.sin
 
 data class AppItem(
     val name: String,
@@ -71,7 +76,6 @@ class MainActivity : ComponentActivity() {
         syncDaemonStatus()
         loadInstalledApps()
 
-        // Clean up or synchronize boot script state on launch
         val prefs = getSharedPreferences("nameless_proxy_config", Context.MODE_PRIVATE)
         val startOnBoot = prefs.getBoolean("start_on_boot", false)
         if (!startOnBoot) {
@@ -227,7 +231,6 @@ fun MainScreen(
             .putBoolean("start_on_boot", startOnBoot)
             .apply()
 
-        // Sync startup script to /data/adb/service.d
         BootManager.syncBootState(context, startOnBoot, getCurrentSettings())
     }
 
@@ -272,7 +275,7 @@ fun MainScreen(
         }
     }
 
-    // Dynamic Electric Velvet Background Gradient
+    // Dynamic Electric Background Palette
     val bgTopColor by animateColorAsState(
         targetValue = if (isProxyActive) Color(0xFF1E1038) else Color(0xFF0F111D),
         animationSpec = tween(1200, easing = FastOutSlowInEasing),
@@ -309,12 +312,11 @@ fun MainScreen(
                 )
             )
     ) {
-        // Ambient Violet/Indigo Radial Orb
         if (isProxyActive) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(460.dp)
+                    .height(480.dp)
                     .alpha(auraAlpha)
                     .background(
                         brush = Brush.radialGradient(
@@ -335,7 +337,7 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
-            // App Bar
+            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -357,7 +359,6 @@ fun MainScreen(
                     )
                 }
 
-                // Root Badge
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = when (rootState) {
@@ -408,7 +409,7 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Modern Segmented Capsule Tabs
+            // Capsule Tabs
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0x401E293B),
@@ -421,7 +422,7 @@ fun MainScreen(
                         .padding(5.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val tabTitles = listOf("Dashboard", "Config", "Apps (${selectedUids.size})")
+                    val tabTitles = listOf("Cockpit", "Config", "Apps (${selectedUids.size})")
                     tabTitles.forEachIndexed { index, title ->
                         val isSelected = selectedTab == index
                         val tabBg by animateColorAsState(
@@ -672,7 +673,7 @@ fun DashboardTab(
         label = "cardBorder"
     )
 
-    // Frosted Glass Dashboard Card
+    // Cockpit Gauge Surface Card
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -680,8 +681,11 @@ fun DashboardTab(
         colors = CardDefaults.cardColors(containerColor = Color(0x441E293B)),
         shape = RoundedCornerShape(26.dp)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            // Header Status Row
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Cockpit System Status Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -699,11 +703,11 @@ fun DashboardTab(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isProxyActive) "TUNNEL ONLINE" else "DISCONNECTED",
-                        fontSize = 12.sp,
+                        text = if (isProxyActive) "ENGINE RUNNING" else "IGNITION OFF",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = if (isProxyActive) Color(0xFF38BDF8) else Color(0xFF94A3B8),
-                        letterSpacing = 0.5.sp
+                        letterSpacing = 1.sp
                     )
                 }
 
@@ -712,9 +716,14 @@ fun DashboardTab(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Endpoint Banner Card
+            // THE SUPERBIKE TACHOMETER / SPEEDOMETER GAUGE
+            SuperbikeSpeedometerGauge(isProxyActive = isProxyActive)
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Geolocation Card
             Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = Color(0x660F172A),
@@ -724,27 +733,27 @@ fun DashboardTab(
                     .clickable(enabled = isProxyActive && !isFetchingIp) { onRefreshIp() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "⚪",
-                            fontSize = 26.sp
+                            fontSize = 24.sp
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = if (isProxyActive) {
                                     when {
-                                        isFetchingIp -> "Detecting location..."
+                                        isFetchingIp -> "Locking telemetry..."
                                         publicIpInfo != null -> publicIpInfo.ip
-                                        ipFetchFailed -> "Failed to resolve IP"
+                                        ipFetchFailed -> "Connection timeout"
                                         else -> "Resolving..."
                                     }
-                                } else "Native Connection",
-                                fontSize = 15.sp,
+                                } else "Native Interface",
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isProxyActive) Color.White else Color(0xFF94A3B8),
                                 fontFamily = FontFamily.Monospace
@@ -755,7 +764,7 @@ fun DashboardTab(
                                         isFetchingIp -> "Querying route..."
                                         publicIpInfo != null -> publicIpInfo.country
                                         ipFetchFailed -> "Tap to retry"
-                                        else -> "Securing..."
+                                        else -> "Stabilizing..."
                                     },
                                     fontSize = 11.sp,
                                     color = if (ipFetchFailed) Color(0xFFFBBF24) else Color(0xFFA78BFA),
@@ -768,7 +777,7 @@ fun DashboardTab(
                     if (isProxyActive) {
                         Text(
                             text = if (isFetchingIp) "..." else "Refresh",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             color = Color(0xFF38BDF8),
                             fontWeight = FontWeight.Bold
                         )
@@ -776,9 +785,9 @@ fun DashboardTab(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Specs Bar
+            // Specs Pill Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -789,7 +798,7 @@ fun DashboardTab(
 
                 Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillModifier)
                 Text(
-                    if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP (WebRTC)" else "TCP Only",
+                    if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP" else "TCP",
                     fontSize = 10.sp,
                     color = Color(0xFF38BDF8),
                     fontWeight = FontWeight.Bold,
@@ -810,16 +819,12 @@ fun DashboardTab(
                     Text("PID: $activePid", fontSize = 10.sp, color = Color(0xFF94A3B8), fontFamily = FontFamily.Monospace, modifier = pillModifier)
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TelemetryGauges(isProxyActive = isProxyActive)
         }
     }
 
     Spacer(modifier = Modifier.height(18.dp))
 
-    // Modern Capsule Button with Glow Gradient
+    // Ignition / Disconnect Action Button
     val buttonBrush = if (isProxyActive) {
         Brush.horizontalGradient(listOf(Color(0xFFE11D48), Color(0xFFF43F5E)))
     } else {
@@ -841,7 +846,7 @@ fun DashboardTab(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (isProxyActive) "Disconnect Tunnel" else "Connect Transparent Proxy",
+                text = if (isProxyActive) "Kill Engine (Disconnect)" else "Ignition (Connect Transparent)",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -852,7 +857,7 @@ fun DashboardTab(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Diagnostics Quick Bar
+    // Quick Diagnostics
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -890,6 +895,247 @@ fun DashboardTab(
     Spacer(modifier = Modifier.height(24.dp))
 }
 
+// -------------------------------------------------------------
+// BIKE COCKPIT SPEEDOMETER GAUGE COMPONENT
+// -------------------------------------------------------------
+@Composable
+fun SuperbikeSpeedometerGauge(isProxyActive: Boolean) {
+    var rawRxRate by remember { mutableLongStateOf(0L) }
+    var rawTxRate by remember { mutableLongStateOf(0L) }
+    var totalRxBytes by remember { mutableLongStateOf(0L) }
+    var totalTxBytes by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(isProxyActive) {
+        if (isProxyActive) {
+            var prevRx = TrafficStats.getTotalRxBytes()
+            var prevTx = TrafficStats.getTotalTxBytes()
+            val startRx = prevRx
+            val startTx = prevTx
+            var prevTime = System.currentTimeMillis()
+
+            while (isActive) {
+                delay(1000)
+                val currRx = TrafficStats.getTotalRxBytes()
+                val currTx = TrafficStats.getTotalTxBytes()
+                val currTime = System.currentTimeMillis()
+                val dt = (currTime - prevTime).coerceAtLeast(1) / 1000.0
+
+                rawRxRate = ((currRx - prevRx) / dt).toLong().coerceAtLeast(0)
+                rawTxRate = ((currTx - prevTx) / dt).toLong().coerceAtLeast(0)
+                totalRxBytes = (currRx - startRx).coerceAtLeast(0)
+                totalTxBytes = (currTx - startTx).coerceAtLeast(0)
+
+                prevRx = currRx
+                prevTx = currTx
+                prevTime = currTime
+            }
+        } else {
+            rawRxRate = 0L
+            rawTxRate = 0L
+            totalRxBytes = 0L
+            totalTxBytes = 0L
+        }
+    }
+
+    // Convert speed to a normalized gauge fraction (0.0 to 1.0)
+    // 0 to 50 MB/s dynamic scaling
+    val currentMbps = (rawRxRate * 8.0) / (1024.0 * 1024.0)
+    val gaugeFraction = (currentMbps / 60.0).toFloat().coerceIn(0f, 1f)
+
+    // Bouncy spring animation mimicking physical throttle and tachometer response
+    val animatedSweepFraction by animateFloatAsState(
+        targetValue = if (isProxyActive) gaugeFraction else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "tachometerSpring"
+    )
+
+    // Gauge Angles: sweeps 240 degrees from 150° (bottom-left) to 390° (bottom-right)
+    val startAngle = 150f
+    val totalSweep = 240f
+    val activeSweep = totalSweep * animatedSweepFraction
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(230.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // High-precision Canvas drawing for track, redline, dial ticks, and rev needle
+        Canvas(modifier = Modifier.size(220.dp)) {
+            val strokeWidth = 14.dp.toPx()
+            val radius = (size.minDimension - strokeWidth * 2) / 2
+            val centerOffset = Offset(size.width / 2, size.height / 2)
+
+            // 1. Muted Background Track Arc
+            drawArc(
+                color = Color(0x33334155),
+                startAngle = startAngle,
+                sweepAngle = totalSweep,
+                useCenter = false,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
+
+            // 2. Redline Zone Background Accent (top 20% of scale)
+            drawArc(
+                color = Color(0x33F43F5E),
+                startAngle = startAngle + (totalSweep * 0.8f),
+                sweepAngle = totalSweep * 0.2f,
+                useCenter = false,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
+
+            // 3. Dial Hash Ticks (Motorcycle Tachometer Style)
+            val totalTicks = 24
+            for (i in 0..totalTicks) {
+                val tickAngle = startAngle + (i.toFloat() / totalTicks) * totalSweep
+                val rad = Math.toRadians(tickAngle.toDouble())
+                val isRedline = i >= (totalTicks * 0.8f)
+
+                val tickLength = if (i % 4 == 0) 10.dp.toPx() else 5.dp.toPx()
+                val tickColor = if (isRedline) Color(0xFFF43F5E) else Color(0x6694A3B8)
+                val tickStroke = if (i % 4 == 0) 2.dp.toPx() else 1.dp.toPx()
+
+                val startRadius = radius + (strokeWidth / 2) + 3.dp.toPx()
+                val endRadius = startRadius + tickLength
+
+                val startX = centerOffset.x + (startRadius * cos(rad)).toFloat()
+                val startY = centerOffset.y + (startRadius * sin(rad)).toFloat()
+                val endX = centerOffset.x + (endRadius * cos(rad)).toFloat()
+                val endY = centerOffset.y + (endRadius * sin(rad)).toFloat()
+
+                drawLine(
+                    color = tickColor,
+                    start = Offset(startX, startY),
+                    end = Offset(endX, endY),
+                    strokeWidth = tickStroke,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // 4. Active Sweeping Gradient Arc
+            if (activeSweep > 0.5f) {
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        0.0f to Color(0xFF06B6D4),
+                        0.5f to Color(0xFF8B5CF6),
+                        0.85f to Color(0xFFF43F5E),
+                        1.0f to Color(0xFFFF2E63)
+                    ),
+                    startAngle = startAngle,
+                    sweepAngle = activeSweep,
+                    useCenter = false,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            }
+
+            // 5. Radial Needle Head Indicator Dot
+            if (activeSweep > 0.5f) {
+                val needleAngle = startAngle + activeSweep
+                val needleRad = Math.toRadians(needleAngle.toDouble())
+                val dotCenter = Offset(
+                    centerOffset.x + (radius * cos(needleRad)).toFloat(),
+                    centerOffset.y + (radius * sin(needleRad)).toFloat()
+                )
+                drawCircle(color = Color.White, radius = 5.dp.toPx(), center = dotCenter)
+                drawCircle(color = Color(0xFF38BDF8), radius = 2.5.dp.toPx(), center = dotCenter)
+            }
+        }
+
+        // Center Digital Display (Tachometer Cockpit Readout)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(top = 8.dp)
+        ) {
+            // Speed Number
+            val formattedSpeed = formatSpeedValueOnly(rawRxRate)
+            Text(
+                text = if (isProxyActive) formattedSpeed.first else "0.0",
+                fontSize = 44.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = (-1.5).sp
+            )
+
+            // Speed Unit
+            Text(
+                text = if (isProxyActive) formattedSpeed.second else "KB/s",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF38BDF8),
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Superbike Gear Indicator Pill
+            val gearText = when {
+                !isProxyActive -> "NEUTRAL"
+                currentMbps > 40.0 -> "GEAR 6 • REDLINE"
+                currentMbps > 25.0 -> "GEAR 5 • OVERDRIVE"
+                currentMbps > 10.0 -> "GEAR 4 • CRUISE"
+                currentMbps > 3.0 -> "GEAR 3 • ACCEL"
+                currentMbps > 0.5 -> "GEAR 2 • STEADY"
+                else -> "GEAR 1 • IDLE"
+            }
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (currentMbps > 40.0) Color(0x33F43F5E) else Color(0x44334155),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (currentMbps > 40.0) Color(0xFFF43F5E) else Color(0x22FFFFFF)
+                )
+            ) {
+                Text(
+                    text = gearText,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (currentMbps > 40.0) Color(0xFFF43F5E) else Color(0xFFA78BFA),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+    }
+
+    // Secondary Telemetry Sub-Cluster (Upload Boost & Session Totals)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column {
+            Text("UPLOAD BOOST", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
+            Text(
+                text = formatSpeed(rawTxRate),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFFA78BFA),
+                fontFamily = FontFamily.Monospace
+            )
+            Text("Total: ${formatBytes(totalTxBytes)}", fontSize = 10.sp, color = Color(0xFF94A3B8))
+        }
+
+        Column(horizontalAlignment = Alignment.End) {
+            Text("DOWN TOTAL", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
+            Text(
+                text = formatBytes(totalRxBytes),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                fontFamily = FontFamily.Monospace
+            )
+            Text("Bandwidth Used", fontSize = 10.sp, color = Color(0xFF94A3B8))
+        }
+    }
+}
+
 @Composable
 fun ActiveTimer() {
     var seconds by remember { mutableLongStateOf(0L) }
@@ -913,100 +1159,6 @@ fun ActiveTimer() {
         color = Color(0xFFA78BFA),
         fontWeight = FontWeight.Bold
     )
-}
-
-@Composable
-fun TelemetryGauges(isProxyActive: Boolean) {
-    var downSpeed by remember { mutableStateOf("0 B/s") }
-    var upSpeed by remember { mutableStateOf("0 B/s") }
-    var totalDown by remember { mutableStateOf("0 B") }
-    var totalUp by remember { mutableStateOf("0 B") }
-
-    LaunchedEffect(isProxyActive) {
-        if (isProxyActive) {
-            var prevRx = TrafficStats.getTotalRxBytes()
-            var prevTx = TrafficStats.getTotalTxBytes()
-            val startRx = prevRx
-            val startTx = prevTx
-            var prevTime = System.currentTimeMillis()
-
-            while (isActive) {
-                delay(1000)
-                val currRx = TrafficStats.getTotalRxBytes()
-                val currTx = TrafficStats.getTotalTxBytes()
-                val currTime = System.currentTimeMillis()
-                val dt = (currTime - prevTime).coerceAtLeast(1) / 1000.0
-
-                val rxRate = ((currRx - prevRx) / dt).toLong().coerceAtLeast(0)
-                val txRate = ((currTx - prevTx) / dt).toLong().coerceAtLeast(0)
-
-                downSpeed = formatSpeed(rxRate)
-                upSpeed = formatSpeed(txRate)
-                totalDown = formatBytes((currRx - startRx).coerceAtLeast(0))
-                totalUp = formatBytes((currTx - startTx).coerceAtLeast(0))
-
-                prevRx = currRx
-                prevTx = currTx
-                prevTime = currTime
-            }
-        } else {
-            downSpeed = "0 B/s"
-            upSpeed = "0 B/s"
-            totalDown = "0 B"
-            totalUp = "0 B"
-        }
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Surface(
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0x660F172A),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1AFFFFFF))
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text("DOWNLOAD", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = downSpeed,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
-                )
-                Text(
-                    text = "Total $totalDown",
-                    fontSize = 11.sp,
-                    color = Color(0xFF94A3B8)
-                )
-            }
-        }
-
-        Surface(
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0x660F172A),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1AFFFFFF))
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text("UPLOAD", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = upSpeed,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
-                )
-                Text(
-                    text = "Total $totalUp",
-                    fontSize = 11.sp,
-                    color = Color(0xFF94A3B8)
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -1320,6 +1472,14 @@ fun AppFilterTab(
                 )
             }
         }
+    }
+}
+
+private fun formatSpeedValueOnly(bytesPerSec: Long): Pair<String, String> {
+    return when {
+        bytesPerSec >= 1024 * 1024 -> Pair(String.format("%.1f", bytesPerSec / (1024.0 * 1024.0)), "MB/s")
+        bytesPerSec >= 1024 -> Pair(String.format("%.1f", bytesPerSec / 1024.0), "KB/s")
+        else -> Pair("$bytesPerSec", "B/s")
     }
 }
 
