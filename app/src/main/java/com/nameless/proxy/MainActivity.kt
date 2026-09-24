@@ -241,9 +241,9 @@ fun MainScreen(
             OutlinedButton(
                 onClick = {
                     coroutineScope.launch(Dispatchers.IO) {
-                        val logs = ProxyController.getRecentLogs()
+                        val logs = ProxyController.getDiagnosticsAndLogs()
                         withContext(Dispatchers.Main) {
-                            currentLogs = if (logs.isNotEmpty()) logs else "No logs found."
+                            currentLogs = logs.ifEmpty { "No logs found." }
                             showLogsDialog = true
                         }
                     }
