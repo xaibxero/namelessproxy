@@ -11,6 +11,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -73,7 +76,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF090A0F)
+                    color = Color(0xFF08090D)
                 ) {
                     MainScreen(
                         rootState = rootState,
@@ -161,9 +164,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 ProxyType.valueOf(prefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name)
-            } catch (_: Exception) {
-                ProxyType.SOCKS5
-            }
+            } catch (_: Exception) { ProxyType.SOCKS5 }
         )
     }
 
@@ -171,9 +172,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 TransportMode.valueOf(prefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name)
-            } catch (_: Exception) {
-                TransportMode.TCP_AND_UDP
-            }
+            } catch (_: Exception) { TransportMode.TCP_AND_UDP }
         )
     }
 
@@ -181,9 +180,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 IpMode.valueOf(prefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name)
-            } catch (_: Exception) {
-                IpMode.IPV4_ONLY
-            }
+            } catch (_: Exception) { IpMode.IPV4_ONLY }
         )
     }
 
@@ -192,6 +189,7 @@ fun MainScreen(
     var username by remember { mutableStateOf(prefs.getString("username", "FgCH4MnS3EQDohq") ?: "FgCH4MnS3EQDohq") }
     var password by remember { mutableStateOf(prefs.getString("password", "SzrAO5ADxzz81RP") ?: "SzrAO5ADxzz81RP") }
     var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
+    var startOnBoot by remember { mutableStateOf(prefs.getBoolean("start_on_boot", false)) }
 
     fun saveConfig() {
         prefs.edit()
@@ -203,6 +201,7 @@ fun MainScreen(
             .putString("username", username.trim())
             .putString("password", password.trim())
             .putBoolean("route_whole_profile", routeWholeProfile)
+            .putBoolean("start_on_boot", startOnBoot)
             .apply()
     }
 
@@ -211,26 +210,19 @@ fun MainScreen(
     var showLogsDialog by remember { mutableStateOf(false) }
     var currentLogs by remember { mutableStateOf("") }
 
-    var publicIpStr by remember { mutableStateOf<String?>("--") }
+    var publicIpInfo by remember { mutableStateOf<GeoIpResult?>(null) }
     var isFetchingIp by remember { mutableStateOf(false) }
 
     var selectedUids by remember { mutableStateOf(setOf<Int>()) }
     var showAppPicker by remember { mutableStateOf(false) }
 
-    var downSpeedStr by remember { mutableStateOf("0 B/s") }
-    var upSpeedStr by remember { mutableStateOf("0 B/s") }
-    var totalDownloadedStr by remember { mutableStateOf("0 B") }
-    var totalUploadedStr by remember { mutableStateOf("0 B") }
-    var connectionDurationSec by remember { mutableStateOf(0L) }
-
     val coroutineScope = rememberCoroutineScope()
 
     fun triggerPublicIpCheck() {
         isFetchingIp = true
-        publicIpStr = "Detecting..."
         coroutineScope.launch {
-            val detected = IpFetcher.getPublicIp()
-            publicIpStr = detected ?: "Failed to resolve"
+            val result = IpFetcher.getPublicIpInfo()
+            publicIpInfo = result
             isFetchingIp = false
         }
     }
@@ -238,41 +230,22 @@ fun MainScreen(
     LaunchedEffect(isProxyActive) {
         if (isProxyActive) {
             triggerPublicIpCheck()
-
-            var prevRx = TrafficStats.getTotalRxBytes()
-            var prevTx = TrafficStats.getTotalTxBytes()
-            val startRx = prevRx
-            val startTx = prevTx
-            var prevTime = System.currentTimeMillis()
-            val startTime = System.currentTimeMillis()
-
-            while (isActive) {
-                delay(1000)
-                val currRx = TrafficStats.getTotalRxBytes()
-                val currTx = TrafficStats.getTotalTxBytes()
-                val currTime = System.currentTimeMillis()
-                val dt = (currTime - prevTime).coerceAtLeast(1) / 1000.0
-
-                val rxRate = ((currRx - prevRx) / dt).toLong().coerceAtLeast(0)
-                val txRate = ((currTx - prevTx) / dt).toLong().coerceAtLeast(0)
-
-                downSpeedStr = formatSpeed(rxRate)
-                upSpeedStr = formatSpeed(txRate)
-                totalDownloadedStr = formatBytes((currRx - startRx).coerceAtLeast(0))
-                totalUploadedStr = formatBytes((currTx - startTx).coerceAtLeast(0))
-                connectionDurationSec = (currTime - startTime) / 1000
-
-                prevRx = currRx
-                prevTx = currTx
-                prevTime = currTime
-            }
         } else {
-            downSpeedStr = "0 B/s"
-            upSpeedStr = "0 B/s"
-            connectionDurationSec = 0L
-            publicIpStr = "--"
+            publicIpInfo = null
         }
     }
+
+    val buttonBgColor by animateColorAsState(
+        targetValue = if (isProxyActive) Color(0xFFD32F2F) else Color(0xFF00E676),
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "btnColor"
+    )
+
+    val cardBorderColor by animateColorAsState(
+        targetValue = if (isProxyActive) Color(0x6600E676) else Color(0x1AFFFFFF),
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "borderColor"
+    )
 
     Column(
         modifier = Modifier
@@ -284,7 +257,7 @@ fun MainScreen(
     ) {
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Top App Bar
+        // App Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -357,80 +330,61 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Hero Card (Status, Public IP, Live Specs, Speeds)
+        // Hero Card (Status & Telemetry)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(
-                    1.dp,
-                    if (isProxyActive) Color(0x6600E676) else Color(0x22FFFFFF),
-                    RoundedCornerShape(18.dp)
-                ),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF13151D)),
-            shape = RoundedCornerShape(18.dp)
+                .border(1.dp, cardBorderColor, RoundedCornerShape(20.dp)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF11131A)),
+            shape = RoundedCornerShape(20.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                // Status Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(
-                                    if (isProxyActive) Color(0xFF00E676) else Color(0xFF757575),
-                                    CircleShape
-                                )
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isProxyActive) "ACTIVE & ROUTING" else "IDLE / DISCONNECTED",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isProxyActive) Color(0xFF00E676) else Color.Gray,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-
-                    if (isProxyActive) {
-                        Text(
-                            text = formatDuration(connectionDurationSec),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 13.sp,
-                            color = Color.LightGray
-                        )
-                    }
-                }
+                // Status Header with slow pulsing dot
+                StatusHeader(isProxyActive = isProxyRunningState)
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Public IP Banner
+                // Public IP Banner with Flag
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1A1C26),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF171A24),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(enabled = isProxyActive && !isFetchingIp) { triggerPublicIpCheck() }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("🌐", fontSize = 14.sp)
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Public IP: $publicIpStr",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isProxyActive) Color.White else Color.Gray,
-                                fontFamily = FontFamily.Monospace
+                                text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "⚪",
+                                fontSize = 16.sp
                             )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isProxyActive) {
+                                        if (isFetchingIp) "Detecting location..."
+                                        else (publicIpInfo?.ip ?: "Resolving IP...")
+                                    } else "Engine Disconnected",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isProxyActive) Color.White else Color.Gray,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                if (isProxyActive && publicIpInfo != null && !isFetchingIp) {
+                                    Text(
+                                        text = publicIpInfo!!.country,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF00E676),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
+
                         if (isProxyActive) {
                             Text(
                                 text = if (isFetchingIp) "..." else "Refresh",
@@ -444,22 +398,22 @@ fun MainScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Active Specs Bar (Pills showing running configuration)
+                // Active Specs Pills
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val badgeModifier = Modifier
-                        .background(Color(0xFF202330), RoundedCornerShape(6.dp))
+                    val pillBg = Modifier
+                        .background(Color(0xFF1D212E), RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
 
-                    Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = badgeModifier)
+                    Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillBg)
                     Text(
                         if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP (WebRTC)" else "TCP Only",
                         fontSize = 10.sp,
                         color = Color(0xFF00E676),
                         fontWeight = FontWeight.Bold,
-                        modifier = badgeModifier
+                        modifier = pillBg
                     )
                     Text(
                         when (ipMode) {
@@ -470,48 +424,23 @@ fun MainScreen(
                         fontSize = 10.sp,
                         color = Color.LightGray,
                         fontWeight = FontWeight.Bold,
-                        modifier = badgeModifier
+                        modifier = pillBg
                     )
                     if (activePid != null) {
-                        Text("PID: $activePid", fontSize = 10.sp, color = Color.Gray, fontFamily = FontFamily.Monospace, modifier = badgeModifier)
+                        Text("PID: $activePid", fontSize = 10.sp, color = Color.Gray, fontFamily = FontFamily.Monospace, modifier = pillBg)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Speed Display
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("DOWNLOAD", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = downSpeedStr,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
-                        )
-                        Text("Session: $totalDownloadedStr", fontSize = 11.sp, color = Color(0xFF9E9E9E))
-                    }
-
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("UPLOAD", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = upSpeedStr,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
-                        )
-                        Text("Session: $totalUploadedStr", fontSize = 11.sp, color = Color(0xFF9E9E9E))
-                    }
-                }
+                // Telemetry Section (Isolated recomposition prevents scroll lag)
+                TelemetrySection(isProxyActive = isProxyRunningState)
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Master Connection Switch
+        // Connect Button
         Button(
             onClick = {
                 saveConfig()
@@ -540,9 +469,7 @@ fun MainScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(58.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isProxyActive) Color(0xFFD32F2F) else Color(0xFF00E676)
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = buttonBgColor),
             shape = RoundedCornerShape(16.dp)
         ) {
             Text(
@@ -619,7 +546,7 @@ fun MainScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "KERNEL ROUTING CONFIGURATION",
+            text = "CONFIGURATION",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = Color.Gray,
@@ -628,7 +555,45 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Transport Mode Selector (TCP Only vs TCP+UDP)
+        // Start on Boot Switch
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF11131A)),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Start on Boot",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Auto-launch daemon after device restart",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+                Switch(
+                    checked = startOnBoot,
+                    onCheckedChange = {
+                        startOnBoot = it
+                        saveConfig()
+                    }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Transport Modes
         Text("Transport Protocols", color = Color.Gray, fontSize = 12.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -756,7 +721,7 @@ fun MainScreen(
         // Routing Scope Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF13151D)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF11131A)),
             shape = RoundedCornerShape(14.dp)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -918,6 +883,142 @@ fun MainScreen(
     }
 }
 
+// Sub-composable: Status header with slow breathing glow
+@Composable
+fun StatusHeader(isProxyActive: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alphaAnim by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = EaseInOut),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .alpha(if (isProxyActive) alphaAnim else 1f)
+                    .background(
+                        if (isProxyActive) Color(0xFF00E676) else Color(0xFF757575),
+                        CircleShape
+                    )
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isProxyActive) "ACTIVE & ROUTING" else "IDLE / DISCONNECTED",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isProxyActive) Color(0xFF00E676) else Color.Gray,
+                letterSpacing = 0.5.sp
+            )
+        }
+    }
+}
+
+// Sub-composable: Self-contained live speed meter (Eliminates scroll lag)
+@Composable
+fun TelemetrySection(isProxyActive: Boolean) {
+    var downSpeedStr by remember { mutableStateOf("0 B/s") }
+    var upSpeedStr by remember { mutableStateOf("0 B/s") }
+    var totalDownloadedStr by remember { mutableStateOf("0 B") }
+    var totalUploadedStr by remember { mutableStateOf("0 B") }
+
+    LaunchedEffect(isProxyActive) {
+        if (isProxyActive) {
+            var prevRx = TrafficStats.getTotalRxBytes()
+            var prevTx = TrafficStats.getTotalTxBytes()
+            val startRx = prevRx
+            val startTx = prevTx
+            var prevTime = System.currentTimeMillis()
+
+            while (isActive) {
+                delay(1000)
+                val currRx = TrafficStats.getTotalRxBytes()
+                val currTx = TrafficStats.getTotalTxBytes()
+                val currTime = System.currentTimeMillis()
+                val dt = (currTime - prevTime).coerceAtLeast(1) / 1000.0
+
+                val rxRate = ((currRx - prevRx) / dt).toLong().coerceAtLeast(0)
+                val txRate = ((currTx - prevTx) / dt).toLong().coerceAtLeast(0)
+
+                downSpeedStr = formatSpeed(rxRate)
+                upSpeedStr = formatSpeed(txRate)
+                totalDownloadedStr = formatBytes((currRx - startRx).coerceAtLeast(0))
+                totalUploadedStr = formatBytes((currTx - startTx).coerceAtLeast(0))
+
+                prevRx = currRx
+                prevTx = currTx
+                prevTime = currTime
+            }
+        } else {
+            downSpeedStr = "0 B/s"
+            upSpeedStr = "0 B/s"
+            totalDownloadedStr = "0 B"
+            totalUploadedStr = "0 B"
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Download Box
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF171A24)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("DOWNLOAD", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = downSpeedStr,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+                Text(
+                    text = "Total: $totalDownloadedStr",
+                    fontSize = 10.sp,
+                    color = Color(0xFF757575)
+                )
+            }
+        }
+
+        // Upload Box
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF171A24)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("UPLOAD", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = upSpeedStr,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+                Text(
+                    text = "Total: $totalUploadedStr",
+                    fontSize = 10.sp,
+                    color = Color(0xFF757575)
+                )
+            }
+        }
+    }
+}
+
 private fun formatSpeed(bytesPerSec: Long): String {
     return when {
         bytesPerSec >= 1024 * 1024 -> String.format("%.2f MB/s", bytesPerSec / (1024.0 * 1024.0))
@@ -932,16 +1033,5 @@ private fun formatBytes(bytes: Long): String {
         bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
         bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
-    }
-}
-
-private fun formatDuration(seconds: Long): String {
-    val hrs = seconds / 3600
-    val mins = (seconds % 3600) / 60
-    val secs = seconds % 60
-    return if (hrs > 0) {
-        String.format("%02d:%02d:%02d", hrs, mins, secs)
-    } else {
-        String.format("%02d:%02d", mins, secs)
     }
 }
