@@ -16,17 +16,17 @@ enum class IpMode {
 data class ProxySettings(
     val type: ProxyType = ProxyType.SOCKS5,
     val ipMode: IpMode = IpMode.IPV4_ONLY,
-    val host: String = "127.0.0.1",
-    val port: Int = 1080,
-    val username: String = "",
-    val password: String = ""
+    val host: String = "48.45.153.215",
+    val port: Int = 46508,
+    val username: String = "FgCH4MnS3EQDohq",
+    val password: String = "SzrAO5ADxzz81RP"
 )
 
 object ConfigGenerator {
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
-        // 1. Logging
+        // 1. Logging without raw terminal color codes
         val log = JSONObject().apply {
             put("level", "info")
             put("timestamp", true)
@@ -86,7 +86,7 @@ object ConfigGenerator {
         }
         outbounds.put(proxyOutbound)
 
-        // Direct outbound
+        // Direct outbound fallback
         val directOutbound = JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
@@ -94,9 +94,8 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 4. Route block
+        // 4. Default outbound route without auto_detect_interface
         val route = JSONObject().apply {
-            put("auto_detect_interface", true)
             put("final", "proxy-out")
         }
         root.put("route", route)
