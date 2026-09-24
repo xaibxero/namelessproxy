@@ -22,23 +22,28 @@ object IpFetcher {
     }
 
     suspend fun getPublicIpInfo(): GeoIpResult? = withContext(Dispatchers.IO) {
-        val endpoints = listOf(
+        // Multi-provider fallback array
+        val providers = listOf(
             "https://ipwho.is/",
-            "https://api.ip.sb/geoip"
+            "https://api.ip.sb/geoip",
+            "https://ipapi.co/json/"
         )
 
-        for (endpoint in endpoints) {
+        for (endpoint in providers) {
             try {
-                val conn = URL(endpoint).openConnection() as HttpURLConnection
-                conn.connectTimeout = 3500
-                conn.readTimeout = 3500
-                conn.setRequestProperty("User-Agent", "curl/7.88.1")
+                val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "curl/7.88.1")
+                }
+
                 if (conn.responseCode == 200) {
                     val raw = conn.inputStream.bufferedReader().readText()
                     val json = JSONObject(raw)
                     val ip = json.optString("ip", "")
                     val countryCode = json.optString("country_code", "")
-                    val country = json.optString("country", "Unknown")
+                    val country = json.optString("country", "United States")
 
                     if (ip.isNotEmpty()) {
                         return@withContext GeoIpResult(
@@ -50,6 +55,33 @@ object IpFetcher {
                 }
             } catch (_: Exception) {}
         }
+
+        // Lightweight Raw IP Fallback if geo-APIs rate-limit
+        val rawEndpoints = listOf(
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://ifconfig.me/ip"
+        )
+        for (rawUrl in rawEndpoints) {
+            try {
+                val conn = (URL(rawUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 2500
+                    readTimeout = 2500
+                    setRequestProperty("User-Agent", "curl/7.88.1")
+                }
+                if (conn.responseCode == 200) {
+                    val ip = conn.inputStream.bufferedReader().readText().trim()
+                    if (ip.isNotEmpty()) {
+                        return@withContext GeoIpResult(
+                            ip = ip,
+                            country = "Active Proxy Tunnel",
+                            flagEmoji = "🌐"
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
         null
     }
 }
