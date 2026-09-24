@@ -52,7 +52,6 @@ object ProxyController {
         }
     }
 
-    // Force-extract the bundled binary directly via root stream
     fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = "/data/local/tmp/sing-box"
         return try {
@@ -90,17 +89,27 @@ object ProxyController {
         return result.contains("RUNNING")
     }
 
+    fun clearLogs() {
+        val logFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.log"
+        executeSu(listOf("> $logFile"))
+    }
+
     fun getDiagnosticsAndLogs(): String {
         val profileId = ProfileManager.profileId
         val logFile = "/data/local/tmp/singbox_u${profileId}.log"
-        return executeSuWithOutput(listOf(
-            "echo '--- BINARY STATUS ---'",
-            "ls -la /data/local/tmp/sing-box 2>&1",
-            "/data/local/tmp/sing-box version 2>&1 | head -n 3",
+        val raw = executeSuWithOutput(listOf(
+            "echo '=== DAEMON STATUS ==='",
+            "if [ -f /data/local/tmp/singbox_u${profileId}.pid ] && kill -0 \$(cat /data/local/tmp/singbox_u${profileId}.pid) 2>/dev/null; then",
+            "  echo 'State: ACTIVE (PID: '\$(cat /data/local/tmp/singbox_u${profileId}.pid)')'",
+            "else",
+            "  echo 'State: STOPPED / NOT RUNNING'",
+            "fi",
             "echo ''",
-            "echo '--- RECENT LOGS ---'",
-            "if [ -f $logFile ]; then tail -n 25 $logFile; else echo 'No log file generated yet.'; fi"
+            "echo '=== RECENT LOG ENTRIES ==='",
+            "if [ -f $logFile ]; then tail -n 120 $logFile; else echo 'No log file found.'; fi"
         ))
+        // Strip raw ANSI terminal color codes for clear reading
+        return raw.replace(Regex("\u001B\\[[;\\d]*m"), "")
     }
 
     fun startProxy(context: Context, settings: ProxySettings, selectedUids: List<Int>? = null): StartResult {
@@ -111,26 +120,23 @@ object ProxyController {
         val logFile = "/data/local/tmp/singbox_u${profileId}.log"
         val port = ProfileManager.localInboundPort
 
-        // Verify if the binary can execute. If it fails with 'No such file or directory', re-extract it.
+        // Verify executable status
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
             if (!extracted) {
-                return StartResult(success = false, errorMessage = "Failed to extract binary to $binaryPath")
+                return StartResult(success = false, errorMessage = "Failed to extract core binary")
             }
         }
 
-        // Write configuration
         val configContent = ConfigGenerator.generateJson(settings, port)
         val configWritten = writeConfigDirectly(configContent, configPath)
         if (!configWritten) {
-            return StartResult(success = false, errorMessage = "Failed to write config to $configPath")
+            return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Kill any previous daemon instance
         stopProxy(context)
 
-        // Launch sing-box daemon in background under root
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
         executeSu(listOf(runCmd))
 
@@ -143,8 +149,7 @@ object ProxyController {
             )
         }
 
-        // Apply iptables redirection
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings.ipMode, selectedUids)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
         return if (ipSuccess) {
