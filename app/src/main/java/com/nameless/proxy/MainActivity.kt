@@ -201,10 +201,11 @@ fun MainScreen(
         )
     }
 
-    var host by remember { mutableStateOf(prefs.getString("host", "48.45.153.215") ?: "48.45.153.215") }
-    var port by remember { mutableStateOf(prefs.getString("port", "46508") ?: "46508") }
-    var username by remember { mutableStateOf(prefs.getString("username", "FgCH4MnS3EQDohq") ?: "FgCH4MnS3EQDohq") }
-    var password by remember { mutableStateOf(prefs.getString("password", "SzrAO5ADxzz81RP") ?: "SzrAO5ADxzz81RP") }
+    // Clean user defaults: empty strings on fresh install, auto-persisted on edit
+    var host by remember { mutableStateOf(prefs.getString("host", "") ?: "") }
+    var port by remember { mutableStateOf(prefs.getString("port", "1080") ?: "1080") }
+    var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
+    var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
     var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
     var startOnBoot by remember { mutableStateOf(prefs.getBoolean("start_on_boot", false)) }
 
@@ -277,7 +278,6 @@ fun MainScreen(
         }
     }
 
-    // Dynamic Multi-Layered Aurora Engine
     val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
     val auroraAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -304,7 +304,6 @@ fun MainScreen(
             .fillMaxSize()
             .background(Color(0xFF020408))
     ) {
-        // Living Multi-Center Chromatic Aura Canvas
         Canvas(modifier = Modifier.fillMaxSize().alpha(if (isProxyActive) auraPulse else 0.25f)) {
             val w = size.width
             val h = size.height
@@ -401,7 +400,6 @@ fun MainScreen(
                     )
                 }
 
-                // Root Badge
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color(0x1FFFFFFF),
@@ -519,6 +517,12 @@ fun MainScreen(
                             ipMode = ipMode,
                             onRefreshIp = { triggerPublicIpCheck() },
                             onToggleProxy = {
+                                if (!isProxyActive && host.trim().isEmpty()) {
+                                    testStatus = "Please enter a Proxy Server Host/IP in Config"
+                                    selectedTab = 1
+                                    return@ConsoleHUDTab
+                                }
+
                                 saveConfig()
                                 if (isProxyActive) {
                                     onStopProxy { }
@@ -537,6 +541,11 @@ fun MainScreen(
                             isTesting = isTesting,
                             testStatus = testStatus,
                             onTestUpstream = {
+                                if (host.trim().isEmpty()) {
+                                    testStatus = "Please enter a Proxy Server Host/IP first"
+                                    selectedTab = 1
+                                    return@ConsoleHUDTab
+                                }
                                 saveConfig()
                                 isTesting = true
                                 testStatus = "Testing socket..."
@@ -1248,7 +1257,7 @@ fun ActiveTimer() {
 }
 
 // -------------------------------------------------------------
-// TAB 1: PROXY CONFIGURATION (With Dedicated Alive / Dead Checker)
+// TAB 1: PROXY CONFIGURATION (Clean User Defaults & Health Check)
 // -------------------------------------------------------------
 @Composable
 fun ProxySetupTab(
@@ -1271,7 +1280,6 @@ fun ProxySetupTab(
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
 
-    // Dedicated Alive / Dead Checker States
     var isCheckingAlive by remember { mutableStateOf(false) }
     var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -1378,6 +1386,7 @@ fun ProxySetupTab(
             value = host,
             onValueChange = onHostChange,
             label = { Text("Server Host / IP") },
+            placeholder = { Text("e.g. 192.168.1.100 or proxy.domain.com") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             singleLine = true
@@ -1389,6 +1398,7 @@ fun ProxySetupTab(
             value = port,
             onValueChange = onPortChange,
             label = { Text("Server Port") },
+            placeholder = { Text("1080") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             singleLine = true
@@ -1404,6 +1414,7 @@ fun ProxySetupTab(
                 value = username,
                 onValueChange = onUsernameChange,
                 label = { Text("Username") },
+                placeholder = { Text("Optional") },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true
@@ -1412,6 +1423,7 @@ fun ProxySetupTab(
                 value = password,
                 onValueChange = onPasswordChange,
                 label = { Text("Password") },
+                placeholder = { Text("Optional") },
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
                     Text(
@@ -1444,7 +1456,7 @@ fun ProxySetupTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Server Health Check",
                             fontSize = 14.sp,
@@ -1460,6 +1472,10 @@ fun ProxySetupTab(
 
                     Button(
                         onClick = {
+                            if (host.trim().isEmpty()) {
+                                aliveCheckResult = TestResult.Failure("Host is empty")
+                                return@Button
+                            }
                             isCheckingAlive = true
                             aliveCheckResult = null
                             coroutineScope.launch {
@@ -1679,7 +1695,7 @@ fun AppFilterTab(
                     .weight(1f)
             ) {
                 Text(
-                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to choose specific apps.",
+                    text = "All applications in Profile ${ProfileManager.profileId} are currently routed.\nDisable switch above to customize individual apps.",
                     color = Color(0xFF64748B),
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
@@ -1702,7 +1718,7 @@ private fun formatBytes(bytes: Long): String {
     return when {
         bytes >= 1024 * 1024 * 1024 -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
         bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-        bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
+        bytes >= 1024 -> String.format("%.1f KB", bytes / (1024.0 * 1024.0))
         else -> "$bytes B"
     }
 }
