@@ -126,7 +126,7 @@ fun MainScreen(
 
     var isConnected by remember { mutableStateOf(false) }
 
-    // Load persisted settings per profile
+    // Persisted settings with pre-filled test defaults
     var proxyType by remember {
         mutableStateOf(
             try {
@@ -147,10 +147,10 @@ fun MainScreen(
         )
     }
 
-    var host by remember { mutableStateOf(prefs.getString("host", "") ?: "") }
-    var port by remember { mutableStateOf(prefs.getString("port", "1080") ?: "1080") }
-    var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
-    var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
+    var host by remember { mutableStateOf(prefs.getString("host", "48.45.153.215") ?: "48.45.153.215") }
+    var port by remember { mutableStateOf(prefs.getString("port", "46508") ?: "46508") }
+    var username by remember { mutableStateOf(prefs.getString("username", "FgCH4MnS3EQDohq") ?: "FgCH4MnS3EQDohq") }
+    var password by remember { mutableStateOf(prefs.getString("password", "SzrAO5ADxzz81RP") ?: "SzrAO5ADxzz81RP") }
     var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
 
     fun saveConfig() {
