@@ -275,7 +275,6 @@ fun MainScreen(
         }
     }
 
-    // Switch Slot Function
     fun switchSlot(newSlot: Int) {
         if (newSlot == activeSlot) return
         saveConfig()
@@ -285,7 +284,6 @@ fun MainScreen(
         onSyncStatus()
     }
 
-    // Restore from persistent storage backup on boot/granted
     LaunchedEffect(rootState, activeSlot) {
         if (rootState == RootState.GRANTED && host.isEmpty()) {
             val backup = PersistentStorage.loadBackup(activeSlot)
@@ -467,7 +465,7 @@ fun MainScreen(
                         letterSpacing = 1.5.sp
                     )
                     Text(
-                        text = "PROFILE $activeSlot • KERNEL TUNNEL",
+                        text = "USER ${ProfileManager.androidUserId} • PROFILE $activeSlot • KERNEL TUNNEL",
                         fontSize = 10.sp,
                         color = if (isProxyActive) Color(0xFF00FF88) else Color(0xFF64748B),
                         fontWeight = FontWeight.Bold,
@@ -522,14 +520,14 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 5-PROFILE SLOTS SELECTOR RIBBON
+            // 5-Profile Slots Selector Ribbon
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                (0 until ProfileManager.MAX_PROFILES).forEach { slotIndex ->
+                (0 until ProfileManager.MAX_SLOTS).forEach { slotIndex ->
                     val isSelected = slotIndex == activeSlot
                     val slotBg by animateColorAsState(
                         targetValue = if (isSelected) Color(0xFF00FF88).copy(alpha = 0.18f) else Color(0x22111827),
@@ -674,7 +672,7 @@ fun MainScreen(
                             },
                             onViewLogs = {
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.profileId)
+                                    val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, ProfileManager.activeSlot)
                                     withContext(Dispatchers.Main) {
                                         currentLogs = logs.ifEmpty { "No logs recorded." }
                                         showLogsDialog = true
@@ -767,7 +765,7 @@ fun MainScreen(
                             Text("Copy")
                         }
                         TextButton(onClick = {
-                            ProxyController.clearLogs(ProfileManager.profileId)
+                            ProxyController.clearLogs(ProfileManager.androidUserId, ProfileManager.activeSlot)
                             currentLogs = "Logs cleared."
                         }) {
                             Text("Clear")
@@ -776,7 +774,7 @@ fun MainScreen(
                     Row {
                         TextButton(onClick = {
                             coroutineScope.launch(Dispatchers.IO) {
-                                val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.profileId)
+                                val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, ProfileManager.activeSlot)
                                 withContext(Dispatchers.Main) {
                                     currentLogs = logs.ifEmpty { "No logs recorded." }
                                 }
@@ -1609,7 +1607,6 @@ fun ProxySetupTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Dynamic Protocol Inputs
         when (proxyType) {
             ProxyType.SOCKS5, ProxyType.HTTP -> {
                 Row(
