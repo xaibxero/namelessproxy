@@ -48,15 +48,17 @@ object ConfigGenerator {
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
+        // Remote DNS: Resolves queries through proxy tunnel using Cloudflare (prevents mismatch)
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "8.8.8.8")
+            put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
         }
         dnsServers.put(remoteDns)
 
+        // Direct DNS: Bootstrap resolver
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
@@ -75,7 +77,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 3. Inbounds: Bind to 0.0.0.0 / :: so local apps, cellular, and hotspot clients are accepted
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -84,7 +86,7 @@ object ConfigGenerator {
 
         val inbounds = JSONArray()
 
-        // TCP Transparent Redirection (iptables REDIRECT)
+        // TCP Inbound (Kernel REDIRECT for app traffic, Port 53 DNS, and Port 853 DoT)
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -93,7 +95,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // UDP Transparent Proxy (iptables TPROXY)
+        // UDP Inbound (Kernel TPROXY for UDP traffic, WebRTC, and UDP Port 53)
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -105,7 +107,7 @@ object ConfigGenerator {
             inbounds.put(tproxyInbound)
         }
 
-        // Local SOCKS5 Inbound on 127.0.0.1 for direct IP checks & probes
+        // Dedicated Internal SOCKS5 Inbound on 127.0.0.1 for self IP lookups
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -116,7 +118,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds (Multi-Protocol Universal Generator)
+        // 4. Outbounds (Multi-Protocol Support)
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject()
 
@@ -221,12 +223,22 @@ object ConfigGenerator {
         }
 
         val routeRules = JSONArray()
+
+        // Hijack plaintext Port 53 to sing-box internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
+
+        // Route Android Private DNS (DoT Port 853) straight through the proxy tunnel
+        val dotRouteRule = JSONObject().apply {
+            val portArray = JSONArray().apply { put(853) }
+            put("port", portArray)
+            put("outbound", "proxy-out")
+        }
+        routeRules.put(dotRouteRule)
 
         route.put("rules", routeRules)
         root.put("route", route)
