@@ -47,14 +47,8 @@ object IptablesManager {
             commands.add("iptables -t mangle -N $chainOutMangle")
             commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
 
-            // Intercept standard UDP Port 53 DNS
-            if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
-            } else {
-                for (uid in selectedUids) {
-                    commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
-                }
-            }
+            // Intercept standard UDP Port 53 DNS globally for the profile so netd (UID 1052) doesn't leak
+            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
             val reservedV4 = listOf(
                 "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
@@ -90,14 +84,8 @@ object IptablesManager {
             commands.add("iptables -t nat -N $chainNatV4")
             commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
 
-            // Intercept standard TCP Port 53 DNS (Port 853 is untouched so TLS handshakes pass)
-            if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-            } else {
-                for (uid in selectedUids) {
-                    commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
-                }
-            }
+            // Intercept TCP Port 53 DNS globally for the profile so netd doesn't leak
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
             val reservedV4 = listOf(
                 "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
@@ -111,6 +99,7 @@ object IptablesManager {
                 commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
             }
 
+            // Per-App filter: Only redirect TCP traffic for selected app UIDs
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("iptables -t nat -A $chainNatV4 -p tcp -j REDIRECT --to-ports $inboundPort")
             } else {
@@ -121,7 +110,7 @@ object IptablesManager {
             commands.add("iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4")
         }
 
-        // 4. IPv6 Redirection
+        // 4. IPv6 Redirection / Shield
         if (settings.ipMode == IpMode.IPV4_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("ip6tables -A OUTPUT -m owner --uid-owner $start-$end -j DROP")
@@ -134,13 +123,7 @@ object IptablesManager {
             commands.add("ip6tables -t nat -N $chainNatV6")
             commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
 
-            if (selectedUids.isNullOrEmpty()) {
-                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-            } else {
-                for (uid in selectedUids) {
-                    commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
-                }
-            }
+            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
