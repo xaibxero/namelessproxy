@@ -79,14 +79,6 @@ class MainActivity : ComponentActivity() {
         syncDaemonStatus()
         loadInstalledApps()
 
-        val prefs = getSharedPreferences("nameless_proxy_config", Context.MODE_PRIVATE)
-        val startOnBoot = prefs.getBoolean("start_on_boot", false)
-        if (!startOnBoot) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                BootManager.removeBootScript()
-            }
-        }
-
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 syncDaemonStatus()
@@ -102,6 +94,7 @@ class MainActivity : ComponentActivity() {
                     activePid = activePidState,
                     onRecheckRoot = { refreshRootStatus() },
                     installedApps = installedApps,
+                    onSyncStatus = { syncDaemonStatus() },
                     onStartProxy = { settings, selectedUids, onResult ->
                         lifecycleScope.launch(Dispatchers.IO) {
                             val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
@@ -127,8 +120,8 @@ class MainActivity : ComponentActivity() {
 
     private fun syncDaemonStatus() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val running = ProxyController.isRunning()
-            val pid = if (running) ProxyController.getActivePid() else null
+            val running = ProxyController.isRunning(ProfileManager.profileId)
+            val pid = if (running) ProxyController.getActivePid(ProfileManager.profileId) else null
             withContext(Dispatchers.Main) {
                 isProxyRunningState = running
                 activePidState = pid
@@ -170,46 +163,62 @@ fun MainScreen(
     activePid: String?,
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
+    onSyncStatus: () -> Unit,
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("nameless_proxy_config", Context.MODE_PRIVATE) }
     val coroutineScope = rememberCoroutineScope()
 
+    var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    var proxyType by remember {
+    fun getSlotPrefs(slot: Int) = context.getSharedPreferences("nameless_slot_$slot", Context.MODE_PRIVATE)
+
+    var currentPrefs by remember(activeSlot) { mutableStateOf(getSlotPrefs(activeSlot)) }
+
+    // Active Slot States
+    var proxyType by remember(activeSlot) {
         mutableStateOf(
             try {
-                ProxyType.valueOf(prefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name)
+                ProxyType.valueOf(currentPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name)
             } catch (_: Exception) { ProxyType.SOCKS5 }
         )
     }
 
-    var transportMode by remember {
+    var transportMode by remember(activeSlot) {
         mutableStateOf(
             try {
-                TransportMode.valueOf(prefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name)
+                TransportMode.valueOf(currentPrefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name)
             } catch (_: Exception) { TransportMode.TCP_AND_UDP }
         )
     }
 
-    var ipMode by remember {
+    var ipMode by remember(activeSlot) {
         mutableStateOf(
             try {
-                IpMode.valueOf(prefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name)
+                IpMode.valueOf(currentPrefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name)
             } catch (_: Exception) { IpMode.IPV4_ONLY }
         )
     }
 
-    var host by remember { mutableStateOf(prefs.getString("host", "") ?: "") }
-    var port by remember { mutableStateOf(prefs.getString("port", "1080") ?: "1080") }
-    var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
-    var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
-    var routeWholeProfile by remember { mutableStateOf(prefs.getBoolean("route_whole_profile", true)) }
-    var routeHotspot by remember { mutableStateOf(prefs.getBoolean("route_hotspot", true)) }
-    var startOnBoot by remember { mutableStateOf(prefs.getBoolean("start_on_boot", false)) }
+    var host by remember(activeSlot) { mutableStateOf(currentPrefs.getString("host", "") ?: "") }
+    var port by remember(activeSlot) { mutableStateOf(currentPrefs.getString("port", "1080") ?: "1080") }
+    var username by remember(activeSlot) { mutableStateOf(currentPrefs.getString("username", "") ?: "") }
+    var password by remember(activeSlot) { mutableStateOf(currentPrefs.getString("password", "") ?: "") }
+    var sni by remember(activeSlot) { mutableStateOf(currentPrefs.getString("sni", "") ?: "") }
+    var ssMethod by remember(activeSlot) { mutableStateOf(currentPrefs.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm") }
+    var realityPublicKey by remember(activeSlot) { mutableStateOf(currentPrefs.getString("reality_pk", "") ?: "") }
+    var realityShortId by remember(activeSlot) { mutableStateOf(currentPrefs.getString("reality_sid", "") ?: "") }
+
+    var routeWholeProfile by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_whole_profile", true)) }
+    var routeHotspot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_hotspot", true)) }
+    var startOnBoot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("start_on_boot", false)) }
+
+    // Persistent Selected Packages Set
+    var selectedPackages by remember(activeSlot) {
+        mutableStateOf(currentPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet())
+    }
 
     fun getCurrentSettings(): ProxySettings {
         return ProxySettings(
@@ -220,12 +229,16 @@ fun MainScreen(
             port = port.toIntOrNull() ?: 1080,
             username = username.trim(),
             password = password.trim(),
-            routeHotspot = routeHotspot
+            routeHotspot = routeHotspot,
+            sni = sni.trim(),
+            ssMethod = ssMethod.trim(),
+            realityPublicKey = realityPublicKey.trim(),
+            realityShortId = realityShortId.trim()
         )
     }
 
     fun saveConfig() {
-        prefs.edit()
+        currentPrefs.edit()
             .putString("proxy_type", proxyType.name)
             .putString("transport_mode", transportMode.name)
             .putString("ip_mode", ipMode.name)
@@ -233,13 +246,20 @@ fun MainScreen(
             .putString("port", port.trim())
             .putString("username", username.trim())
             .putString("password", password.trim())
+            .putString("sni", sni.trim())
+            .putString("ss_method", ssMethod.trim())
+            .putString("reality_pk", realityPublicKey.trim())
+            .putString("reality_sid", realityShortId.trim())
             .putBoolean("route_whole_profile", routeWholeProfile)
             .putBoolean("route_hotspot", routeHotspot)
             .putBoolean("start_on_boot", startOnBoot)
+            .putStringSet("selected_packages", selectedPackages)
             .apply()
 
         val settings = getCurrentSettings()
-        BootManager.syncBootState(context, startOnBoot, settings)
+        val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
+
+        BootManager.syncBootState(context, startOnBoot, settings, uids)
 
         if (settings.host.isNotEmpty()) {
             coroutineScope.launch {
@@ -248,33 +268,52 @@ fun MainScreen(
                     ProfileManager.profileId,
                     settings,
                     startOnBoot,
-                    routeWholeProfile
+                    routeWholeProfile,
+                    selectedPackages
                 )
             }
         }
     }
 
-    LaunchedEffect(rootState) {
+    // Switch Slot Function
+    fun switchSlot(newSlot: Int) {
+        if (newSlot == activeSlot) return
+        saveConfig()
+        ProfileManager.activeSlot = newSlot
+        activeSlot = newSlot
+        currentPrefs = getSlotPrefs(newSlot)
+        onSyncStatus()
+    }
+
+    // Restore from persistent storage backup on boot/granted
+    LaunchedEffect(rootState, activeSlot) {
         if (rootState == RootState.GRANTED && host.isEmpty()) {
-            val backup = PersistentStorage.loadBackup(ProfileManager.profileId)
+            val backup = PersistentStorage.loadBackup(activeSlot)
             if (backup != null) {
                 host = backup.optString("host", "")
                 port = backup.optString("port", "1080")
                 username = backup.optString("username", "")
                 password = backup.optString("password", "")
+                sni = backup.optString("sni", "")
+                ssMethod = backup.optString("ss_method", "2022-blake3-aes-128-gcm")
+                realityPublicKey = backup.optString("reality_pk", "")
+                realityShortId = backup.optString("reality_sid", "")
                 startOnBoot = backup.optBoolean("start_on_boot", false)
                 routeWholeProfile = backup.optBoolean("route_whole_profile", true)
                 routeHotspot = backup.optBoolean("route_hotspot", true)
 
-                try {
-                    proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name))
-                } catch (_: Exception) {}
-                try {
-                    transportMode = TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name))
-                } catch (_: Exception) {}
-                try {
-                    ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name))
-                } catch (_: Exception) {}
+                val pkgsArray = backup.optJSONArray("selected_packages")
+                if (pkgsArray != null) {
+                    val set = mutableSetOf<String>()
+                    for (i in 0 until pkgsArray.length()) {
+                        set.add(pkgsArray.getString(i))
+                    }
+                    selectedPackages = set
+                }
+
+                try { proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (_: Exception) {}
+                try { transportMode = TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name)) } catch (_: Exception) {}
+                try { ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name)) } catch (_: Exception) {}
 
                 saveConfig()
             }
@@ -289,17 +328,20 @@ fun MainScreen(
     var publicIpInfo by remember { mutableStateOf<GeoIpResult?>(null) }
     var isFetchingIp by remember { mutableStateOf(false) }
     var ipFetchFailed by remember { mutableStateOf(false) }
-    var selectedUids by remember { mutableStateOf(setOf<Int>()) }
 
     fun triggerPublicIpCheck() {
         isFetchingIp = true
         ipFetchFailed = false
         coroutineScope.launch {
-            delay(500)
-            var result = IpFetcher.getPublicIpInfo()
+            delay(1000)
+            val socksPort = ProfileManager.localMixedPort
+            var result = IpFetcher.getPublicIpInfo(socksPort)
             if (result == null) {
-                delay(1000)
-                result = IpFetcher.getPublicIpInfo()
+                delay(1500)
+                result = IpFetcher.getPublicIpInfo(socksPort)
+            }
+            if (result == null) {
+                result = IpFetcher.getPublicIpInfo(null)
             }
             if (result != null) {
                 publicIpInfo = result
@@ -311,7 +353,7 @@ fun MainScreen(
         }
     }
 
-    LaunchedEffect(isProxyActive) {
+    LaunchedEffect(isProxyActive, activeSlot) {
         if (isProxyActive) {
             triggerPublicIpCheck()
         } else {
@@ -320,7 +362,6 @@ fun MainScreen(
         }
     }
 
-    // Dynamic Atmospheric Mesh Canvas
     val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
     val auroraAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -347,7 +388,6 @@ fun MainScreen(
             .fillMaxSize()
             .background(Color(0xFF020408))
     ) {
-        // Multi-Center Chromatic Glow
         Canvas(modifier = Modifier.fillMaxSize().alpha(if (isProxyActive) auraPulse else 0.20f)) {
             val w = size.width
             val h = size.height
@@ -410,7 +450,7 @@ fun MainScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 18.dp)
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Tactical Top App Bar
             Row(
@@ -427,7 +467,7 @@ fun MainScreen(
                         letterSpacing = 1.5.sp
                     )
                     Text(
-                        text = "PROFILE ${ProfileManager.profileId} • KERNEL TUNNEL",
+                        text = "PROFILE $activeSlot • KERNEL TUNNEL",
                         fontSize = 10.sp,
                         color = if (isProxyActive) Color(0xFF00FF88) else Color(0xFF64748B),
                         fontWeight = FontWeight.Bold,
@@ -438,7 +478,7 @@ fun MainScreen(
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color(0x1AFFFFFF),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         1.dp,
                         when (rootState) {
                             RootState.GRANTED -> Color(0x8800FF88)
@@ -480,13 +520,51 @@ fun MainScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 5-PROFILE SLOTS SELECTOR RIBBON
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                (0 until ProfileManager.MAX_PROFILES).forEach { slotIndex ->
+                    val isSelected = slotIndex == activeSlot
+                    val slotBg by animateColorAsState(
+                        targetValue = if (isSelected) Color(0xFF00FF88).copy(alpha = 0.18f) else Color(0x22111827),
+                        animationSpec = tween(200),
+                        label = "slotBg"
+                    )
+                    val borderColor = if (isSelected) Color(0xFF00FF88) else Color(0x1FFFFFFF)
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = slotBg,
+                        border = BorderStroke(1.dp, borderColor),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { switchSlot(slotIndex) }
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 6.dp)) {
+                            Text(
+                                text = "P$slotIndex",
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                                color = if (isSelected) Color(0xFF00FF88) else Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Capsule Tabs Switcher
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0x330B1120),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -495,7 +573,7 @@ fun MainScreen(
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val tabTitles = listOf("Console", "Config", "Apps (${selectedUids.size})")
+                    val tabTitles = listOf("Console", "Config", "Apps (${selectedPackages.size})")
                     tabTitles.forEachIndexed { index, title ->
                         val isSelected = selectedTab == index
                         val tabBg by animateColorAsState(
@@ -554,7 +632,7 @@ fun MainScreen(
                             onRefreshIp = { triggerPublicIpCheck() },
                             onToggleProxy = {
                                 if (!isProxyActive && host.trim().isEmpty()) {
-                                    testStatus = "Please enter a Proxy Server Host/IP in Config"
+                                    testStatus = "Please enter Server Host/IP in Config"
                                     selectedTab = 1
                                     return@ConsoleHUDTab
                                 }
@@ -564,7 +642,7 @@ fun MainScreen(
                                     onStopProxy { }
                                 } else {
                                     val settings = getCurrentSettings()
-                                    val targets = if (routeWholeProfile) null else selectedUids.toList()
+                                    val targets = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
                                     onStartProxy(settings, targets) { success, error ->
                                         if (!success) {
                                             testStatus = "Start Failed: ${error ?: "Unknown error"}"
@@ -578,7 +656,7 @@ fun MainScreen(
                             testStatus = testStatus,
                             onTestUpstream = {
                                 if (host.trim().isEmpty()) {
-                                    testStatus = "Please enter a Proxy Server Host/IP first"
+                                    testStatus = "Please enter Server Host/IP first"
                                     selectedTab = 1
                                     return@ConsoleHUDTab
                                 }
@@ -596,7 +674,7 @@ fun MainScreen(
                             },
                             onViewLogs = {
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    val logs = ProxyController.getDiagnosticsAndLogs()
+                                    val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.profileId)
                                     withContext(Dispatchers.Main) {
                                         currentLogs = logs.ifEmpty { "No logs recorded." }
                                         showLogsDialog = true
@@ -622,6 +700,14 @@ fun MainScreen(
                             onUsernameChange = { username = it; saveConfig() },
                             password = password,
                             onPasswordChange = { password = it; saveConfig() },
+                            sni = sni,
+                            onSniChange = { sni = it; saveConfig() },
+                            ssMethod = ssMethod,
+                            onSsMethodChange = { ssMethod = it; saveConfig() },
+                            realityPublicKey = realityPublicKey,
+                            onRealityPublicKeyChange = { realityPublicKey = it; saveConfig() },
+                            realityShortId = realityShortId,
+                            onRealityShortIdChange = { realityShortId = it; saveConfig() },
                             proxyType = proxyType,
                             onProxyTypeChange = { proxyType = it; saveConfig() },
                             transportMode = transportMode,
@@ -641,19 +727,22 @@ fun MainScreen(
                         installedApps = installedApps,
                         routeWholeProfile = routeWholeProfile,
                         onToggleRouteWhole = { routeWholeProfile = it; saveConfig() },
-                        selectedUids = selectedUids,
-                        onToggleUid = { uid ->
-                            selectedUids = if (selectedUids.contains(uid)) {
-                                selectedUids - uid
+                        selectedPackages = selectedPackages,
+                        onTogglePackage = { pkg ->
+                            selectedPackages = if (selectedPackages.contains(pkg)) {
+                                selectedPackages - pkg
                             } else {
-                                selectedUids + uid
+                                selectedPackages + pkg
                             }
+                            saveConfig()
                         },
                         onSelectAll = {
-                            selectedUids = installedApps.map { it.uid }.toSet()
+                            selectedPackages = installedApps.map { it.packageName }.toSet()
+                            saveConfig()
                         },
                         onClearAll = {
-                            selectedUids = emptySet()
+                            selectedPackages = emptySet()
+                            saveConfig()
                         }
                     )
                 }
@@ -678,7 +767,7 @@ fun MainScreen(
                             Text("Copy")
                         }
                         TextButton(onClick = {
-                            ProxyController.clearLogs()
+                            ProxyController.clearLogs(ProfileManager.profileId)
                             currentLogs = "Logs cleared."
                         }) {
                             Text("Clear")
@@ -687,7 +776,7 @@ fun MainScreen(
                     Row {
                         TextButton(onClick = {
                             coroutineScope.launch(Dispatchers.IO) {
-                                val logs = ProxyController.getDiagnosticsAndLogs()
+                                val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.profileId)
                                 withContext(Dispatchers.Main) {
                                     currentLogs = logs.ifEmpty { "No logs recorded." }
                                 }
@@ -723,9 +812,6 @@ fun MainScreen(
     }
 }
 
-// -------------------------------------------------------------
-// REDESIGNED CYBER-HUD COMMAND DECK
-// -------------------------------------------------------------
 @Composable
 fun ConsoleHUDTab(
     isProxyActive: Boolean,
@@ -775,7 +861,6 @@ fun ConsoleHUDTab(
             .padding(18.dp)
     ) {
         Column {
-            // Status Header with Un-Squished PID Placement
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -815,16 +900,14 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Dual Symmetrical Gauges + Integrated Waveform
             LiveThroughputRiverEngine(isProxyActive = isProxyActive)
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Interactive IP Card with 1-Tap Copy
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0x400F172A),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1AFFFFFF)),
+                border = BorderStroke(1.dp, Color(0x1AFFFFFF)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
@@ -899,7 +982,6 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Smart Tag Ribbon (Never Wraps Vertically)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -961,7 +1043,7 @@ fun ConsoleHUDTab(
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E5FF)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3300E5FF)),
+            border = BorderStroke(1.dp, Color(0x3300E5FF)),
             enabled = !isTesting
         ) {
             Text(if (isTesting) "Pinging..." else "Ping Latency", fontSize = 13.sp)
@@ -971,7 +1053,7 @@ fun ConsoleHUDTab(
             onClick = onViewLogs,
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(14.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
+            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
         ) {
             Text("Core Logs", fontSize = 13.sp)
@@ -991,9 +1073,6 @@ fun ConsoleHUDTab(
     Spacer(modifier = Modifier.height(20.dp))
 }
 
-// -------------------------------------------------------------
-// DUAL SYMMETRICAL TELEMETRY DECK & WAVEFORM
-// -------------------------------------------------------------
 @Composable
 fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
     var rawRxRate by remember { mutableLongStateOf(0L) }
@@ -1058,16 +1137,14 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
     val dynamicAmp = if (!isProxyActive) 4f else (8f + (mbps * 2f).toFloat()).coerceIn(8f, 26f)
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Dual Symmetrical Gauges (Guaranteed No Overlap)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // DOWNLOAD TILE
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0x2B059669),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3300FF88)),
+                border = BorderStroke(1.dp, Color(0x3300FF88)),
                 modifier = Modifier.weight(1f)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -1111,11 +1188,10 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                 }
             }
 
-            // UPLOAD TILE
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0x2B0284C7),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3300E5FF)),
+                border = BorderStroke(1.dp, Color(0x3300E5FF)),
                 modifier = Modifier.weight(1f)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -1162,7 +1238,6 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Integrated Fluid Horizon Wave
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1252,9 +1327,6 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
     }
 }
 
-// -------------------------------------------------------------
-// LIVING RADAR MASTER BUTTON
-// -------------------------------------------------------------
 @Composable
 fun LivingRadarMasterButton(
     isProxyActive: Boolean,
@@ -1349,9 +1421,6 @@ fun ActiveTimer() {
     )
 }
 
-// -------------------------------------------------------------
-// TAB 1: PROXY CONFIGURATION
-// -------------------------------------------------------------
 @Composable
 fun ProxySetupTab(
     host: String,
@@ -1362,6 +1431,14 @@ fun ProxySetupTab(
     onUsernameChange: (String) -> Unit,
     password: String,
     onPasswordChange: (String) -> Unit,
+    sni: String,
+    onSniChange: (String) -> Unit,
+    ssMethod: String,
+    onSsMethodChange: (String) -> Unit,
+    realityPublicKey: String,
+    onRealityPublicKeyChange: (String) -> Unit,
+    realityShortId: String,
+    onRealityShortIdChange: (String) -> Unit,
     proxyType: ProxyType,
     onProxyTypeChange: (ProxyType) -> Unit,
     transportMode: TransportMode,
@@ -1374,7 +1451,6 @@ fun ProxySetupTab(
     onStartOnBootChange: (Boolean) -> Unit
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
-
     var isCheckingAlive by remember { mutableStateOf(false) }
     var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -1383,7 +1459,7 @@ fun ProxySetupTab(
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = Color(0x330B1120),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1449,6 +1525,25 @@ fun ProxySetupTab(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        Text("PROTOCOL TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ProxyType.values().forEach { type ->
+                FilterChip(
+                    selected = proxyType == type,
+                    onClick = { onProxyTypeChange(type) },
+                    label = { Text(type.name) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         Text("TRANSPORT PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(6.dp))
         Row(
@@ -1463,23 +1558,6 @@ fun ProxySetupTab(
                     selected = transportMode == mode,
                     onClick = { onTransportModeChange(mode) },
                     label = { Text(label) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text("PROXY TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(ProxyType.SOCKS5, ProxyType.SOCKS4, ProxyType.HTTP).forEach { type ->
-                FilterChip(
-                    selected = proxyType == type,
-                    onClick = { onProxyTypeChange(type) },
-                    label = { Text(type.name) }
                 )
             }
         }
@@ -1531,48 +1609,164 @@ fun ProxySetupTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = username,
-                onValueChange = onUsernameChange,
-                label = { Text("Username") },
-                placeholder = { Text("Optional") },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = onPasswordChange,
-                label = { Text("Password") },
-                placeholder = { Text("Optional") },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    Text(
-                        text = if (passwordVisible) "Hide" else "Show",
-                        fontSize = 11.sp,
-                        color = Color(0xFF00FF88),
-                        modifier = Modifier
-                            .clickable { passwordVisible = !passwordVisible }
-                            .padding(end = 12.dp)
+        // Dynamic Protocol Inputs
+        when (proxyType) {
+            ProxyType.SOCKS5, ProxyType.HTTP -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = onUsernameChange,
+                        label = { Text("Username") },
+                        placeholder = { Text("Optional") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true
                     )
-                },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true
-            )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = onPasswordChange,
+                        label = { Text("Password") },
+                        placeholder = { Text("Optional") },
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            Text(
+                                text = if (passwordVisible) "Hide" else "Show",
+                                fontSize = 11.sp,
+                                color = Color(0xFF00FF88),
+                                modifier = Modifier
+                                    .clickable { passwordVisible = !passwordVisible }
+                                    .padding(end = 12.dp)
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true
+                    )
+                }
+            }
+
+            ProxyType.SHADOWSOCKS -> {
+                OutlinedTextField(
+                    value = ssMethod,
+                    onValueChange = onSsMethodChange,
+                    label = { Text("Cipher / Method") },
+                    placeholder = { Text("2022-blake3-aes-128-gcm or aes-128-gcm") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = onPasswordChange,
+                    label = { Text("Password / Pre-Shared Key") },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Text(
+                            text = if (passwordVisible) "Hide" else "Show",
+                            fontSize = 11.sp,
+                            color = Color(0xFF00FF88),
+                            modifier = Modifier
+                                .clickable { passwordVisible = !passwordVisible }
+                                .padding(end = 12.dp)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+            }
+
+            ProxyType.VLESS -> {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = onPasswordChange,
+                    label = { Text("UUID") },
+                    placeholder = { Text("e.g. 550e8400-e29b-41d4-a716-446655440000") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = sni,
+                    onValueChange = onSniChange,
+                    label = { Text("SNI / Server Name") },
+                    placeholder = { Text("e.g. gateway.cloudflare.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = realityPublicKey,
+                        onValueChange = onRealityPublicKeyChange,
+                        label = { Text("Reality Public Key") },
+                        placeholder = { Text("Optional") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = realityShortId,
+                        onValueChange = onRealityShortIdChange,
+                        label = { Text("Reality Short ID") },
+                        placeholder = { Text("Optional") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true
+                    )
+                }
+            }
+
+            ProxyType.TROJAN, ProxyType.HYSTERIA2 -> {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = onPasswordChange,
+                    label = { Text("Auth Password") },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Text(
+                            text = if (passwordVisible) "Hide" else "Show",
+                            fontSize = 11.sp,
+                            color = Color(0xFF00FF88),
+                            modifier = Modifier
+                                .clickable { passwordVisible = !passwordVisible }
+                                .padding(end = 12.dp)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = sni,
+                    onValueChange = onSniChange,
+                    label = { Text("SNI / Server Name") },
+                    placeholder = { Text("e.g. yourdomain.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+            }
+
+            ProxyType.SOCKS4 -> {}
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // DEDICATED PROXY ALIVE / DEAD HEALTH CHECKER CARD
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = Color(0x330B1120),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1612,7 +1806,11 @@ fun ProxySetupTab(
                                     port = port.toIntOrNull() ?: 1080,
                                     username = username.trim(),
                                     password = password.trim(),
-                                    routeHotspot = routeHotspot
+                                    routeHotspot = routeHotspot,
+                                    sni = sni.trim(),
+                                    ssMethod = ssMethod.trim(),
+                                    realityPublicKey = realityPublicKey.trim(),
+                                    realityShortId = realityShortId.trim()
                                 )
                                 val res = ProxyTester.testProxy(currentSettings)
                                 aliveCheckResult = res
@@ -1641,7 +1839,7 @@ fun ProxySetupTab(
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = Color(0x2200FF88),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x6600FF88)),
+                                border = BorderStroke(1.dp, Color(0x6600FF88)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -1664,7 +1862,7 @@ fun ProxySetupTab(
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = Color(0x22F43F5E),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66F43F5E)),
+                                border = BorderStroke(1.dp, Color(0x66F43F5E)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -1693,16 +1891,13 @@ fun ProxySetupTab(
     }
 }
 
-// -------------------------------------------------------------
-// TAB 2: APPS FILTER
-// -------------------------------------------------------------
 @Composable
 fun AppFilterTab(
     installedApps: List<AppItem>,
     routeWholeProfile: Boolean,
     onToggleRouteWhole: (Boolean) -> Unit,
-    selectedUids: Set<Int>,
-    onToggleUid: (Int) -> Unit,
+    selectedPackages: Set<String>,
+    onTogglePackage: (String) -> Unit,
     onSelectAll: () -> Unit,
     onClearAll: () -> Unit
 ) {
@@ -1719,7 +1914,7 @@ fun AppFilterTab(
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = Color(0x330B1120),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF)),
+            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1779,11 +1974,11 @@ fun AppFilterTab(
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(filteredApps, key = { it.packageName }) { app ->
-                    val isChecked = selectedUids.contains(app.uid)
+                    val isChecked = selectedPackages.contains(app.packageName)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onToggleUid(app.uid) }
+                            .clickable { onTogglePackage(app.packageName) }
                             .padding(vertical = 10.dp, horizontal = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -1803,7 +1998,7 @@ fun AppFilterTab(
                         }
                         Checkbox(
                             checked = isChecked,
-                            onCheckedChange = { onToggleUid(app.uid) },
+                            onCheckedChange = { onTogglePackage(app.packageName) },
                             colors = CheckboxDefaults.colors(
                                 checkedColor = Color(0xFF00FF88),
                                 checkmarkColor = Color(0xFF020408)
@@ -1832,9 +2027,6 @@ fun AppFilterTab(
     }
 }
 
-// -------------------------------------------------------------
-// FORMATTING HELPERS
-// -------------------------------------------------------------
 private fun splitSpeedValue(bytesPerSec: Long): String {
     return when {
         bytesPerSec >= 1024 * 1024 -> String.format("%.1f", bytesPerSec / (1024.0 * 1024.0))
