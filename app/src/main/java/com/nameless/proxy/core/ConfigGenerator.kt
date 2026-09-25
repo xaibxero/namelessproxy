@@ -4,12 +4,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 enum class ProxyType {
-    SOCKS5, SOCKS4, HTTP
+    SOCKS5, SOCKS4, HTTP, SHADOWSOCKS, VLESS, TROJAN, HYSTERIA2
 }
 
 enum class TransportMode {
-    TCP_AND_UDP, // Full transparent proxying (WebRTC enabled through proxy)
-    TCP_ONLY     // TCP only
+    TCP_AND_UDP,
+    TCP_ONLY
 }
 
 enum class IpMode {
@@ -26,7 +26,11 @@ data class ProxySettings(
     val port: Int = 1080,
     val username: String = "",
     val password: String = "",
-    val routeHotspot: Boolean = true
+    val routeHotspot: Boolean = true,
+    val sni: String = "",
+    val ssMethod: String = "2022-blake3-aes-128-gcm",
+    val realityPublicKey: String = "",
+    val realityShortId: String = ""
 )
 
 object ConfigGenerator {
@@ -44,7 +48,6 @@ object ConfigGenerator {
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        // Remote DNS: Resolves queries through proxy tunnel to match proxy country
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
@@ -54,7 +57,6 @@ object ConfigGenerator {
         }
         dnsServers.put(remoteDns)
 
-        // Direct DNS: Bootstrap resolver
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
@@ -73,8 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Bind to 0.0.0.0 / :: so both local apps (127.0.0.1)
-        // and Hotspot clients (192.168.43.1 / 192.168.42.1) are accepted
+        // 3. Inbounds
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -83,7 +84,7 @@ object ConfigGenerator {
 
         val inbounds = JSONArray()
 
-        // TCP Inbound (Kernel REDIRECT)
+        // TCP Transparent Redirection (iptables REDIRECT)
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -92,8 +93,8 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // UDP Inbound (Kernel TPROXY for WebRTC, Gaming & UDP DNS)
-        if (settings.transportMode == TransportMode.TCP_AND_UDP && settings.type == ProxyType.SOCKS5) {
+        // UDP Transparent Proxy (iptables TPROXY)
+        if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
                 put("tag", "tproxy-in")
@@ -104,12 +105,21 @@ object ConfigGenerator {
             inbounds.put(tproxyInbound)
         }
 
+        // Local SOCKS5 Inbound on 127.0.0.1 for direct IP checks & probes
+        val internalSocksInbound = JSONObject().apply {
+            put("type", "socks")
+            put("tag", "internal-socks-in")
+            put("listen", "127.0.0.1")
+            put("listen_port", inboundPort + 1)
+        }
+        inbounds.put(internalSocksInbound)
+
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds
+        // 4. Outbounds (Multi-Protocol Universal Generator)
         val outbounds = JSONArray()
-
         val proxyOutbound = JSONObject()
+
         when (settings.type) {
             ProxyType.SOCKS5 -> {
                 proxyOutbound.put("type", "socks")
@@ -139,6 +149,61 @@ object ConfigGenerator {
                     proxyOutbound.put("password", settings.password)
                 }
             }
+            ProxyType.SHADOWSOCKS -> {
+                proxyOutbound.put("type", "shadowsocks")
+                proxyOutbound.put("tag", "proxy-out")
+                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("method", settings.ssMethod.ifEmpty { "2022-blake3-aes-128-gcm" })
+                proxyOutbound.put("password", settings.password)
+            }
+            ProxyType.VLESS -> {
+                proxyOutbound.put("type", "vless")
+                proxyOutbound.put("tag", "proxy-out")
+                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
+                if (settings.transportMode == TransportMode.TCP_ONLY) {
+                    proxyOutbound.put("flow", "xtls-rprx-vision")
+                }
+                val tlsObj = JSONObject().apply {
+                    put("enabled", true)
+                    put("server_name", settings.sni.ifEmpty { settings.host })
+                    if (settings.realityPublicKey.isNotEmpty()) {
+                        val realityObj = JSONObject().apply {
+                            put("enabled", true)
+                            put("public_key", settings.realityPublicKey)
+                            put("short_id", settings.realityShortId)
+                        }
+                        put("reality", realityObj)
+                    }
+                }
+                proxyOutbound.put("tls", tlsObj)
+            }
+            ProxyType.TROJAN -> {
+                proxyOutbound.put("type", "trojan")
+                proxyOutbound.put("tag", "proxy-out")
+                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("password", settings.password)
+                val tlsObj = JSONObject().apply {
+                    put("enabled", true)
+                    put("server_name", settings.sni.ifEmpty { settings.host })
+                }
+                proxyOutbound.put("tls", tlsObj)
+            }
+            ProxyType.HYSTERIA2 -> {
+                proxyOutbound.put("type", "hysteria2")
+                proxyOutbound.put("tag", "proxy-out")
+                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("password", settings.password)
+                val tlsObj = JSONObject().apply {
+                    put("enabled", true)
+                    put("server_name", settings.sni.ifEmpty { settings.host })
+                }
+                proxyOutbound.put("tls", tlsObj)
+            }
         }
         outbounds.put(proxyOutbound)
 
@@ -156,8 +221,6 @@ object ConfigGenerator {
         }
 
         val routeRules = JSONArray()
-
-        // Hijack port 53 traffic into the internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
