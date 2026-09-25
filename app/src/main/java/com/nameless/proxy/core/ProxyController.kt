@@ -81,34 +81,33 @@ object ProxyController {
         }
     }
 
-    fun isRunning(): Boolean {
-        val pidFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.pid"
+    fun isRunning(slot: Int = ProfileManager.profileId): Boolean {
+        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
         val result = executeSuWithOutput(listOf(
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then echo 'RUNNING'; else echo 'STOPPED'; fi"
         ))
         return result.contains("RUNNING")
     }
 
-    fun getActivePid(): String? {
-        val pidFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.pid"
+    fun getActivePid(slot: Int = ProfileManager.profileId): String? {
+        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
         val result = executeSuWithOutput(listOf(
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then cat $pidFile; fi"
         ))
         return result.trim().ifEmpty { null }
     }
 
-    fun clearLogs() {
-        val logFile = "/data/local/tmp/singbox_u${ProfileManager.profileId}.log"
+    fun clearLogs(slot: Int = ProfileManager.profileId) {
+        val logFile = "/data/local/tmp/singbox_u$slot.log"
         executeSu(listOf("> $logFile"))
     }
 
-    fun getDiagnosticsAndLogs(): String {
-        val profileId = ProfileManager.profileId
-        val logFile = "/data/local/tmp/singbox_u${profileId}.log"
+    fun getDiagnosticsAndLogs(slot: Int = ProfileManager.profileId): String {
+        val logFile = "/data/local/tmp/singbox_u$slot.log"
         val raw = executeSuWithOutput(listOf(
-            "echo '=== DAEMON STATUS ==='",
-            "if [ -f /data/local/tmp/singbox_u${profileId}.pid ] && kill -0 \$(cat /data/local/tmp/singbox_u${profileId}.pid) 2>/dev/null; then",
-            "  echo 'State: ACTIVE (PID: '\$(cat /data/local/tmp/singbox_u${profileId}.pid)')'",
+            "echo '=== DAEMON STATUS (SLOT $slot) ==='",
+            "if [ -f /data/local/tmp/singbox_u$slot.pid ] && kill -0 \$(cat /data/local/tmp/singbox_u$slot.pid) 2>/dev/null; then",
+            "  echo 'State: ACTIVE (PID: '\$(cat /data/local/tmp/singbox_u$slot.pid)')'",
             "else",
             "  echo 'State: STOPPED / NOT RUNNING'",
             "fi",
@@ -124,11 +123,11 @@ object ProxyController {
         settings: ProxySettings,
         selectedUids: List<Int>? = null
     ): StartResult {
+        val slot = ProfileManager.profileId
         val binaryPath = "/data/local/tmp/sing-box"
-        val profileId = ProfileManager.profileId
-        val configPath = "/data/local/tmp/singbox_u${profileId}.json"
-        val pidFile = "/data/local/tmp/singbox_u${profileId}.pid"
-        val logFile = "/data/local/tmp/singbox_u${profileId}.log"
+        val configPath = "/data/local/tmp/singbox_u$slot.json"
+        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
+        val logFile = "/data/local/tmp/singbox_u$slot.log"
         val port = ProfileManager.localInboundPort
 
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
@@ -145,14 +144,15 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        stopProxy(context)
+        // Clean any active rules across all slots before starting
+        stopAll(context)
 
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
         executeSu(listOf(runCmd))
 
-        Thread.sleep(600)
-        if (!isRunning()) {
-            val failureInfo = getDiagnosticsAndLogs()
+        Thread.sleep(700)
+        if (!isRunning(slot)) {
+            val failureInfo = getDiagnosticsAndLogs(slot)
             return StartResult(
                 success = false,
                 errorMessage = failureInfo.ifEmpty { "sing-box daemon failed to start" }
@@ -165,19 +165,28 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context)
+            stopProxy(context, slot)
             StartResult(success = false, errorMessage = "Failed to apply iptables rules")
         }
     }
 
-    fun stopProxy(context: Context): Boolean {
-        val profileId = ProfileManager.profileId
-        val pidFile = "/data/local/tmp/singbox_u${profileId}.pid"
+    fun stopProxy(context: Context, slot: Int = ProfileManager.profileId): Boolean {
+        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
         val commands = mutableListOf<String>()
 
         commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
-        commands.addAll(IptablesManager.generateDisableCommands())
+        commands.addAll(IptablesManager.generateDisableCommands(slot))
 
+        return executeSu(commands)
+    }
+
+    fun stopAll(context: Context): Boolean {
+        val commands = mutableListOf<String>()
+        for (i in 0 until ProfileManager.MAX_PROFILES) {
+            val pidFile = "/data/local/tmp/singbox_u$i.pid"
+            commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
+        }
+        commands.addAll(IptablesManager.generateDisableAllCommands())
         return executeSu(commands)
     }
 }
