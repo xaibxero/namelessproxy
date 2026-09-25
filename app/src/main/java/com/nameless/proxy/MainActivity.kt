@@ -182,6 +182,7 @@ fun MainScreen(
     val globalPrefs = remember { context.getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE) }
     var startOnBoot by remember { mutableStateOf(globalPrefs.getBoolean("start_on_boot", false)) }
     var bootSlot by remember { mutableIntStateOf(globalPrefs.getInt("boot_slot", 0)) }
+    var routeHotspot by remember { mutableStateOf(globalPrefs.getBoolean("route_hotspot", true)) }
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -223,7 +224,6 @@ fun MainScreen(
     var realityShortId by remember(activeSlot) { mutableStateOf(currentPrefs.getString("reality_sid", "") ?: "") }
 
     var routeWholeProfile by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_whole_profile", true)) }
-    var routeHotspot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_hotspot", true)) }
 
     var selectedPackages by remember(activeSlot) {
         mutableStateOf(currentPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet())
@@ -260,14 +260,18 @@ fun MainScreen(
             .putString("reality_pk", realityPublicKey.trim())
             .putString("reality_sid", realityShortId.trim())
             .putBoolean("route_whole_profile", routeWholeProfile)
-            .putBoolean("route_hotspot", routeHotspot)
             .putStringSet("selected_packages", selectedPackages)
+            .apply()
+
+        globalPrefs.edit()
+            .putBoolean("start_on_boot", startOnBoot)
+            .putInt("boot_slot", bootSlot)
+            .putBoolean("route_hotspot", routeHotspot)
             .apply()
 
         val settings = getCurrentSettings()
         val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
 
-        // Only update boot script if this active slot is the designated boot target
         if (startOnBoot && activeSlot == bootSlot) {
             BootManager.syncBootState(context, true, settings, uids)
         }
@@ -309,7 +313,6 @@ fun MainScreen(
                 realityPublicKey = backup.optString("reality_pk", "")
                 realityShortId = backup.optString("reality_sid", "")
                 routeWholeProfile = backup.optBoolean("route_whole_profile", true)
-                routeHotspot = backup.optBoolean("route_hotspot", true)
 
                 val pkgsArray = backup.optJSONArray("selected_packages")
                 if (pkgsArray != null) {
@@ -531,7 +534,7 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 5-Profile Slots Selector Ribbon
+            // 5-Profile Slots Ribbon
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -710,61 +713,540 @@ fun MainScreen(
                     }
                 }
 
+                // UNIFIED SINGLE-SCROLL CONFIGURATION VIEW
                 1 -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        ProxySetupTab(
-                            host = host,
-                            onHostChange = { host = it; saveConfig() },
-                            port = port,
-                            onPortChange = { port = it; saveConfig() },
-                            username = username,
-                            onUsernameChange = { username = it; saveConfig() },
-                            password = password,
-                            onPasswordChange = { password = it; saveConfig() },
-                            sni = sni,
-                            onSniChange = { sni = it; saveConfig() },
-                            ssMethod = ssMethod,
-                            onSsMethodChange = { ssMethod = it; saveConfig() },
-                            realityPublicKey = realityPublicKey,
-                            onRealityPublicKeyChange = { realityPublicKey = it; saveConfig() },
-                            realityShortId = realityShortId,
-                            onRealityShortIdChange = { realityShortId = it; saveConfig() },
-                            proxyType = proxyType,
-                            onProxyTypeChange = { proxyType = it; saveConfig() },
-                            transportMode = transportMode,
-                            onTransportModeChange = { transportMode = it; saveConfig() },
-                            ipMode = ipMode,
-                            onIpModeChange = { ipMode = it; saveConfig() },
-                            routeHotspot = routeHotspot,
-                            onRouteHotspotChange = { routeHotspot = it; saveConfig() },
-                            startOnBoot = startOnBoot,
-                            bootSlot = bootSlot,
-                            activeSlot = activeSlot,
-                            onToggleBoot = { enabled ->
-                                startOnBoot = enabled
-                                if (enabled) {
-                                    bootSlot = activeSlot
-                                    globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
-                                    val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
-                                    BootManager.syncBootState(context, true, getCurrentSettings(), uids)
-                                } else {
-                                    globalPrefs.edit().putBoolean("start_on_boot", false).apply()
-                                    BootManager.removeBootScript()
+                        // 1. GLOBAL SYSTEM SETTINGS CARD
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0x330B1120),
+                            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("GLOBAL SYSTEM SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF00FF88), letterSpacing = 1.sp)
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Auto-Start on Boot Master Switch
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Auto-Start on Boot",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = if (startOnBoot) "Launches P$bootSlot immediately on boot" else "Disabled — proxy will not run on boot",
+                                            fontSize = 11.sp,
+                                            color = if (startOnBoot) Color(0xFF00FF88) else Color(0xFF64748B)
+                                        )
+                                    }
+                                    Switch(
+                                        checked = startOnBoot,
+                                        onCheckedChange = { enabled ->
+                                            startOnBoot = enabled
+                                            if (enabled) {
+                                                bootSlot = activeSlot
+                                                globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
+                                                val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
+                                                BootManager.syncBootState(context, true, getCurrentSettings(), uids)
+                                                Toast.makeText(context, "P$activeSlot set as boot target", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                globalPrefs.edit().putBoolean("start_on_boot", false).apply()
+                                                BootManager.removeBootScript()
+                                            }
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = Color(0xFF020408),
+                                            checkedTrackColor = Color(0xFF00FF88)
+                                        )
+                                    }
                                 }
-                            },
-                            onSetAsBootTarget = {
-                                bootSlot = activeSlot
-                                startOnBoot = true
-                                globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
-                                val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
-                                BootManager.syncBootState(context, true, getCurrentSettings(), uids)
-                                Toast.makeText(context, "P$activeSlot set as startup profile", Toast.LENGTH_SHORT).show()
+
+                                // Boot Slot Picker
+                                if (startOnBoot) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text("SELECT STARTUP PROFILE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 0.8.sp)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        (0..4).forEach { s ->
+                                            val isTarget = bootSlot == s
+                                            FilterChip(
+                                                selected = isTarget,
+                                                onClick = {
+                                                    bootSlot = s
+                                                    globalPrefs.edit().putInt("boot_slot", s).apply()
+                                                    val slotPrefs = getSlotPrefs(s)
+                                                    val sType = try { ProxyType.valueOf(slotPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (_: Exception) { ProxyType.SOCKS5 }
+                                                    val sTransport = try { TransportMode.valueOf(slotPrefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name) } catch (_: Exception) { TransportMode.TCP_AND_UDP }
+                                                    val sIp = try { IpMode.valueOf(slotPrefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name) } catch (_: Exception) { IpMode.IPV4_ONLY }
+                                                    val targetSettings = ProxySettings(
+                                                        type = sType,
+                                                        transportMode = sTransport,
+                                                        ipMode = sIp,
+                                                        host = (slotPrefs.getString("host", "") ?: "").trim(),
+                                                        port = (slotPrefs.getString("port", "1080") ?: "1080").toIntOrNull() ?: 1080,
+                                                        username = (slotPrefs.getString("username", "") ?: "").trim(),
+                                                        password = (slotPrefs.getString("password", "") ?: "").trim(),
+                                                        routeHotspot = routeHotspot,
+                                                        sni = (slotPrefs.getString("sni", "") ?: "").trim(),
+                                                        ssMethod = (slotPrefs.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm").trim(),
+                                                        realityPublicKey = (slotPrefs.getString("reality_pk", "") ?: "").trim(),
+                                                        realityShortId = (slotPrefs.getString("reality_sid", "") ?: "").trim()
+                                                    )
+                                                    val sPkgs = slotPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet()
+                                                    val sRouteWhole = slotPrefs.getBoolean("route_whole_profile", true)
+                                                    val uids = if (sRouteWhole) null else installedApps.filter { sPkgs.contains(it.packageName) }.map { it.uid }
+                                                    BootManager.syncBootState(context, true, targetSettings, uids)
+                                                    Toast.makeText(context, "P$s will start on boot", Toast.LENGTH_SHORT).show()
+                                                },
+                                                label = { Text("P$s") },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Color(0xFF38BDF8),
+                                                    selectedLabelColor = Color(0xFF020408)
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+                                // Hotspot Tethering Master Switch
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Share via Hotspot / Tethering",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Route connected Wi-Fi AP & USB tethered devices",
+                                            fontSize = 11.sp,
+                                            color = if (routeHotspot) Color(0xFF00FF88) else Color(0xFF64748B)
+                                        )
+                                    }
+                                    Switch(
+                                        checked = routeHotspot,
+                                        onCheckedChange = {
+                                            routeHotspot = it
+                                            globalPrefs.edit().putBoolean("route_hotspot", it).apply()
+                                            saveConfig()
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = Color(0xFF020408),
+                                            checkedTrackColor = Color(0xFF00FF88)
+                                        )
+                                    )
+                                }
                             }
-                        )
+                        }
+
+                        // 2. PROFILE CONFIGURATION CARD (Active Slot P0-P4)
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0x330B1120),
+                            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("PROFILE P$activeSlot CONFIGURATION", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF38BDF8), letterSpacing = 1.sp)
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0x2238BDF8),
+                                        border = BorderStroke(1.dp, Color(0x4438BDF8))
+                                    ) {
+                                        Text(
+                                            text = "SLOT $activeSlot",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF38BDF8),
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Text("PROTOCOL TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    ProxyType.values().forEach { type ->
+                                        FilterChip(
+                                            selected = proxyType == type,
+                                            onClick = { proxyType = type; saveConfig() },
+                                            label = { Text(type.name) }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text("TRANSPORT PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(
+                                        TransportMode.TCP_AND_UDP to "TCP + UDP (WebRTC)",
+                                        TransportMode.TCP_ONLY to "TCP Only"
+                                    ).forEach { (mode, label) ->
+                                        FilterChip(
+                                            selected = transportMode == mode,
+                                            onClick = { transportMode = mode; saveConfig() },
+                                            label = { Text(label) }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text("IP MODE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(
+                                        IpMode.IPV4_ONLY to "IPv4",
+                                        IpMode.DUAL_STACK to "Dual-Stack",
+                                        IpMode.IPV6_ONLY to "IPv6"
+                                    ).forEach { (mode, label) ->
+                                        FilterChip(
+                                            selected = ipMode == mode,
+                                            onClick = { ipMode = mode; saveConfig() },
+                                            label = { Text(label) }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                OutlinedTextField(
+                                    value = host,
+                                    onValueChange = { host = it; saveConfig() },
+                                    label = { Text("Server Host / IP") },
+                                    placeholder = { Text("e.g. 192.168.1.100 or proxy.domain.com") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                    singleLine = true
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                OutlinedTextField(
+                                    value = port,
+                                    onValueChange = { port = it; saveConfig() },
+                                    label = { Text("Server Port") },
+                                    placeholder = { Text("1080") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                    singleLine = true
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                when (proxyType) {
+                                    ProxyType.SOCKS5, ProxyType.HTTP -> {
+                                        var passwordVisible by remember { mutableStateOf(false) }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = username,
+                                                onValueChange = { username = it; saveConfig() },
+                                                label = { Text("Username") },
+                                                placeholder = { Text("Optional") },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(14.dp),
+                                                singleLine = true
+                                            )
+                                            OutlinedTextField(
+                                                value = password,
+                                                onValueChange = { password = it; saveConfig() },
+                                                label = { Text("Password") },
+                                                placeholder = { Text("Optional") },
+                                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                                trailingIcon = {
+                                                    Text(
+                                                        text = if (passwordVisible) "Hide" else "Show",
+                                                        fontSize = 11.sp,
+                                                        color = Color(0xFF00FF88),
+                                                        modifier = Modifier
+                                                            .clickable { passwordVisible = !passwordVisible }
+                                                            .padding(end = 12.dp)
+                                                    )
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(14.dp),
+                                                singleLine = true
+                                            )
+                                        }
+                                    }
+
+                                    ProxyType.SHADOWSOCKS -> {
+                                        var passwordVisible by remember { mutableStateOf(false) }
+                                        OutlinedTextField(
+                                            value = ssMethod,
+                                            onValueChange = { ssMethod = it; saveConfig() },
+                                            label = { Text("Cipher / Method") },
+                                            placeholder = { Text("2022-blake3-aes-128-gcm or aes-128-gcm") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedTextField(
+                                            value = password,
+                                            onValueChange = { password = it; saveConfig() },
+                                            label = { Text("Password / Pre-Shared Key") },
+                                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                            trailingIcon = {
+                                                Text(
+                                                    text = if (passwordVisible) "Hide" else "Show",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF00FF88),
+                                                    modifier = Modifier
+                                                        .clickable { passwordVisible = !passwordVisible }
+                                                        .padding(end = 12.dp)
+                                                )
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true
+                                        )
+                                    }
+
+                                    ProxyType.VLESS -> {
+                                        OutlinedTextField(
+                                            value = password,
+                                            onValueChange = { password = it; saveConfig() },
+                                            label = { Text("UUID") },
+                                            placeholder = { Text("e.g. 550e8400-e29b-41d4-a716-446655440000") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedTextField(
+                                            value = sni,
+                                            onValueChange = { sni = it; saveConfig() },
+                                            label = { Text("SNI / Server Name") },
+                                            placeholder = { Text("e.g. gateway.cloudflare.com") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = realityPublicKey,
+                                                onValueChange = { realityPublicKey = it; saveConfig() },
+                                                label = { Text("Reality Public Key") },
+                                                placeholder = { Text("Optional") },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(14.dp),
+                                                singleLine = true
+                                            )
+                                            OutlinedTextField(
+                                                value = realityShortId,
+                                                onValueChange = { realityShortId = it; saveConfig() },
+                                                label = { Text("Reality Short ID") },
+                                                placeholder = { Text("Optional") },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(14.dp),
+                                                singleLine = true
+                                            )
+                                        }
+                                    }
+
+                                    ProxyType.TROJAN, ProxyType.HYSTERIA2 -> {
+                                        var passwordVisible by remember { mutableStateOf(false) }
+                                        OutlinedTextField(
+                                            value = password,
+                                            onValueChange = { password = it; saveConfig() },
+                                            label = { Text("Auth Password") },
+                                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                            trailingIcon = {
+                                                Text(
+                                                    text = if (passwordVisible) "Hide" else "Show",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF00FF88),
+                                                    modifier = Modifier
+                                                        .clickable { passwordVisible = !passwordVisible }
+                                                        .padding(end = 12.dp)
+                                                )
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedTextField(
+                                            value = sni,
+                                            onValueChange = { sni = it; saveConfig() },
+                                            label = { Text("SNI / Server Name") },
+                                            placeholder = { Text("e.g. yourdomain.com") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true
+                                        )
+                                    }
+
+                                    ProxyType.SOCKS4 -> {}
+                                }
+                            }
+                        }
+
+                        // 3. SERVER HEALTH CHECK CARD
+                        var isCheckingAlive by remember { mutableStateOf(false) }
+                        var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
+
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0x330B1120),
+                            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Server Health Check",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Direct socket test without starting tunnel",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF94A3B8)
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (host.trim().isEmpty()) {
+                                                aliveCheckResult = TestResult.Failure("Host is empty")
+                                                return@Button
+                                            }
+                                            isCheckingAlive = true
+                                            aliveCheckResult = null
+                                            coroutineScope.launch {
+                                                val currentSettings = getCurrentSettings()
+                                                val res = ProxyTester.testProxy(currentSettings)
+                                                aliveCheckResult = res
+                                                isCheckingAlive = false
+                                            }
+                                        },
+                                        enabled = !isCheckingAlive,
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF00FF88),
+                                            contentColor = Color(0xFF020408)
+                                        )
+                                    ) {
+                                        Text(
+                                            text = if (isCheckingAlive) "Checking..." else "Check If Alive",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                if (aliveCheckResult != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    when (val result = aliveCheckResult) {
+                                        is TestResult.Success -> {
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = Color(0x2200FF88),
+                                                border = BorderStroke(1.dp, Color(0x6600FF88)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF00FF88), CircleShape))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "PROXY ALIVE • Latency: ${result.latencyMs} ms",
+                                                        color = Color(0xFF00FF88),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        is TestResult.Failure -> {
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = Color(0x22F43F5E),
+                                                border = BorderStroke(1.dp, Color(0x66F43F5E)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFFF43F5E), CircleShape))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "PROXY DEAD • ${result.error}",
+                                                        color = Color(0xFFF43F5E),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        null -> {}
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
 
@@ -1465,504 +1947,6 @@ fun ActiveTimer() {
         color = Color(0xFF00FF88),
         fontWeight = FontWeight.Bold
     )
-}
-
-@Composable
-fun ProxySetupTab(
-    host: String,
-    onHostChange: (String) -> Unit,
-    port: String,
-    onPortChange: (String) -> Unit,
-    username: String,
-    onUsernameChange: (String) -> Unit,
-    password: String,
-    onPasswordChange: (String) -> Unit,
-    sni: String,
-    onSniChange: (String) -> Unit,
-    ssMethod: String,
-    onSsMethodChange: (String) -> Unit,
-    realityPublicKey: String,
-    onRealityPublicKeyChange: (String) -> Unit,
-    realityShortId: String,
-    onRealityShortIdChange: (String) -> Unit,
-    proxyType: ProxyType,
-    onProxyTypeChange: (ProxyType) -> Unit,
-    transportMode: TransportMode,
-    onTransportModeChange: (TransportMode) -> Unit,
-    ipMode: IpMode,
-    onIpModeChange: (IpMode) -> Unit,
-    routeHotspot: Boolean,
-    onRouteHotspotChange: (Boolean) -> Unit,
-    startOnBoot: Boolean,
-    bootSlot: Int,
-    activeSlot: Int,
-    onToggleBoot: (Boolean) -> Unit,
-    onSetAsBootTarget: () -> Unit
-) {
-    var passwordVisible by remember { mutableStateOf(false) }
-    var isCheckingAlive by remember { mutableStateOf(false) }
-    var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
-    val coroutineScope = rememberCoroutineScope()
-
-    val isCurrentBootTarget = startOnBoot && (activeSlot == bootSlot)
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0x330B1120),
-            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Auto-Start on Boot",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = when {
-                                !startOnBoot -> "Disabled — proxy will not run on boot"
-                                isCurrentBootTarget -> "Active: P$activeSlot will start on system boot"
-                                else -> "Active for P$bootSlot (Different Profile)"
-                            },
-                            fontSize = 11.sp,
-                            color = when {
-                                !startOnBoot -> Color(0xFF64748B)
-                                isCurrentBootTarget -> Color(0xFF00FF88)
-                                else -> Color(0xFF38BDF8)
-                            }
-                        )
-                    }
-                    Switch(
-                        checked = startOnBoot,
-                        onCheckedChange = onToggleBoot,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color(0xFF020408),
-                            checkedTrackColor = Color(0xFF00FF88)
-                        )
-                    )
-                }
-
-                if (startOnBoot && !isCurrentBootTarget) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Button(
-                        onClick = onSetAsBootTarget,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0x3338BDF8),
-                            contentColor = Color(0xFF38BDF8)
-                        ),
-                        border = BorderStroke(1.dp, Color(0x6638BDF8)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Make P$activeSlot the Startup Profile", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Share via Hotspot / Tethering",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Route connected Wi-Fi AP & USB tethered devices",
-                            fontSize = 11.sp,
-                            color = if (routeHotspot) Color(0xFF00FF88) else Color(0xFF64748B)
-                        )
-                    }
-                    Switch(
-                        checked = routeHotspot,
-                        onCheckedChange = onRouteHotspotChange,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color(0xFF020408),
-                            checkedTrackColor = Color(0xFF00FF88)
-                        )
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text("PROTOCOL TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ProxyType.values().forEach { type ->
-                FilterChip(
-                    selected = proxyType == type,
-                    onClick = { onProxyTypeChange(type) },
-                    label = { Text(type.name) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text("TRANSPORT PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                TransportMode.TCP_AND_UDP to "TCP + UDP (WebRTC)",
-                TransportMode.TCP_ONLY to "TCP Only"
-            ).forEach { (mode, label) ->
-                FilterChip(
-                    selected = transportMode == mode,
-                    onClick = { onTransportModeChange(mode) },
-                    label = { Text(label) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text("IP MODE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                IpMode.IPV4_ONLY to "IPv4",
-                IpMode.DUAL_STACK to "Dual-Stack",
-                IpMode.IPV6_ONLY to "IPv6"
-            ).forEach { (mode, label) ->
-                FilterChip(
-                    selected = ipMode == mode,
-                    onClick = { onIpModeChange(mode) },
-                    label = { Text(label) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        OutlinedTextField(
-            value = host,
-            onValueChange = onHostChange,
-            label = { Text("Server Host / IP") },
-            placeholder = { Text("e.g. 192.168.1.100 or proxy.domain.com") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedTextField(
-            value = port,
-            onValueChange = onPortChange,
-            label = { Text("Server Port") },
-            placeholder = { Text("1080") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        when (proxyType) {
-            ProxyType.SOCKS5, ProxyType.HTTP -> {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = onUsernameChange,
-                        label = { Text("Username") },
-                        placeholder = { Text("Optional") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = onPasswordChange,
-                        label = { Text("Password") },
-                        placeholder = { Text("Optional") },
-                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            Text(
-                                text = if (passwordVisible) "Hide" else "Show",
-                                fontSize = 11.sp,
-                                color = Color(0xFF00FF88),
-                                modifier = Modifier
-                                    .clickable { passwordVisible = !passwordVisible }
-                                    .padding(end = 12.dp)
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true
-                    )
-                }
-            }
-
-            ProxyType.SHADOWSOCKS -> {
-                OutlinedTextField(
-                    value = ssMethod,
-                    onValueChange = onSsMethodChange,
-                    label = { Text("Cipher / Method") },
-                    placeholder = { Text("2022-blake3-aes-128-gcm or aes-128-gcm") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = onPasswordChange,
-                    label = { Text("Password / Pre-Shared Key") },
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        Text(
-                            text = if (passwordVisible) "Hide" else "Show",
-                            fontSize = 11.sp,
-                            color = Color(0xFF00FF88),
-                            modifier = Modifier
-                                .clickable { passwordVisible = !passwordVisible }
-                                .padding(end = 12.dp)
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-            }
-
-            ProxyType.VLESS -> {
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = onPasswordChange,
-                    label = { Text("UUID") },
-                    placeholder = { Text("e.g. 550e8400-e29b-41d4-a716-446655440000") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = sni,
-                    onValueChange = onSniChange,
-                    label = { Text("SNI / Server Name") },
-                    placeholder = { Text("e.g. gateway.cloudflare.com") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = realityPublicKey,
-                        onValueChange = onRealityPublicKeyChange,
-                        label = { Text("Reality Public Key") },
-                        placeholder = { Text("Optional") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = realityShortId,
-                        onValueChange = onRealityShortIdChange,
-                        label = { Text("Reality Short ID") },
-                        placeholder = { Text("Optional") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true
-                    )
-                }
-            }
-
-            ProxyType.TROJAN, ProxyType.HYSTERIA2 -> {
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = onPasswordChange,
-                    label = { Text("Auth Password") },
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        Text(
-                            text = if (passwordVisible) "Hide" else "Show",
-                            fontSize = 11.sp,
-                            color = Color(0xFF00FF88),
-                            modifier = Modifier
-                                .clickable { passwordVisible = !passwordVisible }
-                                .padding(end = 12.dp)
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = sni,
-                    onValueChange = onSniChange,
-                    label = { Text("SNI / Server Name") },
-                    placeholder = { Text("e.g. yourdomain.com") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-            }
-
-            ProxyType.SOCKS4 -> {}
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0x330B1120),
-            border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Server Health Check",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Direct socket test without starting tunnel",
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            if (host.trim().isEmpty()) {
-                                aliveCheckResult = TestResult.Failure("Host is empty")
-                                return@Button
-                            }
-                            isCheckingAlive = true
-                            aliveCheckResult = null
-                            coroutineScope.launch {
-                                val currentSettings = ProxySettings(
-                                    type = proxyType,
-                                    transportMode = transportMode,
-                                    ipMode = ipMode,
-                                    host = host.trim(),
-                                    port = port.toIntOrNull() ?: 1080,
-                                    username = username.trim(),
-                                    password = password.trim(),
-                                    routeHotspot = routeHotspot,
-                                    sni = sni.trim(),
-                                    ssMethod = ssMethod.trim(),
-                                    realityPublicKey = realityPublicKey.trim(),
-                                    realityShortId = realityShortId.trim()
-                                )
-                                val res = ProxyTester.testProxy(currentSettings)
-                                aliveCheckResult = res
-                                isCheckingAlive = false
-                            }
-                        },
-                        enabled = !isCheckingAlive,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF00FF88),
-                            contentColor = Color(0xFF020408)
-                        )
-                    ) {
-                        Text(
-                            text = if (isCheckingAlive) "Checking..." else "Check If Alive",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                if (aliveCheckResult != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    when (val result = aliveCheckResult) {
-                        is TestResult.Success -> {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0x2200FF88),
-                                border = BorderStroke(1.dp, Color(0x6600FF88)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF00FF88), CircleShape))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "PROXY ALIVE • Latency: ${result.latencyMs} ms",
-                                        color = Color(0xFF00FF88),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                        }
-                        is TestResult.Failure -> {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0x22F43F5E),
-                                border = BorderStroke(1.dp, Color(0x66F43F5E)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFFF43F5E), CircleShape))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "PROXY DEAD • ${result.error}",
-                                        color = Color(0xFFF43F5E),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                        }
-                        null -> {}
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-    }
 }
 
 @Composable
