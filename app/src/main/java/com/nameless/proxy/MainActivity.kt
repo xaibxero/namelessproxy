@@ -194,7 +194,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 ProxyType.valueOf(currentPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name)
-            } catch (_: Exception) { ProxyType.SOCKS5 }
+            } catch (e: Exception) { ProxyType.SOCKS5 }
         )
     }
 
@@ -202,7 +202,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 TransportMode.valueOf(currentPrefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name)
-            } catch (_: Exception) { TransportMode.TCP_AND_UDP }
+            } catch (e: Exception) { TransportMode.TCP_AND_UDP }
         )
     }
 
@@ -210,7 +210,7 @@ fun MainScreen(
         mutableStateOf(
             try {
                 IpMode.valueOf(currentPrefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name)
-            } catch (_: Exception) { IpMode.IPV4_ONLY }
+            } catch (e: Exception) { IpMode.IPV4_ONLY }
         )
     }
 
@@ -323,9 +323,9 @@ fun MainScreen(
                     selectedPackages = set
                 }
 
-                try { proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (_: Exception) {}
-                try { transportMode = TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name)) } catch (_: Exception) {}
-                try { ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name)) } catch (_: Exception) {}
+                try { proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (e: Exception) {}
+                try { transportMode = TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name)) } catch (e: Exception) {}
+                try { ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name)) } catch (e: Exception) {}
 
                 saveConfig()
             }
@@ -713,7 +713,7 @@ fun MainScreen(
                     }
                 }
 
-                // UNIFIED SINGLE-SCROLL CONFIGURATION VIEW
+                // 1. UNIFIED SINGLE-SCROLL CONFIGURATION VIEW
                 1 -> {
                     Column(
                         modifier = Modifier
@@ -721,7 +721,7 @@ fun MainScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // 1. GLOBAL SYSTEM SETTINGS CARD
+                        // GLOBAL MASTER SETTINGS (Single Unified Controls)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0x330B1120),
@@ -746,7 +746,7 @@ fun MainScreen(
                                             color = Color.White
                                         )
                                         Text(
-                                            text = if (startOnBoot) "Launches P$bootSlot immediately on boot" else "Disabled — proxy will not run on boot",
+                                            text = if (startOnBoot) "P$bootSlot starts automatically on system boot" else "Disabled — proxy will not run on boot",
                                             fontSize = 11.sp,
                                             color = if (startOnBoot) Color(0xFF00FF88) else Color(0xFF64748B)
                                         )
@@ -760,7 +760,7 @@ fun MainScreen(
                                                 globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
                                                 val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
                                                 BootManager.syncBootState(context, true, getCurrentSettings(), uids)
-                                                Toast.makeText(context, "P$activeSlot set as boot target", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "P$activeSlot set as startup target", Toast.LENGTH_SHORT).show()
                                             } else {
                                                 globalPrefs.edit().putBoolean("start_on_boot", false).apply()
                                                 BootManager.removeBootScript()
@@ -770,10 +770,10 @@ fun MainScreen(
                                             checkedThumbColor = Color(0xFF020408),
                                             checkedTrackColor = Color(0xFF00FF88)
                                         )
-                                    }
+                                    )
                                 }
 
-                                // Boot Slot Picker
+                                // Boot Target Selector
                                 if (startOnBoot) {
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Text("SELECT STARTUP PROFILE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 0.8.sp)
@@ -790,9 +790,9 @@ fun MainScreen(
                                                     bootSlot = s
                                                     globalPrefs.edit().putInt("boot_slot", s).apply()
                                                     val slotPrefs = getSlotPrefs(s)
-                                                    val sType = try { ProxyType.valueOf(slotPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (_: Exception) { ProxyType.SOCKS5 }
-                                                    val sTransport = try { TransportMode.valueOf(slotPrefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name) } catch (_: Exception) { TransportMode.TCP_AND_UDP }
-                                                    val sIp = try { IpMode.valueOf(slotPrefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name) } catch (_: Exception) { IpMode.IPV4_ONLY }
+                                                    val sType = try { ProxyType.valueOf(slotPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (e: Exception) { ProxyType.SOCKS5 }
+                                                    val sTransport = try { TransportMode.valueOf(slotPrefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name) } catch (e: Exception) { TransportMode.TCP_AND_UDP }
+                                                    val sIp = try { IpMode.valueOf(slotPrefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name) } catch (e: Exception) { IpMode.IPV4_ONLY }
                                                     val targetSettings = ProxySettings(
                                                         type = sType,
                                                         transportMode = sTransport,
@@ -860,7 +860,7 @@ fun MainScreen(
                             }
                         }
 
-                        // 2. PROFILE CONFIGURATION CARD (Active Slot P0-P4)
+                        // PROFILE P$activeSlot SETTINGS
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0x330B1120),
@@ -873,7 +873,7 @@ fun MainScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("PROFILE P$activeSlot CONFIGURATION", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF38BDF8), letterSpacing = 1.sp)
+                                    Text("PROFILE P$activeSlot SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF38BDF8), letterSpacing = 1.sp)
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = Color(0x2238BDF8),
@@ -1131,7 +1131,7 @@ fun MainScreen(
                             }
                         }
 
-                        // 3. SERVER HEALTH CHECK CARD
+                        // SERVER HEALTH CHECK
                         var isCheckingAlive by remember { mutableStateOf(false) }
                         var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
 
