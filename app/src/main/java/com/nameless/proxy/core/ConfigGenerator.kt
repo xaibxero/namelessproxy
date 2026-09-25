@@ -219,7 +219,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // Hijack DNS port 53 into the internal DNS engine
+        // 1. Always hijack Port 53 to internal DNS engine (prevents leaks)
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
@@ -227,9 +227,10 @@ object ConfigGenerator {
         }
         routeRules.put(dnsRouteRule)
 
-        // Only reject QUIC (UDP 443) on TCP-only proxy protocols (SOCKS5/HTTP) so Chrome falls back to TCP seamlessly
-        // On Shadowsocks, VLESS, and Hysteria 2, full UDP/QUIC passes through natively
-        if (settings.type == ProxyType.SOCKS5 || settings.type == ProxyType.SOCKS4 || settings.type == ProxyType.HTTP) {
+        // 2. Adaptive QUIC fallback:
+        // ONLY reject UDP Port 443 if you explicitly selected "TCP Only" mode (preventing browser ERR_CONNECTION_REFUSED on TCP proxies).
+        // When "TCP + UDP" is selected, this rule is completely skipped, allowing 100% native UDP, QUIC, and gaming traffic.
+        if (settings.transportMode == TransportMode.TCP_ONLY) {
             val quicFallbackRule = JSONObject().apply {
                 put("network", "udp")
                 val portArray = JSONArray().apply { put(443) }
