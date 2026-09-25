@@ -45,7 +45,6 @@ object BootManager {
         val slot = ProfileManager.activeSlot
         val port = ProfileManager.localInboundPort
 
-        // Permanent root storage that survives reboots
         val binaryPath = "$ADB_DIR/sing-box"
         val configPath = "$ADB_DIR/config_u${user}_s${slot}.json"
         val pidFile = "$ADB_DIR/singbox_u${user}_s${slot}.pid"
@@ -56,11 +55,20 @@ object BootManager {
 
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
 
-        // Instant startup script (no sleep delay)
+        // Instant startup script: fast-polls until loopback is ready, no sleep delay
         val scriptContent = buildString {
             appendLine("#!/system/bin/sh")
-            appendLine("# Nameless Proxy Instant Boot Script")
+            appendLine("# Nameless Proxy Fast Boot Script")
             appendLine("export PATH=/system/bin:/system/xbin:\$PATH")
+            appendLine("")
+            appendLine("i=0")
+            appendLine("while [ \$i -lt 30 ]; do")
+            appendLine("  if ip link show lo 2>/dev/null | grep -q \"UP\"; then")
+            appendLine("    break")
+            appendLine("  fi")
+            appendLine("  sleep 0.1")
+            appendLine("  i=\$((i+1))")
+            appendLine("done")
             appendLine("")
             appendLine("mkdir -p $ADB_DIR")
             appendLine("chmod 755 $binaryPath 2>/dev/null")
