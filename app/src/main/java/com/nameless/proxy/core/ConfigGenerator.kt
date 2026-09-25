@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine
+        // 2. DNS Engine (Resolves via Cloudflare Anycast through proxy tunnel)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Clean syntax for sing-box >= 1.11 / 1.13
+        // 3. Inbounds: Compliant with sing-box >= 1.11.0 / 1.13.0
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -211,7 +211,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (Pure port 53 hijack to DNS engine)
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
