@@ -12,14 +12,18 @@ data class StartResult(
 
 object ProxyController {
 
+    private const val ADB_DIR = "/data/adb/nameless_proxy"
+
+    fun getBinaryPath() = "$ADB_DIR/sing-box"
+
     fun getConfigPath(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
-        "/data/local/tmp/singbox_u${user}_s${slot}.json"
+        "$ADB_DIR/config_u${user}_s${slot}.json"
 
     fun getPidFile(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
-        "/data/local/tmp/singbox_u${user}_s${slot}.pid"
+        "$ADB_DIR/singbox_u${user}_s${slot}.pid"
 
     fun getLogFile(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
-        "/data/local/tmp/singbox_u${user}_s${slot}.log"
+        "$ADB_DIR/singbox_u${user}_s${slot}.log"
 
     private fun executeSuWithOutput(commands: List<String>): String {
         return try {
@@ -62,9 +66,9 @@ object ProxyController {
     }
 
     fun extractBinaryDirectly(context: Context): Boolean {
-        val targetPath = "/data/local/tmp/sing-box"
+        val targetPath = getBinaryPath()
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath"))
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $ADB_DIR && rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath"))
             context.assets.open("sing-box").use { input ->
                 input.copyTo(process.outputStream)
             }
@@ -79,7 +83,7 @@ object ProxyController {
 
     fun writeConfigDirectly(configContent: String, configPath: String): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -f $configPath && cat > $configPath && chmod 644 $configPath"))
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $ADB_DIR && rm -f $configPath && cat > $configPath && chmod 644 $configPath"))
             process.outputStream.write(configContent.toByteArray(Charsets.UTF_8))
             process.outputStream.flush()
             process.outputStream.close()
@@ -135,7 +139,7 @@ object ProxyController {
     ): StartResult {
         val user = ProfileManager.androidUserId
         val slot = ProfileManager.activeSlot
-        val binaryPath = "/data/local/tmp/sing-box"
+        val binaryPath = getBinaryPath()
         val configPath = getConfigPath(user, slot)
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
@@ -145,7 +149,7 @@ object ProxyController {
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
             if (!extracted) {
-                return StartResult(success = false, errorMessage = "Failed to extract core binary")
+                return StartResult(success = false, errorMessage = "Failed to extract core binary to $ADB_DIR")
             }
         }
 
@@ -155,7 +159,6 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Only stop THIS user's active slot, leaving other Android users untouched
         stopProxy(context, user, slot)
 
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
