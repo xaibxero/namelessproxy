@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine: Resolves via Cloudflare 1.1.1.1 through proxy tunnel
+        // 2. DNS Engine (Resolves via Cloudflare Anycast through proxy tunnel)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Enable sniffing & destination override
+        // 3. Inbounds: Bind to 0.0.0.0 / :: with domain sniffing enabled
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -94,6 +94,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
+        // Full UDP TPROXY when TCP+UDP is active
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -215,7 +216,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (Direct and pure: Hijacks Port 53, everything else flows to proxy-out)
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
@@ -223,22 +224,12 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // Hijack DNS port 53 into the internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
-
-        // Reject QUIC (UDP 443) so browsers fallback immediately to fast, reliable TCP
-        val quicRejectRule = JSONObject().apply {
-            put("network", "udp")
-            val portArray = JSONArray().apply { put(443) }
-            put("port", portArray)
-            put("action", "reject")
-        }
-        routeRules.put(quicRejectRule)
 
         route.put("rules", routeRules)
         root.put("route", route)
