@@ -7,25 +7,28 @@ object IptablesManager {
         settings: ProxySettings,
         selectedUids: List<Int>? = null
     ): List<String> {
-        val slot = ProfileManager.profileId
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
+        val key = ProfileManager.sessionKey
+
         val chainNatV4 = ProfileManager.chainName
         val chainNatV6 = "${ProfileManager.chainName}_V6"
-        val chainPreMangle = "NAMELESS_PRE_U$slot"
-        val chainOutMangle = "NAMELESS_OUT_U$slot"
-        val chainHotspotNat = "NAMELESS_HS_NAT_U$slot"
-        val chainHotspotMangle = "NAMELESS_HS_MANGLE_U$slot"
-        val chainHotspotV6Block = "NAMELESS_HS_V6_U$slot"
+        val chainPreMangle = "NAMELESS_PRE_$key"
+        val chainOutMangle = "NAMELESS_OUT_$key"
+        val chainHotspotNat = "NAMELESS_HS_NAT_$key"
+        val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
+        val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
         val start = ProfileManager.uidStart
         val end = ProfileManager.uidEnd
 
-        val tableId = 100 + slot
-        val markHex = "0x" + Integer.toHexString(0x2333 + slot)
+        val tableId = ProfileManager.routingTableId
+        val markHex = ProfileManager.markHex
 
         val commands = mutableListOf<String>()
 
-        // 1. Clean existing rules for this slot
-        commands.addAll(generateDisableCommands(slot))
+        // 1. Clean existing rules for this user & slot only
+        commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Policy Routing for UDP TPROXY
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
@@ -152,8 +155,8 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
         }
 
-        // 5. Hotspot & Tethering Routing
-        if (settings.routeHotspot) {
+        // 5. Hotspot & Tethering Routing (Owner User 0 Only)
+        if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
             commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
 
@@ -205,20 +208,24 @@ object IptablesManager {
         return commands
     }
 
-    fun generateDisableCommands(slot: Int = ProfileManager.profileId): List<String> {
-        val chainNatV4 = "NAMELESS_P$slot"
-        val chainNatV6 = "NAMELESS_P${slot}_V6"
-        val chainPreMangle = "NAMELESS_PRE_U$slot"
-        val chainOutMangle = "NAMELESS_OUT_U$slot"
-        val chainHotspotNat = "NAMELESS_HS_NAT_U$slot"
-        val chainHotspotMangle = "NAMELESS_HS_MANGLE_U$slot"
-        val chainHotspotV6Block = "NAMELESS_HS_V6_U$slot"
+    fun generateDisableCommands(
+        user: Int = ProfileManager.androidUserId,
+        slot: Int = ProfileManager.activeSlot
+    ): List<String> {
+        val key = "u${user}_s$slot"
+        val chainNatV4 = "NAMELESS_U${user}_S$slot"
+        val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
+        val chainPreMangle = "NAMELESS_PRE_$key"
+        val chainOutMangle = "NAMELESS_OUT_$key"
+        val chainHotspotNat = "NAMELESS_HS_NAT_$key"
+        val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
+        val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val start = ProfileManager.uidStart
-        val end = ProfileManager.uidEnd
+        val start = user * 100000
+        val end = start + 99999
 
-        val tableId = 100 + slot
-        val markHex = "0x" + Integer.toHexString(0x2333 + slot)
+        val tableId = 1000 + (user * 10) + slot
+        val markHex = "0x" + Integer.toHexString(0x20000 + (user * 0x100) + slot)
 
         return listOf(
             "ip6tables -D FORWARD -j $chainHotspotV6Block 2>/dev/null",
@@ -254,13 +261,5 @@ object IptablesManager {
             "ip6tables -t nat -X $chainNatV6 2>/dev/null",
             "ip6tables -D OUTPUT -m owner --uid-owner $start-$end -j REJECT 2>/dev/null"
         )
-    }
-
-    fun generateDisableAllCommands(): List<String> {
-        val cmds = mutableListOf<String>()
-        for (i in 0 until ProfileManager.MAX_PROFILES) {
-            cmds.addAll(generateDisableCommands(i))
-        }
-        return cmds
     }
 }
