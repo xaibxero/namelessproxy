@@ -12,8 +12,8 @@ object PersistentStorage {
 
     private const val BACKUP_DIR = "/data/adb/nameless_proxy"
 
-    private fun getBackupPath(profileId: Int): String {
-        return "$BACKUP_DIR/profile_${profileId}_config.json"
+    private fun getBackupPath(user: Int, slot: Int): String {
+        return "$BACKUP_DIR/user_${user}_slot_${slot}_config.json"
     }
 
     private fun executeSu(commands: List<String>): String {
@@ -35,14 +35,17 @@ object PersistentStorage {
 
     suspend fun saveBackup(
         context: Context,
-        profileId: Int,
+        slot: Int,
         settings: ProxySettings,
         startOnBoot: Boolean,
         routeWholeProfile: Boolean,
-        selectedPackages: Set<String> = emptySet()
+        selectedPackages: Set<String> = emptySet(),
+        user: Int = ProfileManager.androidUserId
     ) = withContext(Dispatchers.IO) {
         try {
             val json = JSONObject().apply {
+                put("user_id", user)
+                put("slot", slot)
                 put("proxy_type", settings.type.name)
                 put("transport_mode", settings.transportMode.name)
                 put("ip_mode", settings.ipMode.name)
@@ -60,9 +63,9 @@ object PersistentStorage {
                 put("selected_packages", JSONArray(selectedPackages))
             }
 
-            val tempFile = File(context.cacheDir, "temp_p${profileId}_backup.json")
+            val tempFile = File(context.cacheDir, "temp_u${user}_s${slot}_backup.json")
             tempFile.writeText(json.toString(2))
-            val targetPath = getBackupPath(profileId)
+            val targetPath = getBackupPath(user, slot)
 
             executeSu(listOf(
                 "mkdir -p $BACKUP_DIR",
@@ -73,8 +76,11 @@ object PersistentStorage {
         } catch (_: Exception) {}
     }
 
-    suspend fun loadBackup(profileId: Int): JSONObject? = withContext(Dispatchers.IO) {
-        val targetPath = getBackupPath(profileId)
+    suspend fun loadBackup(
+        slot: Int,
+        user: Int = ProfileManager.androidUserId
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        val targetPath = getBackupPath(user, slot)
         val raw = executeSu(listOf(
             "if [ -f $targetPath ]; then cat $targetPath; fi"
         )).trim()
