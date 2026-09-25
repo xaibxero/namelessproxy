@@ -15,6 +15,8 @@ object IptablesManager {
         val chainNatV6 = "${ProfileManager.chainName}_V6"
         val chainPreMangle = "NAMELESS_PRE_$key"
         val chainOutMangle = "NAMELESS_OUT_$key"
+        val chainFilter = "NAMELESS_FILTER_$key"
+        val chainV6Filter = "NAMELESS_V6_FILTER_$key"
         val chainHotspotNat = "NAMELESS_HS_NAT_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
@@ -30,7 +32,7 @@ object IptablesManager {
         // 1. Cleanup all existing rules for this user & slot
         commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. Policy Routing for UDP TPROXY
+        // 2. Policy Routing for UDP TPROXY (Full UDP Mode)
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             commands.add("ip rule add fwmark $markHex table $tableId pref 100")
             commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
@@ -47,7 +49,7 @@ object IptablesManager {
             commands.add("iptables -t mangle -N $chainOutMangle")
             commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
 
-            // Intercept standard UDP Port 53 DNS globally for the profile so netd (UID 1052) doesn't leak
+            // Hijack UDP Port 53 DNS globally for the profile
             commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
             val reservedV4 = listOf(
@@ -71,60 +73,62 @@ object IptablesManager {
             commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
         }
 
-        // 3. IPv4 TCP Redirection (NAT Table)
-        if (settings.ipMode == IpMode.IPV6_ONLY) {
+        // 3. WebRTC Anti-Leak Shield (When in TCP Only Mode)
+        // If proxy is TCP Only, drop non-DNS UDP so browser WebRTC STUN queries cannot bypass the tunnel
+        commands.add("iptables -N $chainFilter 2>/dev/null")
+        commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
+        if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -A OUTPUT -m owner --uid-owner $start-$end -j REJECT --reject-with icmp-port-unreachable")
+                commands.add("iptables -A $chainFilter -p udp -j DROP")
             } else {
                 for (uid in selectedUids) {
-                    commands.add("iptables -A OUTPUT -m owner --uid-owner $uid -j REJECT --reject-with icmp-port-unreachable")
+                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
                 }
             }
-        } else {
-            commands.add("iptables -t nat -N $chainNatV4")
-            commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
+        }
+        commands.add("iptables -A OUTPUT -m owner --uid-owner $start-$end -j $chainFilter")
 
-            // Intercept TCP Port 53 DNS globally for the profile so netd doesn't leak
-            commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+        // 4. IPv4 TCP Redirection (NAT Table)
+        commands.add("iptables -t nat -N $chainNatV4")
+        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
-            val reservedV4 = listOf(
-                "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
-                "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
-            )
-            for (range in reservedV4) {
-                commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
-            }
-
-            if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-                commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
-            }
-
-            // Per-App filter: Only redirect TCP traffic for selected app UIDs
-            if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -t nat -A $chainNatV4 -p tcp -j REDIRECT --to-ports $inboundPort")
-            } else {
-                for (uid in selectedUids) {
-                    commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
-                }
-            }
-            commands.add("iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4")
+        val reservedV4 = listOf(
+            "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
+            "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
+        )
+        for (range in reservedV4) {
+            commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
         }
 
-        // 4. IPv6 Redirection / Shield
+        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
+            commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
+        }
+
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -j REDIRECT --to-ports $inboundPort")
+        } else {
+            for (uid in selectedUids) {
+                commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+            }
+        }
+        commands.add("iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4")
+
+        // 5. IPv6 Leak Shield
         if (settings.ipMode == IpMode.IPV4_ONLY) {
+            commands.add("ip6tables -N $chainV6Filter 2>/dev/null")
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("ip6tables -A OUTPUT -m owner --uid-owner $start-$end -j DROP")
+                commands.add("ip6tables -A $chainV6Filter -j DROP")
             } else {
                 for (uid in selectedUids) {
-                    commands.add("ip6tables -A OUTPUT -m owner --uid-owner $uid -j DROP")
+                    commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $uid -j DROP")
                 }
             }
+            commands.add("ip6tables -A OUTPUT -m owner --uid-owner $start-$end -j $chainV6Filter")
         } else {
             commands.add("ip6tables -t nat -N $chainNatV6")
             commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
-
             commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
 
@@ -138,7 +142,7 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
         }
 
-        // 5. Hotspot & Tethering Routing (User 0 Only)
+        // 6. Hotspot & Tethering Routing (User 0 Only)
         if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
             commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
@@ -200,6 +204,8 @@ object IptablesManager {
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
         val chainPreMangle = "NAMELESS_PRE_$key"
         val chainOutMangle = "NAMELESS_OUT_$key"
+        val chainFilter = "NAMELESS_FILTER_$key"
+        val chainV6Filter = "NAMELESS_V6_FILTER_$key"
         val chainHotspotNat = "NAMELESS_HS_NAT_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
@@ -222,10 +228,13 @@ object IptablesManager {
             "iptables -t mangle -F $chainHotspotMangle 2>/dev/null",
             "iptables -t mangle -X $chainHotspotMangle 2>/dev/null",
 
+            "iptables -D OUTPUT -m owner --uid-owner $start-$end -j $chainFilter 2>/dev/null",
+            "iptables -F $chainFilter 2>/dev/null",
+            "iptables -X $chainFilter 2>/dev/null",
+
             "iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4 2>/dev/null",
             "iptables -t nat -F $chainNatV4 2>/dev/null",
             "iptables -t nat -X $chainNatV4 2>/dev/null",
-            "iptables -D OUTPUT -m owner --uid-owner $start-$end -j REJECT 2>/dev/null",
 
             "iptables -t mangle -D PREROUTING -j $chainPreMangle 2>/dev/null",
             "iptables -t mangle -F $chainPreMangle 2>/dev/null",
@@ -239,10 +248,13 @@ object IptablesManager {
             "ip -6 rule del fwmark $markHex table $tableId 2>/dev/null",
             "ip -6 route flush table $tableId 2>/dev/null",
 
+            "ip6tables -D OUTPUT -m owner --uid-owner $start-$end -j $chainV6Filter 2>/dev/null",
+            "ip6tables -F $chainV6Filter 2>/dev/null",
+            "ip6tables -X $chainV6Filter 2>/dev/null",
+
             "ip6tables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6 2>/dev/null",
             "ip6tables -t nat -F $chainNatV6 2>/dev/null",
-            "ip6tables -t nat -X $chainNatV6 2>/dev/null",
-            "ip6tables -D OUTPUT -m owner --uid-owner $start-$end -j DROP 2>/dev/null"
+            "ip6tables -t nat -X $chainNatV6 2>/dev/null"
         )
     }
 }
