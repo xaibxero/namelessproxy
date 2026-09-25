@@ -18,6 +18,13 @@ enum class IpMode {
     IPV6_ONLY
 }
 
+enum class RemoteDnsProvider(val title: String, val ip: String) {
+    CLOUDFLARE("Cloudflare (1.1.1.1)", "1.1.1.1"),
+    GOOGLE("Google (8.8.8.8)", "8.8.8.8"),
+    ADGUARD("AdGuard AdBlock (94.140.14.14)", "94.140.14.14"),
+    OPENDNS("OpenDNS (208.67.222.222)", "208.67.222.222")
+}
+
 data class ProxySettings(
     val type: ProxyType = ProxyType.SOCKS5,
     val transportMode: TransportMode = TransportMode.TCP_AND_UDP,
@@ -30,7 +37,8 @@ data class ProxySettings(
     val sni: String = "",
     val ssMethod: String = "2022-blake3-aes-128-gcm",
     val realityPublicKey: String = "",
-    val realityShortId: String = ""
+    val realityShortId: String = "",
+    val desiredDns: RemoteDnsProvider = RemoteDnsProvider.CLOUDFLARE
 )
 
 object ConfigGenerator {
@@ -44,21 +52,19 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine
+        // 2. DNS Engine (Uses Desired DNS through proxy tunnel with 0% leak)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        // Remote DNS: Resolves queries through proxy tunnel using Cloudflare (prevents mismatch)
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "1.1.1.1")
+            put("server", settings.desiredDns.ip)
             put("server_port", 53)
             put("detour", "proxy-out")
         }
         dnsServers.put(remoteDns)
 
-        // Direct DNS: Bootstrap resolver
         val directDns = JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
@@ -77,7 +83,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Bind to 0.0.0.0 / :: so local apps, cellular, and hotspot clients are accepted
+        // 3. Inbounds: Universal redirect + tproxy listeners
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -86,7 +92,6 @@ object ConfigGenerator {
 
         val inbounds = JSONArray()
 
-        // TCP Inbound (Kernel REDIRECT for app traffic, Port 53 DNS, and Port 853 DoT)
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -95,7 +100,6 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // UDP Inbound (Kernel TPROXY for UDP traffic, WebRTC, and UDP Port 53)
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -107,7 +111,6 @@ object ConfigGenerator {
             inbounds.put(tproxyInbound)
         }
 
-        // Dedicated Internal SOCKS5 Inbound on 127.0.0.1 for self IP lookups
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -118,7 +121,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds (Multi-Protocol Support)
+        // 4. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject()
 
@@ -224,7 +227,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // Hijack plaintext Port 53 to sing-box internal DNS engine
+        // Hijack port 53 traffic directly to internal secure DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
@@ -232,7 +235,7 @@ object ConfigGenerator {
         }
         routeRules.put(dnsRouteRule)
 
-        // Route Android Private DNS (DoT Port 853) straight through the proxy tunnel
+        // Route port 853 through proxy tunnel
         val dotRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(853) }
             put("port", portArray)
