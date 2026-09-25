@@ -37,14 +37,13 @@ object BootManager {
             return removeBootScript()
         }
 
-        val profileId = ProfileManager.profileId
+        val slot = ProfileManager.profileId
         val port = ProfileManager.localInboundPort
         val binaryPath = "/data/local/tmp/sing-box"
-        val configPath = "/data/local/tmp/singbox_u${profileId}.json"
-        val pidFile = "/data/local/tmp/singbox_u${profileId}.pid"
-        val logFile = "/data/local/tmp/singbox_u${profileId}.log"
+        val configPath = "/data/local/tmp/singbox_u$slot.json"
+        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
+        val logFile = "/data/local/tmp/singbox_u$slot.log"
 
-        // Ensure current configuration is synced to disk
         val configJson = ConfigGenerator.generateJson(settings, port)
         ProxyController.writeConfigDirectly(configJson, configPath)
 
@@ -56,23 +55,19 @@ object BootManager {
             appendLine("sleep 5")
             appendLine("export PATH=/system/bin:/system/xbin:\$PATH")
             appendLine("")
-            appendLine("# Verify required files exist")
             appendLine("if [ ! -f $binaryPath ] || [ ! -f $configPath ]; then")
             appendLine("  exit 1")
             appendLine("fi")
             appendLine("")
-            appendLine("# Kill old instance if lingering")
             appendLine("if [ -f $pidFile ]; then")
             appendLine("  kill -9 \$(cat $pidFile) 2>/dev/null")
             appendLine("  rm -f $pidFile")
             appendLine("fi")
             appendLine("")
-            appendLine("# Launch daemon")
             appendLine("nohup $binaryPath run -c $configPath > $logFile 2>&1 &")
             appendLine("echo \$! > $pidFile")
             appendLine("sleep 1")
             appendLine("")
-            appendLine("# Apply Netfilter Rules")
             for (cmd in iptablesCmds) {
                 appendLine(cmd)
             }
