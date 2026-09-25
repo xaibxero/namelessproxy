@@ -18,13 +18,6 @@ enum class IpMode {
     IPV6_ONLY
 }
 
-enum class RemoteDnsProvider(val title: String, val ip: String) {
-    CLOUDFLARE("Cloudflare (1.1.1.1)", "1.1.1.1"),
-    GOOGLE("Google (8.8.8.8)", "8.8.8.8"),
-    ADGUARD("AdGuard AdBlock (94.140.14.14)", "94.140.14.14"),
-    OPENDNS("OpenDNS (208.67.222.222)", "208.67.222.222")
-}
-
 data class ProxySettings(
     val type: ProxyType = ProxyType.SOCKS5,
     val transportMode: TransportMode = TransportMode.TCP_AND_UDP,
@@ -37,8 +30,7 @@ data class ProxySettings(
     val sni: String = "",
     val ssMethod: String = "2022-blake3-aes-128-gcm",
     val realityPublicKey: String = "",
-    val realityShortId: String = "",
-    val desiredDns: RemoteDnsProvider = RemoteDnsProvider.CLOUDFLARE
+    val realityShortId: String = ""
 )
 
 object ConfigGenerator {
@@ -52,14 +44,14 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine (Uses Desired DNS through proxy tunnel with 0% leak)
+        // 2. DNS Engine: Resolves via Cloudflare 1.1.1.1 through proxy tunnel
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", settings.desiredDns.ip)
+            put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
         }
@@ -83,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Universal redirect + tproxy listeners
+        // 3. Inbounds
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -219,7 +211,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (Port 53 Hijack only)
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
@@ -227,21 +219,12 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // Hijack port 53 traffic directly to internal secure DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
-
-        // Route port 853 through proxy tunnel
-        val dotRouteRule = JSONObject().apply {
-            val portArray = JSONArray().apply { put(853) }
-            put("port", portArray)
-            put("outbound", "proxy-out")
-        }
-        routeRules.put(dotRouteRule)
 
         route.put("rules", routeRules)
         root.put("route", route)
