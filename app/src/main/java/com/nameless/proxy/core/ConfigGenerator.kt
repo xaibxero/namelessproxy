@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 3. Inbounds: Enable sniffing & destination override
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -89,6 +89,8 @@ object ConfigGenerator {
             put("tag", "redirect-in")
             put("listen", listenAddress)
             put("listen_port", inboundPort)
+            put("sniff", true)
+            put("sniff_override_destination", true)
         }
         inbounds.put(redirectInbound)
 
@@ -99,6 +101,8 @@ object ConfigGenerator {
                 put("listen", listenAddress)
                 put("listen_port", inboundPort)
                 put("network", "udp")
+                put("sniff", true)
+                put("sniff_override_destination", true)
             }
             inbounds.put(tproxyInbound)
         }
@@ -211,7 +215,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Port 53 Hijack only)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
@@ -219,12 +223,22 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
+        // Hijack DNS port 53 into the internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
+
+        // Reject QUIC (UDP 443) so browsers fallback immediately to fast, reliable TCP
+        val quicRejectRule = JSONObject().apply {
+            put("network", "udp")
+            val portArray = JSONArray().apply { put(443) }
+            put("port", portArray)
+            put("action", "reject")
+        }
+        routeRules.put(quicRejectRule)
 
         route.put("rules", routeRules)
         root.put("route", route)
