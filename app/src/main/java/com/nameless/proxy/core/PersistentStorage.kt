@@ -3,6 +3,7 @@ package com.nameless.proxy.core
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.DataOutputStream
 import java.io.File
@@ -37,7 +38,8 @@ object PersistentStorage {
         profileId: Int,
         settings: ProxySettings,
         startOnBoot: Boolean,
-        routeWholeProfile: Boolean
+        routeWholeProfile: Boolean,
+        selectedPackages: Set<String> = emptySet()
     ) = withContext(Dispatchers.IO) {
         try {
             val json = JSONObject().apply {
@@ -51,6 +53,11 @@ object PersistentStorage {
                 put("start_on_boot", startOnBoot)
                 put("route_whole_profile", routeWholeProfile)
                 put("route_hotspot", settings.routeHotspot)
+                put("sni", settings.sni)
+                put("ss_method", settings.ssMethod)
+                put("reality_public_key", settings.realityPublicKey)
+                put("reality_short_id", settings.realityShortId)
+                put("selected_packages", JSONArray(selectedPackages))
             }
 
             val tempFile = File(context.cacheDir, "temp_p${profileId}_backup.json")
