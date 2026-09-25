@@ -12,6 +12,15 @@ data class StartResult(
 
 object ProxyController {
 
+    fun getConfigPath(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
+        "/data/local/tmp/singbox_u${user}_s${slot}.json"
+
+    fun getPidFile(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
+        "/data/local/tmp/singbox_u${user}_s${slot}.pid"
+
+    fun getLogFile(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
+        "/data/local/tmp/singbox_u${user}_s${slot}.log"
+
     private fun executeSuWithOutput(commands: List<String>): String {
         return try {
             val process = Runtime.getRuntime().exec("su")
@@ -81,33 +90,34 @@ object ProxyController {
         }
     }
 
-    fun isRunning(slot: Int = ProfileManager.profileId): Boolean {
-        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
+    fun isRunning(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): Boolean {
+        val pidFile = getPidFile(user, slot)
         val result = executeSuWithOutput(listOf(
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then echo 'RUNNING'; else echo 'STOPPED'; fi"
         ))
         return result.contains("RUNNING")
     }
 
-    fun getActivePid(slot: Int = ProfileManager.profileId): String? {
-        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
+    fun getActivePid(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String? {
+        val pidFile = getPidFile(user, slot)
         val result = executeSuWithOutput(listOf(
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then cat $pidFile; fi"
         ))
         return result.trim().ifEmpty { null }
     }
 
-    fun clearLogs(slot: Int = ProfileManager.profileId) {
-        val logFile = "/data/local/tmp/singbox_u$slot.log"
+    fun clearLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) {
+        val logFile = getLogFile(user, slot)
         executeSu(listOf("> $logFile"))
     }
 
-    fun getDiagnosticsAndLogs(slot: Int = ProfileManager.profileId): String {
-        val logFile = "/data/local/tmp/singbox_u$slot.log"
+    fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
+        val pidFile = getPidFile(user, slot)
+        val logFile = getLogFile(user, slot)
         val raw = executeSuWithOutput(listOf(
-            "echo '=== DAEMON STATUS (SLOT $slot) ==='",
-            "if [ -f /data/local/tmp/singbox_u$slot.pid ] && kill -0 \$(cat /data/local/tmp/singbox_u$slot.pid) 2>/dev/null; then",
-            "  echo 'State: ACTIVE (PID: '\$(cat /data/local/tmp/singbox_u$slot.pid)')'",
+            "echo '=== DAEMON STATUS (USER $user • SLOT $slot) ==='",
+            "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then",
+            "  echo 'State: ACTIVE (PID: '\$(cat $pidFile)')'",
             "else",
             "  echo 'State: STOPPED / NOT RUNNING'",
             "fi",
@@ -123,11 +133,12 @@ object ProxyController {
         settings: ProxySettings,
         selectedUids: List<Int>? = null
     ): StartResult {
-        val slot = ProfileManager.profileId
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
         val binaryPath = "/data/local/tmp/sing-box"
-        val configPath = "/data/local/tmp/singbox_u$slot.json"
-        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
-        val logFile = "/data/local/tmp/singbox_u$slot.log"
+        val configPath = getConfigPath(user, slot)
+        val pidFile = getPidFile(user, slot)
+        val logFile = getLogFile(user, slot)
         val port = ProfileManager.localInboundPort
 
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
@@ -144,15 +155,15 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Clean any active rules across all slots before starting
-        stopAll(context)
+        // Only stop THIS user's active slot, leaving other Android users untouched
+        stopProxy(context, user, slot)
 
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
         executeSu(listOf(runCmd))
 
         Thread.sleep(700)
-        if (!isRunning(slot)) {
-            val failureInfo = getDiagnosticsAndLogs(slot)
+        if (!isRunning(user, slot)) {
+            val failureInfo = getDiagnosticsAndLogs(user, slot)
             return StartResult(
                 success = false,
                 errorMessage = failureInfo.ifEmpty { "sing-box daemon failed to start" }
@@ -165,28 +176,22 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context, slot)
+            stopProxy(context, user, slot)
             StartResult(success = false, errorMessage = "Failed to apply iptables rules")
         }
     }
 
-    fun stopProxy(context: Context, slot: Int = ProfileManager.profileId): Boolean {
-        val pidFile = "/data/local/tmp/singbox_u$slot.pid"
+    fun stopProxy(
+        context: Context,
+        user: Int = ProfileManager.androidUserId,
+        slot: Int = ProfileManager.activeSlot
+    ): Boolean {
+        val pidFile = getPidFile(user, slot)
         val commands = mutableListOf<String>()
 
         commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
-        commands.addAll(IptablesManager.generateDisableCommands(slot))
+        commands.addAll(IptablesManager.generateDisableCommands(user, slot))
 
-        return executeSu(commands)
-    }
-
-    fun stopAll(context: Context): Boolean {
-        val commands = mutableListOf<String>()
-        for (i in 0 until ProfileManager.MAX_PROFILES) {
-            val pidFile = "/data/local/tmp/singbox_u$i.pid"
-            commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
-        }
-        commands.addAll(IptablesManager.generateDisableAllCommands())
         return executeSu(commands)
     }
 }
