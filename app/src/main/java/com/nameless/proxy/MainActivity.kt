@@ -187,6 +187,8 @@ fun MainScreen(
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    val configScrollState = rememberScrollState()
+
     fun getSlotPrefs(slot: Int) = context.getSharedPreferences("nameless_slot_$slot", Context.MODE_PRIVATE)
     var currentPrefs by remember(activeSlot) { mutableStateOf(getSlotPrefs(activeSlot)) }
 
@@ -298,6 +300,10 @@ fun MainScreen(
         activeSlot = newSlot
         currentPrefs = getSlotPrefs(newSlot)
         onSyncStatus()
+        // Automatically scroll back to top when switching profile slots so Global Settings are always visible
+        coroutineScope.launch {
+            configScrollState.scrollTo(0)
+        }
     }
 
     LaunchedEffect(rootState, activeSlot) {
@@ -713,15 +719,14 @@ fun MainScreen(
                     }
                 }
 
-                // 1. UNIFIED SINGLE-SCROLL CONFIGURATION VIEW
                 1 -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(configScrollState),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // GLOBAL MASTER SETTINGS (Single Unified Controls)
+                        // 1. GLOBAL MASTER SETTINGS (Single Unified Controls Across Whole App)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0x330B1120),
@@ -729,10 +734,10 @@ fun MainScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("GLOBAL SYSTEM SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF00FF88), letterSpacing = 1.sp)
+                                Text("GLOBAL MASTER SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF00FF88), letterSpacing = 1.sp)
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Auto-Start on Boot Master Switch
+                                // Master Boot Switch
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -773,7 +778,7 @@ fun MainScreen(
                                     )
                                 }
 
-                                // Boot Target Selector
+                                // Designated Startup Profile Selector
                                 if (startOnBoot) {
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Text("SELECT STARTUP PROFILE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 0.8.sp)
@@ -825,7 +830,7 @@ fun MainScreen(
 
                                 Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
 
-                                // Hotspot Tethering Master Switch
+                                // Master Hotspot Tethering Switch
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -860,7 +865,7 @@ fun MainScreen(
                             }
                         }
 
-                        // PROFILE P$activeSlot SETTINGS
+                        // 2. PROFILE CONFIGURATION CARD (Configures Active Slot P0 - P4)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0x330B1120),
@@ -1131,7 +1136,7 @@ fun MainScreen(
                             }
                         }
 
-                        // SERVER HEALTH CHECK
+                        // 3. SERVER HEALTH CHECK
                         var isCheckingAlive by remember { mutableStateOf(false) }
                         var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
 
