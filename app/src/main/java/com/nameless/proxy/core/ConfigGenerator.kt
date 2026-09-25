@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Compliant with sing-box >= 1.11.0 / 1.13.0
+        // 3. Inbounds: Clean syntax compliant with sing-box >= 1.11.0 / 1.13.0
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -211,7 +211,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Pure port 53 hijack to DNS engine)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
@@ -219,12 +219,25 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
+        // Hijack DNS port 53 into the internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
+
+        // Only reject QUIC (UDP 443) on TCP-only proxy protocols (SOCKS5/HTTP) so Chrome falls back to TCP seamlessly
+        // On Shadowsocks, VLESS, and Hysteria 2, full UDP/QUIC passes through natively
+        if (settings.type == ProxyType.SOCKS5 || settings.type == ProxyType.SOCKS4 || settings.type == ProxyType.HTTP) {
+            val quicFallbackRule = JSONObject().apply {
+                put("network", "udp")
+                val portArray = JSONArray().apply { put(443) }
+                put("port", portArray)
+                put("action", "reject")
+            }
+            routeRules.put(quicFallbackRule)
+        }
 
         route.put("rules", routeRules)
         root.put("route", route)
