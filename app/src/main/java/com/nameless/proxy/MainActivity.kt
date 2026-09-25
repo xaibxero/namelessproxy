@@ -178,7 +178,6 @@ fun MainScreen(
 
     var currentPrefs by remember(activeSlot) { mutableStateOf(getSlotPrefs(activeSlot)) }
 
-    // Active Slot States
     var proxyType by remember(activeSlot) {
         mutableStateOf(
             try {
@@ -203,6 +202,14 @@ fun MainScreen(
         )
     }
 
+    var desiredDns by remember(activeSlot) {
+        mutableStateOf(
+            try {
+                RemoteDnsProvider.valueOf(currentPrefs.getString("desired_dns", RemoteDnsProvider.CLOUDFLARE.name) ?: RemoteDnsProvider.CLOUDFLARE.name)
+            } catch (_: Exception) { RemoteDnsProvider.CLOUDFLARE }
+        )
+    }
+
     var host by remember(activeSlot) { mutableStateOf(currentPrefs.getString("host", "") ?: "") }
     var port by remember(activeSlot) { mutableStateOf(currentPrefs.getString("port", "1080") ?: "1080") }
     var username by remember(activeSlot) { mutableStateOf(currentPrefs.getString("username", "") ?: "") }
@@ -216,7 +223,6 @@ fun MainScreen(
     var routeHotspot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_hotspot", true)) }
     var startOnBoot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("start_on_boot", false)) }
 
-    // Persistent Selected Packages Set
     var selectedPackages by remember(activeSlot) {
         mutableStateOf(currentPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet())
     }
@@ -234,7 +240,8 @@ fun MainScreen(
             sni = sni.trim(),
             ssMethod = ssMethod.trim(),
             realityPublicKey = realityPublicKey.trim(),
-            realityShortId = realityShortId.trim()
+            realityShortId = realityShortId.trim(),
+            desiredDns = desiredDns
         )
     }
 
@@ -243,6 +250,7 @@ fun MainScreen(
             .putString("proxy_type", proxyType.name)
             .putString("transport_mode", transportMode.name)
             .putString("ip_mode", ipMode.name)
+            .putString("desired_dns", desiredDns.name)
             .putString("host", host.trim())
             .putString("port", port.trim())
             .putString("username", username.trim())
@@ -256,25 +264,6 @@ fun MainScreen(
             .putBoolean("start_on_boot", startOnBoot)
             .putStringSet("selected_packages", selectedPackages)
             .apply()
-
-        val settings = getCurrentSettings()
-        val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
-
-        BootManager.syncBootState(context, startOnBoot, settings, uids)
-
-        if (settings.host.isNotEmpty()) {
-            coroutineScope.launch {
-                PersistentStorage.saveBackup(
-                    context,
-                    activeSlot,
-                    settings,
-                    startOnBoot,
-                    routeWholeProfile,
-                    selectedPackages,
-                    ProfileManager.androidUserId
-                )
-            }
-        }
     }
 
     fun switchSlot(newSlot: Int) {
@@ -284,40 +273,6 @@ fun MainScreen(
         activeSlot = newSlot
         currentPrefs = getSlotPrefs(newSlot)
         onSyncStatus()
-    }
-
-    LaunchedEffect(rootState, activeSlot) {
-        if (rootState == RootState.GRANTED && host.isEmpty()) {
-            val backup = PersistentStorage.loadBackup(activeSlot, ProfileManager.androidUserId)
-            if (backup != null) {
-                host = backup.optString("host", "")
-                port = backup.optString("port", "1080")
-                username = backup.optString("username", "")
-                password = backup.optString("password", "")
-                sni = backup.optString("sni", "")
-                ssMethod = backup.optString("ss_method", "2022-blake3-aes-128-gcm")
-                realityPublicKey = backup.optString("reality_pk", "")
-                realityShortId = backup.optString("reality_sid", "")
-                startOnBoot = backup.optBoolean("start_on_boot", false)
-                routeWholeProfile = backup.optBoolean("route_whole_profile", true)
-                routeHotspot = backup.optBoolean("route_hotspot", true)
-
-                val pkgsArray = backup.optJSONArray("selected_packages")
-                if (pkgsArray != null) {
-                    val set = mutableSetOf<String>()
-                    for (i in 0 until pkgsArray.length()) {
-                        set.add(pkgsArray.getString(i))
-                    }
-                    selectedPackages = set
-                }
-
-                try { proxyType = ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (_: Exception) {}
-                try { transportMode = TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name)) } catch (_: Exception) {}
-                try { ipMode = IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name)) } catch (_: Exception) {}
-
-                saveConfig()
-            }
-        }
     }
 
     var testStatus by remember { mutableStateOf<String?>(null) }
@@ -708,6 +663,8 @@ fun MainScreen(
                             onRealityPublicKeyChange = { realityPublicKey = it; saveConfig() },
                             realityShortId = realityShortId,
                             onRealityShortIdChange = { realityShortId = it; saveConfig() },
+                            desiredDns = desiredDns,
+                            onDesiredDnsChange = { desiredDns = it; saveConfig() },
                             proxyType = proxyType,
                             onProxyTypeChange = { proxyType = it; saveConfig() },
                             transportMode = transportMode,
@@ -1439,6 +1396,8 @@ fun ProxySetupTab(
     onRealityPublicKeyChange: (String) -> Unit,
     realityShortId: String,
     onRealityShortIdChange: (String) -> Unit,
+    desiredDns: RemoteDnsProvider,
+    onDesiredDnsChange: (RemoteDnsProvider) -> Unit,
     proxyType: ProxyType,
     onProxyTypeChange: (ProxyType) -> Unit,
     transportMode: TransportMode,
@@ -1524,6 +1483,26 @@ fun ProxySetupTab(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // DESIRED SECURE DNS RESOLVER SELECTOR
+        Text("DESIRED TUNNEL DNS (LEAK-FREE)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00FF88), letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            RemoteDnsProvider.values().forEach { provider ->
+                FilterChip(
+                    selected = desiredDns == provider,
+                    onClick = { onDesiredDnsChange(provider) },
+                    label = { Text(provider.title) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         Text("PROTOCOL TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(6.dp))
@@ -1809,7 +1788,8 @@ fun ProxySetupTab(
                                     sni = sni.trim(),
                                     ssMethod = ssMethod.trim(),
                                     realityPublicKey = realityPublicKey.trim(),
-                                    realityShortId = realityShortId.trim()
+                                    realityShortId = realityShortId.trim(),
+                                    desiredDns = desiredDns
                                 )
                                 val res = ProxyTester.testProxy(currentSettings)
                                 aliveCheckResult = res
