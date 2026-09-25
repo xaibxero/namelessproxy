@@ -47,8 +47,14 @@ object IptablesManager {
             commands.add("iptables -t mangle -N $chainOutMangle")
             commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
 
-            // CRITICAL: Hijack UDP Port 53 GLOBALLY across profile so system resolver (UID 1052) never leaks
-            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
+            // Intercept standard UDP Port 53 DNS
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
+                }
+            }
 
             val reservedV4 = listOf(
                 "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
@@ -84,9 +90,14 @@ object IptablesManager {
             commands.add("iptables -t nat -N $chainNatV4")
             commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
 
-            // CRITICAL: Intercept BOTH Port 53 (Standard DNS) AND Port 853 (Private DNS / DoT) GLOBALLY
-            commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-            commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
+            // Intercept standard TCP Port 53 DNS (Port 853 is untouched so TLS handshakes pass)
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+                }
+            }
 
             val reservedV4 = listOf(
                 "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
@@ -110,9 +121,8 @@ object IptablesManager {
             commands.add("iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4")
         }
 
-        // 4. IPv6 Redirection / Anti-Leak
+        // 4. IPv6 Redirection
         if (settings.ipMode == IpMode.IPV4_ONLY) {
-            // Drop IPv6 instead of REJECT to prevent race conditions during disconnect
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("ip6tables -A OUTPUT -m owner --uid-owner $start-$end -j DROP")
             } else {
@@ -124,8 +134,13 @@ object IptablesManager {
             commands.add("ip6tables -t nat -N $chainNatV6")
             commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
 
-            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+                }
+            }
 
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
@@ -160,7 +175,6 @@ object IptablesManager {
             commands.add("iptables -t nat -N $chainHotspotNat")
             commands.add("iptables -t nat -A $chainHotspotNat -i lo -j RETURN")
             commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
 
             for (gw in hotspotGateways) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $gw -j RETURN")
