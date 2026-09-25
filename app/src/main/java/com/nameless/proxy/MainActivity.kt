@@ -80,6 +80,14 @@ class MainActivity : ComponentActivity() {
         syncDaemonStatus()
         loadInstalledApps()
 
+        val globalPrefs = getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE)
+        val startOnBoot = globalPrefs.getBoolean("start_on_boot", false)
+        if (!startOnBoot) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                BootManager.removeBootScript()
+            }
+        }
+
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 syncDaemonStatus()
@@ -171,14 +179,16 @@ fun MainScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    val globalPrefs = remember { context.getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE) }
+    var startOnBoot by remember { mutableStateOf(globalPrefs.getBoolean("start_on_boot", false)) }
+    var bootSlot by remember { mutableIntStateOf(globalPrefs.getInt("boot_slot", 0)) }
+
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
     fun getSlotPrefs(slot: Int) = context.getSharedPreferences("nameless_slot_$slot", Context.MODE_PRIVATE)
-
     var currentPrefs by remember(activeSlot) { mutableStateOf(getSlotPrefs(activeSlot)) }
 
-    // Active Slot States
     var proxyType by remember(activeSlot) {
         mutableStateOf(
             try {
@@ -214,9 +224,7 @@ fun MainScreen(
 
     var routeWholeProfile by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_whole_profile", true)) }
     var routeHotspot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("route_hotspot", true)) }
-    var startOnBoot by remember(activeSlot) { mutableStateOf(currentPrefs.getBoolean("start_on_boot", false)) }
 
-    // Persistent Selected Packages Set
     var selectedPackages by remember(activeSlot) {
         mutableStateOf(currentPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet())
     }
@@ -253,14 +261,16 @@ fun MainScreen(
             .putString("reality_sid", realityShortId.trim())
             .putBoolean("route_whole_profile", routeWholeProfile)
             .putBoolean("route_hotspot", routeHotspot)
-            .putBoolean("start_on_boot", startOnBoot)
             .putStringSet("selected_packages", selectedPackages)
             .apply()
 
         val settings = getCurrentSettings()
         val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
 
-        BootManager.syncBootState(context, startOnBoot, settings, uids)
+        // Only update boot script if this active slot is the designated boot target
+        if (startOnBoot && activeSlot == bootSlot) {
+            BootManager.syncBootState(context, true, settings, uids)
+        }
 
         if (settings.host.isNotEmpty()) {
             coroutineScope.launch {
@@ -268,7 +278,7 @@ fun MainScreen(
                     context,
                     activeSlot,
                     settings,
-                    startOnBoot,
+                    startOnBoot && (activeSlot == bootSlot),
                     routeWholeProfile,
                     selectedPackages,
                     ProfileManager.androidUserId
@@ -298,7 +308,6 @@ fun MainScreen(
                 ssMethod = backup.optString("ss_method", "2022-blake3-aes-128-gcm")
                 realityPublicKey = backup.optString("reality_pk", "")
                 realityShortId = backup.optString("reality_sid", "")
-                startOnBoot = backup.optBoolean("start_on_boot", false)
                 routeWholeProfile = backup.optBoolean("route_whole_profile", true)
                 routeHotspot = backup.optBoolean("route_hotspot", true)
 
@@ -531,12 +540,17 @@ fun MainScreen(
             ) {
                 (0..4).forEach { slotIndex ->
                     val isSelected = slotIndex == activeSlot
+                    val isBootTarget = startOnBoot && (slotIndex == bootSlot)
                     val slotBg by animateColorAsState(
                         targetValue = if (isSelected) Color(0xFF00FF88).copy(alpha = 0.18f) else Color(0x22111827),
                         animationSpec = tween(200),
                         label = "slotBg"
                     )
-                    val borderColor = if (isSelected) Color(0xFF00FF88) else Color(0x1FFFFFFF)
+                    val borderColor = when {
+                        isSelected -> Color(0xFF00FF88)
+                        isBootTarget -> Color(0xFF38BDF8)
+                        else -> Color(0x1FFFFFFF)
+                    }
 
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -546,13 +560,24 @@ fun MainScreen(
                             .weight(1f)
                             .clickable { switchSlot(slotIndex) }
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 6.dp)) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(vertical = 5.dp)
+                        ) {
                             Text(
                                 text = "P$slotIndex",
                                 fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
                                 color = if (isSelected) Color(0xFF00FF88) else Color(0xFF94A3B8)
                             )
+                            if (isBootTarget) {
+                                Text(
+                                    text = "BOOT",
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
                         }
                     }
                 }
@@ -717,7 +742,28 @@ fun MainScreen(
                             routeHotspot = routeHotspot,
                             onRouteHotspotChange = { routeHotspot = it; saveConfig() },
                             startOnBoot = startOnBoot,
-                            onStartOnBootChange = { startOnBoot = it; saveConfig() }
+                            bootSlot = bootSlot,
+                            activeSlot = activeSlot,
+                            onToggleBoot = { enabled ->
+                                startOnBoot = enabled
+                                if (enabled) {
+                                    bootSlot = activeSlot
+                                    globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
+                                    val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
+                                    BootManager.syncBootState(context, true, getCurrentSettings(), uids)
+                                } else {
+                                    globalPrefs.edit().putBoolean("start_on_boot", false).apply()
+                                    BootManager.removeBootScript()
+                                }
+                            },
+                            onSetAsBootTarget = {
+                                bootSlot = activeSlot
+                                startOnBoot = true
+                                globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
+                                val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
+                                BootManager.syncBootState(context, true, getCurrentSettings(), uids)
+                                Toast.makeText(context, "P$activeSlot set as startup profile", Toast.LENGTH_SHORT).show()
+                            }
                         )
                     }
                 }
@@ -1448,12 +1494,17 @@ fun ProxySetupTab(
     routeHotspot: Boolean,
     onRouteHotspotChange: (Boolean) -> Unit,
     startOnBoot: Boolean,
-    onStartOnBootChange: (Boolean) -> Unit
+    bootSlot: Int,
+    activeSlot: Int,
+    onToggleBoot: (Boolean) -> Unit,
+    onSetAsBootTarget: () -> Unit
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
     var isCheckingAlive by remember { mutableStateOf(false) }
     var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
     val coroutineScope = rememberCoroutineScope()
+
+    val isCurrentBootTarget = startOnBoot && (activeSlot == bootSlot)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(
@@ -1476,19 +1527,43 @@ fun ProxySetupTab(
                             color = Color.White
                         )
                         Text(
-                            text = "Runs via /data/adb/service.d after 5s",
+                            text = when {
+                                !startOnBoot -> "Disabled — proxy will not run on boot"
+                                isCurrentBootTarget -> "Active: P$activeSlot will start on system boot"
+                                else -> "Active for P$bootSlot (Different Profile)"
+                            },
                             fontSize = 11.sp,
-                            color = if (startOnBoot) Color(0xFF00FF88) else Color(0xFF64748B)
+                            color = when {
+                                !startOnBoot -> Color(0xFF64748B)
+                                isCurrentBootTarget -> Color(0xFF00FF88)
+                                else -> Color(0xFF38BDF8)
+                            }
                         )
                     }
                     Switch(
                         checked = startOnBoot,
-                        onCheckedChange = onStartOnBootChange,
+                        onCheckedChange = onToggleBoot,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color(0xFF020408),
                             checkedTrackColor = Color(0xFF00FF88)
                         )
                     )
+                }
+
+                if (startOnBoot && !isCurrentBootTarget) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = onSetAsBootTarget,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0x3338BDF8),
+                            contentColor = Color(0xFF38BDF8)
+                        ),
+                        border = BorderStroke(1.dp, Color(0x6638BDF8)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Make P$activeSlot the Startup Profile", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
