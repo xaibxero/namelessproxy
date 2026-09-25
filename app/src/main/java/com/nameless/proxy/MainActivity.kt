@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -120,8 +121,8 @@ class MainActivity : ComponentActivity() {
 
     private fun syncDaemonStatus() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val running = ProxyController.isRunning(ProfileManager.profileId)
-            val pid = if (running) ProxyController.getActivePid(ProfileManager.profileId) else null
+            val running = ProxyController.isRunning(ProfileManager.androidUserId, ProfileManager.activeSlot)
+            val pid = if (running) ProxyController.getActivePid(ProfileManager.androidUserId, ProfileManager.activeSlot) else null
             withContext(Dispatchers.Main) {
                 isProxyRunningState = running
                 activePidState = pid
@@ -265,11 +266,12 @@ fun MainScreen(
             coroutineScope.launch {
                 PersistentStorage.saveBackup(
                     context,
-                    ProfileManager.profileId,
+                    activeSlot,
                     settings,
                     startOnBoot,
                     routeWholeProfile,
-                    selectedPackages
+                    selectedPackages,
+                    ProfileManager.androidUserId
                 )
             }
         }
@@ -286,7 +288,7 @@ fun MainScreen(
 
     LaunchedEffect(rootState, activeSlot) {
         if (rootState == RootState.GRANTED && host.isEmpty()) {
-            val backup = PersistentStorage.loadBackup(activeSlot)
+            val backup = PersistentStorage.loadBackup(activeSlot, ProfileManager.androidUserId)
             if (backup != null) {
                 host = backup.optString("host", "")
                 port = backup.optString("port", "1080")
@@ -450,7 +452,7 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Tactical Top App Bar
+            // Tactical Top App Bar with Android User ID & Profile Slot
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
