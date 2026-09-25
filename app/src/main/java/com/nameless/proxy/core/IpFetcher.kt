@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URL
 
 data class GeoIpResult(
@@ -21,8 +23,11 @@ object IpFetcher {
         return String(Character.toChars(firstChar)) + String(Character.toChars(secondChar))
     }
 
-    suspend fun getPublicIpInfo(): GeoIpResult? = withContext(Dispatchers.IO) {
-        // Multi-provider fallback array
+    suspend fun getPublicIpInfo(localSocksPort: Int? = null): GeoIpResult? = withContext(Dispatchers.IO) {
+        val proxy = if (localSocksPort != null) {
+            Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", localSocksPort))
+        } else null
+
         val providers = listOf(
             "https://ipwho.is/",
             "https://api.ip.sb/geoip",
@@ -31,19 +36,19 @@ object IpFetcher {
 
         for (endpoint in providers) {
             try {
-                val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 3000
-                    readTimeout = 3000
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "curl/7.88.1")
-                }
+                val url = URL(endpoint)
+                val conn = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
+                conn.connectTimeout = 3500
+                conn.readTimeout = 3500
+                conn.instanceFollowRedirects = true
+                conn.setRequestProperty("User-Agent", "curl/7.88.1")
 
                 if (conn.responseCode == 200) {
                     val raw = conn.inputStream.bufferedReader().readText()
                     val json = JSONObject(raw)
                     val ip = json.optString("ip", "")
                     val countryCode = json.optString("country_code", "")
-                    val country = json.optString("country", "United States")
+                    val country = json.optString("country", "Proxy Exit Node")
 
                     if (ip.isNotEmpty()) {
                         return@withContext GeoIpResult(
@@ -56,7 +61,6 @@ object IpFetcher {
             } catch (_: Exception) {}
         }
 
-        // Lightweight Raw IP Fallback if geo-APIs rate-limit
         val rawEndpoints = listOf(
             "https://api.ipify.org",
             "https://icanhazip.com",
@@ -64,11 +68,12 @@ object IpFetcher {
         )
         for (rawUrl in rawEndpoints) {
             try {
-                val conn = (URL(rawUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 2500
-                    readTimeout = 2500
-                    setRequestProperty("User-Agent", "curl/7.88.1")
-                }
+                val url = URL(rawUrl)
+                val conn = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                conn.setRequestProperty("User-Agent", "curl/7.88.1")
+
                 if (conn.responseCode == 200) {
                     val ip = conn.inputStream.bufferedReader().readText().trim()
                     if (ip.isNotEmpty()) {
