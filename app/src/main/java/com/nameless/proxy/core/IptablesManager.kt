@@ -73,16 +73,26 @@ object IptablesManager {
             commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
         }
 
-        // 3. WebRTC Anti-Leak Shield (When in TCP Only Mode)
-        // If proxy is TCP Only, drop non-DNS UDP so browser WebRTC STUN queries cannot bypass the tunnel
+        // 3. WebRTC & QUIC Anti-Leak Shield
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
+
+        // Force Chrome to fall back to TCP HTTP/2 immediately on UDP 443
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -A $chainFilter -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable")
+        } else {
+            for (uid in selectedUids) {
+                commands.add("iptables -A $chainFilter -p udp --dport 443 -m owner --uid-owner $uid -j REJECT --reject-with icmp-port-unreachable")
+            }
+        }
+
+        // In TCP Only mode, block WebRTC STUN UDP queries to prevent leaks
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -A $chainFilter -p udp -j DROP")
+                commands.add("iptables -A $chainFilter -p udp -j REJECT --reject-with icmp-port-unreachable")
             } else {
                 for (uid in selectedUids) {
-                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
+                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j REJECT --reject-with icmp-port-unreachable")
                 }
             }
         }
