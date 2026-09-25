@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine (Resolves via Cloudflare Anycast through proxy tunnel)
+        // 2. DNS Engine
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Bind to 0.0.0.0 / :: with domain sniffing enabled
+        // 3. Inbounds: Clean syntax for sing-box >= 1.11 / 1.13
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -89,12 +89,9 @@ object ConfigGenerator {
             put("tag", "redirect-in")
             put("listen", listenAddress)
             put("listen_port", inboundPort)
-            put("sniff", true)
-            put("sniff_override_destination", true)
         }
         inbounds.put(redirectInbound)
 
-        // Full UDP TPROXY when TCP+UDP is active
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             val tproxyInbound = JSONObject().apply {
                 put("type", "tproxy")
@@ -102,8 +99,6 @@ object ConfigGenerator {
                 put("listen", listenAddress)
                 put("listen_port", inboundPort)
                 put("network", "udp")
-                put("sniff", true)
-                put("sniff_override_destination", true)
             }
             inbounds.put(tproxyInbound)
         }
@@ -216,7 +211,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Direct and pure: Hijacks Port 53, everything else flows to proxy-out)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
