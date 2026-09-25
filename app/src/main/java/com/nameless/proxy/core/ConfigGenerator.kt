@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine (Resolves via Cloudflare Anycast through proxy tunnel)
+        // 2. DNS Engine
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Clean syntax compliant with sing-box >= 1.11.0 / 1.13.0
+        // 3. Inbounds: Clean syntax for sing-box >= 1.11.0 / 1.13.0
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -219,26 +219,12 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // 1. Always hijack Port 53 to internal DNS engine (prevents leaks)
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
-
-        // 2. Adaptive QUIC fallback:
-        // ONLY reject UDP Port 443 if you explicitly selected "TCP Only" mode (preventing browser ERR_CONNECTION_REFUSED on TCP proxies).
-        // When "TCP + UDP" is selected, this rule is completely skipped, allowing 100% native UDP, QUIC, and gaming traffic.
-        if (settings.transportMode == TransportMode.TCP_ONLY) {
-            val quicFallbackRule = JSONObject().apply {
-                put("network", "udp")
-                val portArray = JSONArray().apply { put(443) }
-                put("port", portArray)
-                put("action", "reject")
-            }
-            routeRules.put(quicFallbackRule)
-        }
 
         route.put("rules", routeRules)
         root.put("route", route)
