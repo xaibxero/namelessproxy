@@ -19,7 +19,7 @@ object BootManager {
             os.writeBytes("exit\n")
             os.flush()
             process.waitFor() == 0
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             false
         }
     }
@@ -55,7 +55,6 @@ object BootManager {
 
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
 
-        // Instant startup script: fast-polls until loopback is ready, no sleep delay
         val scriptContent = buildString {
             appendLine("#!/system/bin/sh")
             appendLine("# Nameless Proxy Fast Boot Script")
