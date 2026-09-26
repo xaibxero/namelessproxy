@@ -43,7 +43,7 @@ object IptablesManager {
 
         commands.add("iptables -t mangle -N $chainPreMangle")
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
-        commands.add("iptables -t mangle -A PREROUTING -j $chainPreMangle")
+        commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
         commands.add("iptables -t mangle -N $chainOutMangle")
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
@@ -139,54 +139,62 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
         }
 
-        // 6. Hotspot & Tethering Routing (User 0 Only)
+        // 6. Hotspot & Cellular Tethering Engine
         if (settings.routeHotspot && user == 0) {
+            // Disable Android BPF / hardware tether offload to force traffic into iptables
+            commands.add("settings put global tether_offload_disabled 1 2>/dev/null")
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
+            commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null")
+            commands.add("echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null")
+            commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
             commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
 
-            val hotspotGateways = listOf("192.168.42.1", "192.168.43.1", "192.168.44.1", "192.168.49.1", "192.168.50.1")
-            val hotspotSubnets = listOf(
-                "192.168.42.0/24", "192.168.43.0/24", "192.168.44.0/24", "192.168.49.0/24", "192.168.50.0/24"
-            )
-            val tetherInterfaces = listOf("ap+", "rndis+", "usb+", "softap+", "wlan1", "wlan2", "bt-pan+")
+            val tetherInterfaces = listOf("wlan0", "wlan1", "wlan2", "ap0", "ap+", "rndis+", "usb+", "softap+", "bt-pan+")
 
             commands.add("ip6tables -N $chainHotspotV6Block 2>/dev/null")
             for (iface in tetherInterfaces) {
                 commands.add("ip6tables -A $chainHotspotV6Block -i $iface -j DROP")
             }
-            commands.add("ip6tables -I FORWARD -j $chainHotspotV6Block")
+            commands.add("ip6tables -I FORWARD 1 -j $chainHotspotV6Block")
 
             commands.add("iptables -t nat -N $chainHotspotNat")
             commands.add("iptables -t nat -A $chainHotspotNat -i lo -j RETURN")
             commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
-            for (gw in hotspotGateways) {
-                commands.add("iptables -t nat -A $chainHotspotNat -d $gw -j RETURN")
+            for (range in reservedV4) {
+                commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
             }
-            for (subnet in hotspotSubnets) {
-                commands.add("iptables -t nat -A $chainHotspotNat -s $subnet -p tcp -j REDIRECT --to-ports $inboundPort")
+            if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
+                commands.add("iptables -t nat -A $chainHotspotNat -d ${settings.host} -j RETURN")
             }
+
+            // Redirect all incoming TCP from tethering interfaces directly into the proxy port
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp -j REDIRECT --to-ports $inboundPort")
             }
-            commands.add("iptables -t nat -A PREROUTING -j $chainHotspotNat")
+            // Catch randomized AOSP subnets (192.168.0.0/16, 172.16.0.0/12)
+            commands.add("iptables -t nat -A $chainHotspotNat -s 192.168.0.0/16 -p tcp -j REDIRECT --to-ports $inboundPort")
+            commands.add("iptables -t nat -A $chainHotspotNat -s 172.16.0.0/12 -p tcp -j REDIRECT --to-ports $inboundPort")
+            commands.add("iptables -t nat -I PREROUTING 1 -j $chainHotspotNat")
 
             commands.add("iptables -t mangle -N $chainHotspotMangle")
             commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
             commands.add("iptables -t mangle -A $chainHotspotMangle -p udp --dport 53 -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
 
             if (settings.transportMode == TransportMode.TCP_AND_UDP) {
-                for (gw in hotspotGateways) {
-                    commands.add("iptables -t mangle -A $chainHotspotMangle -d $gw -j RETURN")
+                for (range in reservedV4) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -d $range -j RETURN")
                 }
-                for (subnet in hotspotSubnets) {
-                    commands.add("iptables -t mangle -A $chainHotspotMangle -s $subnet -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+                if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -d ${settings.host} -j RETURN")
                 }
                 for (iface in tetherInterfaces) {
                     commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
                 }
+                commands.add("iptables -t mangle -A $chainHotspotMangle -s 192.168.0.0/16 -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+                commands.add("iptables -t mangle -A $chainHotspotMangle -s 172.16.0.0/12 -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
             }
-            commands.add("iptables -t mangle -A PREROUTING -j $chainHotspotMangle")
+            commands.add("iptables -t mangle -I PREROUTING 1 -j $chainHotspotMangle")
         }
 
         return commands
