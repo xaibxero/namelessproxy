@@ -21,8 +21,8 @@ object IptablesManager {
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val start = ProfileManager.uidStart
-        val end = ProfileManager.uidEnd
+        val start = user * 100000
+        val end = start + 99999
 
         val tableId = ProfileManager.routingTableId
         val markHex = ProfileManager.markHex
@@ -33,7 +33,6 @@ object IptablesManager {
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Policy Routing for UDP (TPROXY)
-        // Kept active so local UDP Port 53 DNS is intercepted to sing-box in both modes
         commands.add("ip rule add fwmark $markHex table $tableId pref 100")
         commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
@@ -49,7 +48,7 @@ object IptablesManager {
         commands.add("iptables -t mangle -N $chainOutMangle")
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
 
-        // Intercept UDP Port 53 DNS to sing-box to prevent leaks and align DNS country
+        // Intercept UDP Port 53 DNS globally to sing-box
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
         val reservedV4 = listOf(
@@ -75,11 +74,19 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
 
-        // 3. WebRTC Shield & Clean TCP Fallback Filter
-        // Silently DROP non-DNS UDP in TCP Only mode to prevent WebRTC leaks without triggering ERR_CONNECTION_REFUSED
+        // 3. WebRTC Shield & DoH Reject Chain
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
+        // Reject Google DNS DoH/DoT directly so Chrome falls back to standard DNS
+        val publicDnsIps = listOf("8.8.8.8", "8.8.4.4")
+        for (dnsIp in publicDnsIps) {
+            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 443 -j REJECT")
+            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 853 -j REJECT")
+            commands.add("iptables -A $chainFilter -d $dnsIp -p udp --dport 853 -j REJECT")
+        }
+
+        // In TCP Only mode, drop non-DNS UDP to prevent WebRTC leaks over Wi-Fi
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("iptables -A $chainFilter -p udp -j DROP")
