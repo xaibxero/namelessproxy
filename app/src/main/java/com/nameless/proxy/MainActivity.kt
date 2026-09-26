@@ -193,7 +193,7 @@ fun MainScreen(
 
     fun getSlotPrefs(slot: Int) = context.getSharedPreferences("nameless_slot_$slot", Context.MODE_PRIVATE)
 
-    // Form fields for currently selected slot
+    // Form fields for currently viewed slot
     var proxyType by remember { mutableStateOf(ProxyType.SOCKS5) }
     var transportMode by remember { mutableStateOf(TransportMode.TCP_AND_UDP) }
     var ipMode by remember { mutableStateOf(IpMode.IPV4_ONLY) }
@@ -509,10 +509,8 @@ fun MainScreen(
                 onRefreshIp = { triggerPublicIpCheck() },
                 onToggleProxy = {
                     if (isProxyActive && runningSlot == activeSlot) {
-                        // Disconnect currently running slot
                         onStopProxy { }
                     } else {
-                        // Start or switch to active slot
                         if (host.trim().isEmpty()) {
                             testStatus = "Please enter Server Host/IP below for P$activeSlot"
                             return@ConsoleHUDTab
@@ -674,7 +672,7 @@ fun MainScreen(
                 }
             }
 
-            // 5. PROFILE P$activeSlot SETTINGS
+            // 5. PROFILE P$activeSlot SETTINGS CARD
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = Color(0x330B1120),
@@ -688,18 +686,39 @@ fun MainScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("PROFILE P$activeSlot SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF38BDF8), letterSpacing = 1.sp)
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0x2238BDF8),
-                            border = BorderStroke(1.dp, Color(0x4438BDF8))
-                        ) {
-                            Text(
-                                text = "SLOT $activeSlot",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF38BDF8),
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0x22F43F5E),
+                                border = BorderStroke(1.dp, Color(0x44F43F5E)),
+                                modifier = Modifier.clickable {
+                                    val prefs = getSlotPrefs(activeSlot)
+                                    prefs.edit().clear().apply()
+                                    loadSlotData(activeSlot)
+                                    Toast.makeText(context, "P$activeSlot reset to empty", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text(
+                                    text = "Reset P$activeSlot",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFF43F5E),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0x2238BDF8),
+                                border = BorderStroke(1.dp, Color(0x4438BDF8))
+                            ) {
+                                Text(
+                                    text = "SLOT $activeSlot",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
 
@@ -853,7 +872,7 @@ fun MainScreen(
                                         modifier = Modifier
                                             .clickable { passwordVisible = !passwordVisible }
                                             .padding(end = 12.dp)
-                                    )
+                                        )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(14.dp),
@@ -1292,7 +1311,7 @@ fun ConsoleHUDTab(
                                     text = when {
                                         isFetchingIp -> "Querying route telemetry..."
                                         publicIpInfo != null -> "${publicIpInfo.country} • Tap to copy"
-                                        ipFetchFailed -> "Tap to retry"
+                                        ipFetchFailed -> "Timeout - Tap to retry"
                                         else -> "Stabilizing..."
                                     },
                                     fontSize = 11.sp,
@@ -1368,7 +1387,6 @@ fun ConsoleHUDTab(
 
     Spacer(modifier = Modifier.height(14.dp))
 
-    // Action button adapts depending on whether currently running slot matches viewed slot
     val buttonText = when {
         !isProxyActive -> "CONNECT TRANSPARENT PROXY (P$activeSlot)"
         isCurrentSlotRunning -> "DISCONNECT PROXY"
