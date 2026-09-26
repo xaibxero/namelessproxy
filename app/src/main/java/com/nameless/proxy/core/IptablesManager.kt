@@ -29,7 +29,7 @@ object IptablesManager {
 
         val commands = mutableListOf<String>()
 
-        // 1. Cleanup all existing rules for this user & slot
+        // 1. Flush any prior rules for this slot
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Policy Routing for UDP (TPROXY)
@@ -48,7 +48,7 @@ object IptablesManager {
         commands.add("iptables -t mangle -N $chainOutMangle")
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
 
-        // Intercept UDP Port 53 DNS globally to sing-box
+        // Intercept UDP Port 53 DNS to sing-box
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
         val reservedV4 = listOf(
