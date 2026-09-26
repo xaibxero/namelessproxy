@@ -34,6 +34,21 @@ object PersistentStorage {
         }
     }
 
+    private fun executeSu(commands: List<String>): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec("su")
+            val os = DataOutputStream(process.outputStream)
+            for (cmd in commands) {
+                os.writeBytes("$cmd\n")
+            }
+            os.writeBytes("exit\n")
+            os.flush()
+            process.waitFor() == 0
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun saveBackup(
         context: Context,
         slot: Int,
@@ -81,5 +96,14 @@ object PersistentStorage {
         } else {
             null
         }
+    }
+
+    fun clearBackup(slot: Int, userId: Int = ProfileManager.androidUserId): Boolean {
+        val backupFile = "$ADB_DIR/backup_u${userId}_s${slot}.json"
+        val configFile = ProxyController.getConfigPath(userId, slot)
+        return executeSu(listOf(
+            "rm -f $backupFile",
+            "rm -f $configFile"
+        ))
     }
 }
