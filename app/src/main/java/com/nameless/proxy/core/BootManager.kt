@@ -63,7 +63,6 @@ object BootManager {
         val pidFile = ProxyController.getPidFile(user, slot)
         val logFile = ProxyController.getLogFile(user, slot)
 
-        // Write configuration
         val configJson = ConfigGenerator.generateJson(settings, port)
         ProxyController.writeConfigDirectly(configJson, configPath)
 
@@ -81,8 +80,9 @@ object BootManager {
         sb.append("chmod 755 $binaryPath\n\n")
 
         sb.append("# Clean prior rules\n")
-        for (cmd in IptablesManager.generateDisableCommands(user, slot)) {
-            sb.append("$cmd\n")
+        val disableCmds = IptablesManager.generateDisableCommands(user, slot)
+        for (i in 0 until disableCmds.size) {
+            sb.append(disableCmds[i]).append("\n")
         }
         sb.append("killall -9 sing-box 2>/dev/null\n\n")
 
@@ -91,8 +91,8 @@ object BootManager {
         sb.append("echo $slot > $ADB_DIR/running_slot\n\n")
 
         sb.append("# Apply routing\n")
-        for (cmd in iptablesCmds) {
-            sb.append("$cmd\n")
+        for (i in 0 until iptablesCmds.size) {
+            sb.append(iptablesCmds[i]).append("\n")
         }
 
         val scriptContent = sb.toString()
