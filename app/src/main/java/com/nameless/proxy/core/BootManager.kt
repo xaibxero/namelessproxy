@@ -2,12 +2,12 @@ package com.nameless.proxy.core
 
 import android.content.Context
 import java.io.DataOutputStream
-import java.io.File
 
 object BootManager {
 
+    private const val SERVICE_DIR = "/data/adb/service.d"
+    private const val BOOT_SCRIPT = "$SERVICE_DIR/nameless_boot.sh"
     private const val ADB_DIR = "/data/adb/nameless_proxy"
-    private const val SERVICE_SCRIPT_PATH = "/data/adb/service.d/nameless_proxy.sh"
 
     private fun executeSu(commands: List<String>): Boolean {
         return try {
@@ -24,80 +24,87 @@ object BootManager {
         }
     }
 
+    fun isBootScriptInstalled(): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec("su")
+            val os = DataOutputStream(process.outputStream)
+            os.writeBytes("if [ -f $BOOT_SCRIPT ]; then echo 'EXISTS'; fi\n")
+            os.writeBytes("exit\n")
+            os.flush()
+            val output = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            output.contains("EXISTS")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun removeBootScript(): Boolean {
         return executeSu(listOf(
-            "rm -f $SERVICE_SCRIPT_PATH",
-            "rm -f /data/adb/service.d/nameless_proxy_*.sh"
+            "rm -f $BOOT_SCRIPT"
         ))
     }
 
     fun syncBootState(
         context: Context,
-        enabled: Boolean,
+        startOnBoot: Boolean,
         settings: ProxySettings,
         selectedUids: List<Int>? = null
     ): Boolean {
-        if (!enabled) {
+        if (!startOnBoot) {
             return removeBootScript()
         }
 
         val user = ProfileManager.androidUserId
         val slot = ProfileManager.activeSlot
         val port = ProfileManager.localInboundPort
+        val binaryPath = ProxyController.getBinaryPath()
+        val configPath = ProxyController.getConfigPath(user, slot)
+        val pidFile = ProxyController.getPidFile(user, slot)
+        val logFile = ProxyController.getLogFile(user, slot)
 
-        val binaryPath = "$ADB_DIR/sing-box"
-        val configPath = "$ADB_DIR/config_u${user}_s${slot}.json"
-        val pidFile = "$ADB_DIR/singbox_u${user}_s${slot}.pid"
-        val logFile = "$ADB_DIR/singbox_u${user}_s${slot}.log"
-
+        // Write configuration
         val configJson = ConfigGenerator.generateJson(settings, port)
         ProxyController.writeConfigDirectly(configJson, configPath)
 
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
 
-        val scriptContent = buildString {
-            appendLine("#!/system/bin/sh")
-            appendLine("# Nameless Proxy Fast Boot Script")
-            appendLine("export PATH=/system/bin:/system/xbin:\$PATH")
-            appendLine("")
-            appendLine("i=0")
-            appendLine("while [ \$i -lt 30 ]; do")
-            appendLine("  if ip link show lo 2>/dev/null | grep -q \"UP\"; then")
-            appendLine("    break")
-            appendLine("  fi")
-            appendLine("  sleep 0.1")
-            appendLine("  i=\$((i+1))")
-            appendLine("done")
-            appendLine("")
-            appendLine("mkdir -p $ADB_DIR")
-            appendLine("chmod 755 $binaryPath 2>/dev/null")
-            appendLine("")
-            appendLine("if [ ! -f $binaryPath ] || [ ! -f $configPath ]; then")
-            appendLine("  exit 1")
-            appendLine("fi")
-            appendLine("")
-            appendLine("if [ -f $pidFile ]; then")
-            appendLine("  kill -9 \$(cat $pidFile) 2>/dev/null")
-            appendLine("  rm -f $pidFile")
-            appendLine("fi")
-            appendLine("")
-            appendLine("nohup $binaryPath run -c $configPath > $logFile 2>&1 &")
-            appendLine("echo \$! > $pidFile")
-            appendLine("")
-            for (cmd in iptablesCmds) {
-                appendLine(cmd)
-            }
+        val sb = StringBuilder()
+        sb.append("#!/system/bin/sh\n")
+        sb.append("# Nameless Proxy Boot Service\n")
+        sb.append("while [ \"\$(getprop sys.boot_completed)\" != \"1\" ]; do\n")
+        sb.append("    sleep 2\n")
+        sb.append("done\n\n")
+
+        sb.append("mkdir -p $ADB_DIR\n")
+        sb.append("mkdir -p $SERVICE_DIR\n")
+        sb.append("chmod 755 $binaryPath\n\n")
+
+        sb.append("# Clean prior rules\n")
+        for (cmd in IptablesManager.generateDisableCommands(user, slot)) {
+            sb.append("$cmd\n")
+        }
+        sb.append("killall -9 sing-box 2>/dev/null\n\n")
+
+        sb.append("# Launch daemon\n")
+        sb.append("nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile\n")
+        sb.append("echo $slot > $ADB_DIR/running_slot\n\n")
+
+        sb.append("# Apply routing\n")
+        for (cmd in iptablesCmds) {
+            sb.append("$cmd\n")
         }
 
-        val tempScript = File(context.cacheDir, "boot_service.sh")
-        tempScript.writeText(scriptContent)
+        val scriptContent = sb.toString()
 
-        return executeSu(listOf(
-            "mkdir -p /data/adb/service.d",
-            "mkdir -p $ADB_DIR",
-            "cp ${tempScript.absolutePath} $SERVICE_SCRIPT_PATH",
-            "chmod 755 $SERVICE_SCRIPT_PATH",
-            "rm -f ${tempScript.absolutePath}"
-        ))
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat > $BOOT_SCRIPT && chmod 755 $BOOT_SCRIPT"))
+            process.outputStream.write(scriptContent.toByteArray(Charsets.UTF_8))
+            process.outputStream.flush()
+            process.outputStream.close()
+            process.waitFor() == 0
+        } catch (e: Exception) {
+            false
+        }
     }
 }
