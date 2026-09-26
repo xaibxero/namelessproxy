@@ -33,7 +33,6 @@ object IptablesManager {
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Policy Routing for UDP (TPROXY)
-        // Kept active so local UDP Port 53 DNS is intercepted to sing-box in both modes
         commands.add("ip rule add fwmark $markHex table $tableId pref 100")
         commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
@@ -49,7 +48,7 @@ object IptablesManager {
         commands.add("iptables -t mangle -N $chainOutMangle")
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
 
-        // Intercept UDP Port 53 DNS to sing-box to prevent leaks and align DNS country
+        // Intercept UDP Port 53 DNS globally to sing-box
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
         val reservedV4 = listOf(
@@ -75,8 +74,8 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
 
-        // 3. WebRTC Shield & Clean TCP Fallback Filter
-        // Silently DROP non-DNS UDP in TCP Only mode to prevent WebRTC leaks without triggering ERR_CONNECTION_REFUSED
+        // 3. WebRTC Shield (TCP Only Mode)
+        // Silently DROP non-DNS UDP in TCP Only mode so WebRTC STUN requests cannot reach physical Wi-Fi
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
