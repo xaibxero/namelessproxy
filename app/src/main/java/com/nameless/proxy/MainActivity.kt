@@ -129,10 +129,11 @@ class MainActivity : ComponentActivity() {
 
     private fun syncDaemonStatus() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val running = ProxyController.isRunning(ProfileManager.androidUserId, ProfileManager.activeSlot)
-            val pid = if (running) ProxyController.getActivePid(ProfileManager.androidUserId, ProfileManager.activeSlot) else null
+            val runningSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
+            val isRunning = runningSlot != null
+            val pid = if (runningSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, runningSlot) else null
             withContext(Dispatchers.Main) {
-                isProxyRunningState = running
+                isProxyRunningState = isRunning
                 activePidState = pid
             }
         }
@@ -300,7 +301,6 @@ fun MainScreen(
         activeSlot = newSlot
         currentPrefs = getSlotPrefs(newSlot)
         onSyncStatus()
-        // Automatically scroll back to top when switching profile slots so Global Settings are always visible
         coroutineScope.launch {
             configScrollState.scrollTo(0)
         }
@@ -351,15 +351,13 @@ fun MainScreen(
         isFetchingIp = true
         ipFetchFailed = false
         coroutineScope.launch {
-            delay(1000)
-            val socksPort = ProfileManager.localMixedPort
+            delay(800)
+            val runningSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId) ?: ProfileManager.activeSlot
+            val socksPort = 10800 + (ProfileManager.androidUserId * 100) + (runningSlot * 10) + 1
             var result = IpFetcher.getPublicIpInfo(socksPort)
             if (result == null) {
-                delay(1500)
+                delay(1200)
                 result = IpFetcher.getPublicIpInfo(socksPort)
-            }
-            if (result == null) {
-                result = IpFetcher.getPublicIpInfo(null)
             }
             if (result != null) {
                 publicIpInfo = result
@@ -719,6 +717,7 @@ fun MainScreen(
                     }
                 }
 
+                // 1. UNIFIED SINGLE-SCROLL CONFIGURATION VIEW
                 1 -> {
                     Column(
                         modifier = Modifier
@@ -726,7 +725,7 @@ fun MainScreen(
                             .verticalScroll(configScrollState),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // 1. GLOBAL MASTER SETTINGS (Single Unified Controls Across Whole App)
+                        // GLOBAL MASTER SETTINGS (Single Unified Controls Across Whole App)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0x330B1120),
