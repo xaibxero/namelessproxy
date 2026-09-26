@@ -164,7 +164,7 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Cleanly stop any existing running slot first
+        // Clean up any running instance or lingering rules
         stopProxy(context)
 
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
@@ -194,21 +194,18 @@ object ProxyController {
         context: Context,
         user: Int = ProfileManager.androidUserId
     ): Boolean {
-        // Kill whichever slot is recorded as running, plus all known slots for safety
         val commands = mutableListOf<String>()
-        val running = getRunningSlot(user)
-        if (running != null) {
-            commands.addAll(IptablesManager.generateDisableCommands(user, running))
-            val pidFile = getPidFile(user, running)
-            commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
+
+        // 1. Flush and delete iptables chains for all slots 0..4
+        for (s in 0..4) {
+            commands.addAll(IptablesManager.generateDisableCommands(user, s))
+            val pFile = getPidFile(user, s)
+            commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
-        // Wipe active slot indicator and kill any leftover singbox process
+        // 2. Kill any remaining sing-box instances and remove active indicator
         commands.add("rm -f $ACTIVE_SLOT_FILE")
         commands.add("killall -9 sing-box 2>/dev/null")
-
-        // Also clean up current viewed slot's chains
-        commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
         return executeSu(commands)
     }
