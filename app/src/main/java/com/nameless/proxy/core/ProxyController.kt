@@ -150,6 +150,7 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val port = ProfileManager.localInboundPort
 
+        // Verify binary presence and execution permissions
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
@@ -158,14 +159,15 @@ object ProxyController {
             }
         }
 
+        // Generate JSON config for this specific slot
         val configContent = ConfigGenerator.generateJson(settings, port)
         val configWritten = writeConfigDirectly(configContent, configPath)
         if (!configWritten) {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Cleanly stop any existing running slot first
-        stopProxy(context)
+        // Stop any running slot completely before starting new one
+        stopProxy(context, user)
 
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
         executeSu(listOf(runCmd))
@@ -185,7 +187,7 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context)
+            stopProxy(context, user)
             StartResult(success = false, errorMessage = "Failed to apply iptables rules")
         }
     }
@@ -194,21 +196,18 @@ object ProxyController {
         context: Context,
         user: Int = ProfileManager.androidUserId
     ): Boolean {
-        // Kill whichever slot is recorded as running, plus all known slots for safety
         val commands = mutableListOf<String>()
-        val running = getRunningSlot(user)
-        if (running != null) {
-            commands.addAll(IptablesManager.generateDisableCommands(user, running))
-            val pidFile = getPidFile(user, running)
-            commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
+
+        // 1. Flush iptables rules across all 5 slots to guarantee zero leaking/conflicting chains
+        for (s in 0..4) {
+            commands.addAll(IptablesManager.generateDisableCommands(user, s))
+            val pFile = getPidFile(user, s)
+            commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
-        // Wipe active slot indicator and kill any leftover singbox process
+        // 2. Kill any stray sing-box processes and clear active slot file
         commands.add("rm -f $ACTIVE_SLOT_FILE")
         commands.add("killall -9 sing-box 2>/dev/null")
-
-        // Also clean up current viewed slot's chains
-        commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
         return executeSu(commands)
     }
