@@ -29,7 +29,7 @@ object IptablesManager {
 
         val commands = mutableListOf<String>()
 
-        // 1. Flush any prior rules for this slot
+        // 1. Flush existing rules for this slot
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Policy Routing for UDP (TPROXY)
