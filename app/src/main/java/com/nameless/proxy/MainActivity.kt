@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -105,7 +106,7 @@ class MainActivity : ComponentActivity() {
                     onRecheckRoot = { refreshRootStatus() },
                     installedApps = installedApps,
                     onSyncStatus = { syncDaemonStatus() },
-                    onStartProxy = { settings, selectedUids, onResult ->
+                    onStartProxy = { settings: ProxySettings, selectedUids: List<Int>?, onResult: (Boolean, String?) -> Unit ->
                         lifecycleScope.launch(Dispatchers.IO) {
                             val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
                             withContext(Dispatchers.Main) {
@@ -114,7 +115,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onStopProxy = { onResult ->
+                    onStopProxy = { onResult: (Boolean) -> Unit ->
                         lifecycleScope.launch(Dispatchers.IO) {
                             val success = ProxyController.stopProxy(this@MainActivity)
                             withContext(Dispatchers.Main) {
@@ -343,7 +344,7 @@ fun MainScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF08090E))
+            .background(Color(0xFF07080D))
     ) {
         Column(
             modifier = Modifier
@@ -354,7 +355,7 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(6.dp))
 
-            // 1. TACTICAL TOP BAR
+            // 1. TOP BAR
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -438,7 +439,7 @@ fun MainScreen(
                     val slotBg by animateColorAsState(
                         targetValue = when {
                             isRunning -> Color(0x3310B981)
-                            isSelected -> Color(0x226366F1)
+                            isSelected -> Color(0x228B5CF6)
                             else -> Color(0x14FFFFFF)
                         },
                         animationSpec = tween(200),
@@ -446,8 +447,8 @@ fun MainScreen(
                     )
                     val borderColor = when {
                         isRunning -> Color(0xFF10B981)
-                        isSelected -> Color(0xFF6366F1)
-                        else -> Color(0x1FFFFFFF)
+                        isSelected -> Color(0xFFA855F7)
+                        else -> Color(0x1AFFFFFF)
                     }
 
                     Surface(
@@ -468,7 +469,7 @@ fun MainScreen(
                                 fontWeight = if (isSelected || isRunning) FontWeight.Black else FontWeight.Bold,
                                 color = when {
                                     isRunning -> Color(0xFF10B981)
-                                    isSelected -> Color(0xFF818CF8)
+                                    isSelected -> Color(0xFFA855F7)
                                     else -> Color(0xFF94A3B8)
                                 }
                             )
@@ -494,11 +495,11 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 3. iOS SEGMENTED GLASS BAR (Eliminates lag completely!)
+            // 3. SEGMENTED GLASS BAR
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0x14FFFFFF),
-                border = BorderStroke(1.dp, Color(0x20FFFFFF)),
+                color = Color(0x12FFFFFF),
+                border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -509,7 +510,7 @@ fun MainScreen(
                     tabs.forEachIndexed { index, title ->
                         val isTabSelected = selectedNavTab == index
                         val tabBg by animateColorAsState(
-                            targetValue = if (isTabSelected) Color(0x356366F1) else Color.Transparent,
+                            targetValue = if (isTabSelected) Color(0x358B5CF6) else Color.Transparent,
                             label = "tabBg"
                         )
                         val tabTextColor by animateColorAsState(
@@ -524,7 +525,7 @@ fun MainScreen(
                                 .background(tabBg)
                                 .border(
                                     1.dp,
-                                    if (isTabSelected) Color(0x55818CF8) else Color.Transparent,
+                                    if (isTabSelected) Color(0x55A855F7) else Color.Transparent,
                                     RoundedCornerShape(10.dp)
                                 )
                                 .clickable { selectedNavTab = index }
@@ -544,7 +545,6 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 4. TAB VIEWS (Fluid, 120Hz Zero-Lag Rendering)
             when (selectedNavTab) {
                 0 -> {
                     // CONSOLE TAB
@@ -566,6 +566,7 @@ fun MainScreen(
                             transportMode = transportMode,
                             ipMode = ipMode,
                             routeHotspot = routeHotspot,
+                            host = host,
                             onRefreshIp = { triggerPublicIpCheck() },
                             onToggleProxy = {
                                 if (isProxyActive && runningSlot == activeSlot) {
@@ -630,7 +631,7 @@ fun MainScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // SERVER HEALTH CHECK CARD (Check If Alive)
+                        // SERVER HEALTH CHECK
                         var isCheckingAlive by remember { mutableStateOf(false) }
                         var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
 
@@ -758,7 +759,7 @@ fun MainScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("PROFILE P$activeSlot SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF818CF8), letterSpacing = 1.sp)
+                                    Text("PROFILE P$activeSlot SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFFA855F7), letterSpacing = 1.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
@@ -782,14 +783,14 @@ fun MainScreen(
                                         }
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
-                                            color = Color(0x226366F1),
-                                            border = BorderStroke(1.dp, Color(0x44818CF8))
+                                            color = Color(0x228B5CF6),
+                                            border = BorderStroke(1.dp, Color(0x44A855F7))
                                         ) {
                                             Text(
                                                 text = "SLOT $activeSlot",
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF818CF8),
+                                                color = Color(0xFFA855F7),
                                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                             )
                                         }
@@ -1375,6 +1376,7 @@ fun ConsoleHUDTab(
     transportMode: TransportMode,
     ipMode: IpMode,
     routeHotspot: Boolean,
+    host: String,
     onRefreshIp: () -> Unit,
     onToggleProxy: () -> Unit,
     isTesting: Boolean,
@@ -1383,26 +1385,15 @@ fun ConsoleHUDTab(
     onViewLogs: () -> Unit
 ) {
     val context = LocalContext.current
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
-
     val isCurrentSlotRunning = isProxyActive && (runningSlot == activeSlot)
 
     val borderBrush = if (isProxyActive) {
         Brush.sweepGradient(
-            colors = listOf(Color(0xFF10B981), Color(0xFF06B6D4), Color(0x2210B981), Color(0xFF10B981))
+            colors = listOf(Color(0xFF10B981), Color(0xFF06B6D4), Color(0x3310B981), Color(0xFF10B981))
         )
     } else {
         Brush.sweepGradient(
-            colors = listOf(Color(0x22FFFFFF), Color(0x336366F1), Color(0x11FFFFFF), Color(0x22FFFFFF))
+            colors = listOf(Color(0x22FFFFFF), Color(0x338B5CF6), Color(0x11FFFFFF), Color(0x22FFFFFF))
         )
     }
 
@@ -1424,7 +1415,6 @@ fun ConsoleHUDTab(
                     Box(
                         modifier = Modifier
                             .size(8.dp)
-                            .alpha(if (isProxyActive) pulseAlpha else 1f)
                             .background(if (isProxyActive) Color(0xFF10B981) else Color(0xFF64748B), CircleShape)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1564,7 +1554,6 @@ fun ConsoleHUDTab(
                         IpMode.IPV4_ONLY -> "IPv4"
                         IpMode.DUAL_STACK -> "Dual-Stack"
                         IpMode.IPV6_ONLY -> "IPv6"
-                        else -> "IPv4"
                     },
                     fontSize = 10.sp,
                     color = Color(0xFF06B6D4),
@@ -1585,6 +1574,51 @@ fun ConsoleHUDTab(
     }
 
     Spacer(modifier = Modifier.height(14.dp))
+
+    // LIVE CHECK IF ALIVE ON DASHBOARD
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Button(
+            onClick = onTestUpstream,
+            modifier = Modifier.weight(1f).height(50.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0x228B5CF6)),
+            border = BorderStroke(1.dp, Color(0x66A855F7)),
+            enabled = !isTesting
+        ) {
+            Text(
+                if (isTesting) "Checking..." else "⚡ Check If Alive",
+                color = Color(0xFFA855F7),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        OutlinedButton(
+            onClick = onViewLogs,
+            modifier = Modifier.weight(1f).height(50.dp),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
+        ) {
+            Text("Core Logs", fontSize = 12.sp)
+        }
+    }
+
+    if (testStatus != null) {
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = testStatus,
+            color = if (testStatus.startsWith("Online")) Color(0xFF10B981) else Color(0xFFF43F5E),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
 
     val buttonText = when {
         !isProxyActive -> "CONNECT TRANSPARENT PROXY (P$activeSlot)"
@@ -1608,7 +1642,7 @@ fun ConsoleHUDTab(
                     if (isDisconnecting) {
                         Brush.horizontalGradient(listOf(Color(0xFFE11D48), Color(0xFFF43F5E), Color(0xFFE11D48)))
                     } else {
-                        Brush.horizontalGradient(listOf(Color(0xFF4F46E5), Color(0xFF06B6D4), Color(0xFF10B981)))
+                        Brush.horizontalGradient(listOf(Color(0xFF7C3AED), Color(0xFF06B6D4), Color(0xFF10B981)))
                     }
                 )
         )
@@ -1627,43 +1661,7 @@ fun ConsoleHUDTab(
         }
     }
 
-    Spacer(modifier = Modifier.height(12.dp))
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        OutlinedButton(
-            onClick = onTestUpstream,
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF06B6D4)),
-            border = BorderStroke(1.dp, Color(0x3306B6D4)),
-            enabled = !isTesting
-        ) {
-            Text(if (isTesting) "Pinging..." else "Ping Latency", fontSize = 13.sp)
-        }
-
-        OutlinedButton(
-            onClick = onViewLogs,
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
-        ) {
-            Text("Core Logs", fontSize = 13.sp)
-        }
-    }
-
-    if (testStatus != null) {
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = testStatus,
-            color = if (testStatus.startsWith("Online")) Color(0xFF10B981) else Color(0xFFF43F5E),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
+    Spacer(modifier = Modifier.height(16.dp))
 }
 
 @Composable
@@ -1729,7 +1727,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
     val mbps = ((rawRxRate + rawTxRate) * 8.0) / (1024.0 * 1024.0)
     val dynamicAmp = if (!isProxyActive) 4f else (8f + (mbps * 2f).toFloat()).coerceIn(8f, 26f)
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().graphicsLayer()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1839,7 +1837,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                 .background(Color(0x14FFFFFF))
                 .border(1.dp, Color(0x18FFFFFF), RoundedCornerShape(14.dp))
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
+            Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
                 val w = size.width
                 val h = size.height
                 val midY = h * 0.50f
