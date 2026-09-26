@@ -14,8 +14,6 @@ object ProxyController {
 
     private const val ADB_DIR = "/data/adb/nameless_proxy"
     private const val ACTIVE_SLOT_FILE = "$ADB_DIR/running_slot"
-    private const val ORIG_DNS_MODE_FILE = "$ADB_DIR/orig_dns_mode"
-    private const val ORIG_DNS_SPEC_FILE = "$ADB_DIR/orig_dns_spec"
 
     fun getBinaryPath() = "$ADB_DIR/sing-box"
 
@@ -152,7 +150,7 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val port = ProfileManager.localInboundPort
 
-        // Verify binary
+        // Verify core binary presence
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
@@ -170,15 +168,6 @@ object ProxyController {
 
         // Stop any running instance
         stopProxy(context, user)
-
-        // Save Private DNS settings and turn off Private DNS so Android uses Port 53
-        executeSu(listOf(
-            "ORIG_MODE=\$(settings get global private_dns_mode 2>/dev/null)",
-            "ORIG_SPEC=\$(settings get global private_dns_specifier 2>/dev/null)",
-            "echo \"\$ORIG_MODE\" > $ORIG_DNS_MODE_FILE",
-            "echo \"\$ORIG_SPEC\" > $ORIG_DNS_SPEC_FILE",
-            "settings put global private_dns_mode off"
-        ))
 
         // Start daemon
         val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
@@ -211,31 +200,15 @@ object ProxyController {
     ): Boolean {
         val commands = mutableListOf<String>()
 
-        // 1. Flush iptables rules across all slots
+        // Flush iptables rules across all slots
         for (s in 0..4) {
             commands.addAll(IptablesManager.generateDisableCommands(user, s))
             val pFile = getPidFile(user, s)
             commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
-        // 2. Kill lingering sing-box processes
         commands.add("rm -f $ACTIVE_SLOT_FILE")
         commands.add("killall -9 sing-box 2>/dev/null")
-
-        // 3. Restore original Android Private DNS settings
-        commands.add("""
-            if [ -f $ORIG_DNS_MODE_FILE ]; then
-                SAVED_MODE=$(cat $ORIG_DNS_MODE_FILE)
-                SAVED_SPEC=$(cat $ORIG_DNS_SPEC_FILE)
-                if [ "$SAVED_MODE" != "null" ] && [ -n "$SAVED_MODE" ]; then
-                    settings put global private_dns_mode "$SAVED_MODE"
-                fi
-                if [ "$SAVED_SPEC" != "null" ] && [ -n "$SAVED_SPEC" ]; then
-                    settings put global private_dns_specifier "$SAVED_SPEC"
-                fi
-                rm -f $ORIG_DNS_MODE_FILE $ORIG_DNS_SPEC_FILE
-            fi
-        """.trimIndent())
 
         return executeSu(commands)
     }
