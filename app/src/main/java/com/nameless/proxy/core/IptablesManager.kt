@@ -75,7 +75,6 @@ object IptablesManager {
         commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
 
         // 3. WebRTC Shield (TCP Only Mode)
-        // Silently drop non-DNS UDP so browser STUN queries cannot bypass the tunnel over physical Wi-Fi
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
