@@ -212,7 +212,7 @@ object ConfigGenerator {
 
         // 5. Routing Rules
         val route = JSONObject().apply {
-            put("default_domain_resolver", "dns-direct")
+            put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
 
@@ -226,22 +226,21 @@ object ConfigGenerator {
         }
         routeRules.put(dnsRouteRule)
 
-        // Reject Chrome's built-in DoH probe to 8.8.8.8:443 so Chrome immediately falls back to standard DNS
-        val dohRejectRule = JSONObject().apply {
-            val ipArray = JSONArray().apply {
-                put("8.8.8.8/32")
-                put("8.8.4.4/32")
-                put("1.1.1.1/32")
-                put("1.0.0.1/32")
+        // Reject public DoH provider domains so Chrome falls back to standard Port 53 DNS (preventing DNS country mismatches)
+        val dohDomainRejectRule = JSONObject().apply {
+            val domainArray = JSONArray().apply {
+                put("dns.google")
+                put("dns.google.com")
+                put("cloudflare-dns.com")
+                put("one.one.one.one")
+                put("dns.quad9.net")
             }
-            val portArray = JSONArray().apply { put(443) }
-            put("ip_cidr", ipArray)
-            put("port", portArray)
+            put("domain", domainArray)
             put("action", "reject")
         }
-        routeRules.put(dohRejectRule)
+        routeRules.put(dohDomainRejectRule)
 
-        // Reject QUIC (UDP 443) on TCP-only proxies so Chrome falls back to TCP HTTP/2 without connection refusal
+        // Reject QUIC (UDP 443) on TCP-only proxies so browsers fall back to TCP HTTP/2 cleanly
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             val quicFallbackRule = JSONObject().apply {
                 put("network", "udp")
