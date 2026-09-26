@@ -193,7 +193,6 @@ fun MainScreen(
 
     fun getSlotPrefs(slot: Int) = context.getSharedPreferences("nameless_slot_$slot", Context.MODE_PRIVATE)
 
-    // Form fields for currently viewed slot
     var proxyType by remember { mutableStateOf(ProxyType.SOCKS5) }
     var transportMode by remember { mutableStateOf(TransportMode.TCP_AND_UDP) }
     var ipMode by remember { mutableStateOf(IpMode.IPV4_ONLY) }
@@ -341,11 +340,87 @@ fun MainScreen(
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
+    val auroraAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 14000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "auroraAngle"
+    )
+
+    val auraPulse by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "auraPulse"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF020408))
+            .background(Color(0xFF020409))
     ) {
+        Canvas(modifier = Modifier.fillMaxSize().alpha(if (isProxyActive) auraPulse else 0.20f)) {
+            val w = size.width
+            val h = size.height
+            val rad = Math.toRadians(auroraAngle.toDouble())
+
+            val orb1X = (w * 0.30f) + (cos(rad) * 120f).toFloat()
+            val orb1Y = (h * 0.20f) + (sin(rad) * 80f).toFloat()
+
+            val orb2X = (w * 0.70f) - (sin(rad) * 140f).toFloat()
+            val orb2Y = (h * 0.45f) + (cos(rad) * 100f).toFloat()
+
+            val orb3X = (w * 0.45f) + (sin(rad * 1.3) * 100f).toFloat()
+            val orb3Y = (h * 0.75f) - (cos(rad * 1.3) * 70f).toFloat()
+
+            if (isProxyActive) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x5500FF88), Color(0x1800FF88), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.75f
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = w * 0.75f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x4400E5FF), Color(0x1200E5FF), Color.Transparent),
+                        center = Offset(orb2X, orb2Y),
+                        radius = w * 0.85f
+                    ),
+                    center = Offset(orb2X, orb2Y),
+                    radius = w * 0.85f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x354F46E5), Color(0x0C4F46E5), Color.Transparent),
+                        center = Offset(orb3X, orb3Y),
+                        radius = w * 0.70f
+                    ),
+                    center = Offset(orb3X, orb3Y),
+                    radius = w * 0.70f
+                )
+            } else {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x221E293B), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.65f
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = w * 0.65f
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -357,7 +432,7 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-            // 1. TOP APP BAR
+            // 1. TACTICAL TOP BAR
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -452,7 +527,7 @@ fun MainScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = slotBg,
                         border = BorderStroke(1.dp, borderColor),
                         modifier = Modifier
@@ -694,6 +769,7 @@ fun MainScreen(
                                 modifier = Modifier.clickable {
                                     val prefs = getSlotPrefs(activeSlot)
                                     prefs.edit().clear().apply()
+                                    PersistentStorage.clearBackup(activeSlot, ProfileManager.androidUserId)
                                     loadSlotData(activeSlot)
                                     Toast.makeText(context, "P$activeSlot reset to empty", Toast.LENGTH_SHORT).show()
                                 }
