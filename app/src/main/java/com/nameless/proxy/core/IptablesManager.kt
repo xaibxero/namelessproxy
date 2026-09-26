@@ -33,6 +33,7 @@ object IptablesManager {
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Policy Routing for UDP (TPROXY)
+        // Kept active across both modes so local UDP Port 53 DNS is intercepted to sing-box
         commands.add("ip rule add fwmark $markHex table $tableId pref 100")
         commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
@@ -74,16 +75,21 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
 
-        // 3. WebRTC Shield & DoH Reject Chain
+        // 3. WebRTC Shield & DoH / DoT Suppression
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
-        // Reject Google DNS DoH/DoT directly so Chrome falls back to standard DNS
-        val publicDnsIps = listOf("8.8.8.8", "8.8.4.4")
+        // Reset DoT (Port 853) so Android Private DNS falls back to Port 53
+        commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset")
+        commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
+
+        // Reset public DoH IPs so Chrome disables DoH and falls back to Port 53
+        val publicDnsIps = listOf(
+            "8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1",
+            "9.9.9.9", "149.112.112.112", "208.67.222.222", "208.67.220.220"
+        )
         for (dnsIp in publicDnsIps) {
-            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 443 -j REJECT")
-            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 853 -j REJECT")
-            commands.add("iptables -A $chainFilter -d $dnsIp -p udp --dport 853 -j REJECT")
+            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 443 -j REJECT --reject-with tcp-reset")
         }
 
         // In TCP Only mode, drop non-DNS UDP to prevent WebRTC leaks over Wi-Fi
