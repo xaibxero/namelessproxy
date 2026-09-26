@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine
+        // 2. DNS Engine (Resolves via Cloudflare Anycast through proxy tunnel)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Clean syntax for sing-box >= 1.11.0 / 1.13.0
+        // 3. Inbounds: Compliant with sing-box >= 1.11.0 / 1.13.0
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -92,16 +92,15 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        if (settings.transportMode == TransportMode.TCP_AND_UDP) {
-            val tproxyInbound = JSONObject().apply {
-                put("type", "tproxy")
-                put("tag", "tproxy-in")
-                put("listen", listenAddress)
-                put("listen_port", inboundPort)
-                put("network", "udp")
-            }
-            inbounds.put(tproxyInbound)
+        // TPROXY inbound is active in both modes to receive local UDP Port 53 queries
+        val tproxyInbound = JSONObject().apply {
+            put("type", "tproxy")
+            put("tag", "tproxy-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort)
+            put("network", "udp")
         }
+        inbounds.put(tproxyInbound)
 
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
@@ -215,10 +214,12 @@ object ConfigGenerator {
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
+            put("auto_detect_interface", true)
         }
 
         val routeRules = JSONArray()
 
+        // Hijack DNS port 53 directly into internal secure DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
