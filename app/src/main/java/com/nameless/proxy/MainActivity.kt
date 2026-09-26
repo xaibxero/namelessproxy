@@ -56,6 +56,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.sin
 
 data class AppItem(
@@ -208,21 +209,92 @@ fun MainScreen(
     var routeWholeProfile by remember { mutableStateOf(true) }
     var selectedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
 
+    fun applySettingsToState(
+        pHost: String, pPort: String, pUser: String, pPass: String,
+        pSni: String, pSsMethod: String, pRpk: String, pRsid: String,
+        pType: ProxyType, pTransport: TransportMode, pIpMode: IpMode,
+        pRouteWhole: Boolean, pPkgs: Set<String>
+    ) {
+        host = pHost
+        port = pPort
+        username = pUser
+        password = pPass
+        sni = pSni
+        ssMethod = pSsMethod
+        realityPublicKey = pRpk
+        realityShortId = pRsid
+        proxyType = pType
+        transportMode = pTransport
+        ipMode = pIpMode
+        routeWholeProfile = pRouteWhole
+        selectedPackages = pPkgs
+    }
+
     fun loadSlotData(slot: Int) {
         val prefs = getSlotPrefs(slot)
-        host = prefs.getString("host", "") ?: ""
-        port = prefs.getString("port", "1080") ?: "1080"
-        username = prefs.getString("username", "") ?: ""
-        password = prefs.getString("password", "") ?: ""
-        sni = prefs.getString("sni", "") ?: ""
-        ssMethod = prefs.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm"
-        realityPublicKey = prefs.getString("reality_pk", "") ?: ""
-        realityShortId = prefs.getString("reality_sid", "") ?: ""
-        proxyType = try { ProxyType.valueOf(prefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (e: Exception) { ProxyType.SOCKS5 }
-        transportMode = try { TransportMode.valueOf(prefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name) } catch (e: Exception) { TransportMode.TCP_AND_UDP }
-        ipMode = try { IpMode.valueOf(prefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name) } catch (e: Exception) { IpMode.IPV4_ONLY }
-        routeWholeProfile = prefs.getBoolean("route_whole_profile", true)
-        selectedPackages = prefs.getStringSet("selected_packages", emptySet()) ?: emptySet()
+        val prefHost = prefs.getString("host", "") ?: ""
+
+        if (prefHost.isNotEmpty()) {
+            applySettingsToState(
+                pHost = prefHost,
+                pPort = prefs.getString("port", "1080") ?: "1080",
+                pUser = prefs.getString("username", "") ?: "",
+                pPass = prefs.getString("password", "") ?: "",
+                pSni = prefs.getString("sni", "") ?: "",
+                pSsMethod = prefs.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm",
+                pRpk = prefs.getString("reality_pk", "") ?: "",
+                pRsid = prefs.getString("reality_sid", "") ?: "",
+                pType = try { ProxyType.valueOf(prefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (e: Exception) { ProxyType.SOCKS5 },
+                pTransport = try { TransportMode.valueOf(prefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name) } catch (e: Exception) { TransportMode.TCP_AND_UDP },
+                pIpMode = try { IpMode.valueOf(prefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name) } catch (e: Exception) { IpMode.IPV4_ONLY },
+                pRouteWhole = prefs.getBoolean("route_whole_profile", true),
+                pPkgs = prefs.getStringSet("selected_packages", emptySet()) ?: emptySet()
+            )
+        } else {
+            // Restore from root storage if local prefs were wiped
+            coroutineScope.launch(Dispatchers.IO) {
+                val backup = PersistentStorage.loadBackup(slot, ProfileManager.androidUserId)
+                if (backup != null) {
+                    val bHost = backup.optString("host", "")
+                    val bPort = backup.optString("port", "1080")
+                    val bUser = backup.optString("username", "")
+                    val bPass = backup.optString("password", "")
+                    val bSni = backup.optString("sni", "")
+                    val bSs = backup.optString("ss_method", "2022-blake3-aes-128-gcm")
+                    val bRpk = backup.optString("reality_pk", "")
+                    val bRsid = backup.optString("reality_sid", "")
+                    val bType = try { ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (e: Exception) { ProxyType.SOCKS5 }
+                    val bTrans = try { TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name)) } catch (e: Exception) { TransportMode.TCP_AND_UDP }
+                    val bIp = try { IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name)) } catch (e: Exception) { IpMode.IPV4_ONLY }
+                    val bRoute = backup.optBoolean("route_whole_profile", true)
+
+                    val bPkgs = mutableSetOf<String>()
+                    val pkgsArray = backup.optJSONArray("selected_packages")
+                    if (pkgsArray != null) {
+                        for (i in 0 until pkgsArray.length()) {
+                            bPkgs.add(pkgsArray.getString(i))
+                        }
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        applySettingsToState(bHost, bPort, bUser, bPass, bSni, bSs, bRpk, bRsid, bType, bTrans, bIp, bRoute, bPkgs)
+                        // Repopulate SharedPreferences
+                        prefs.edit()
+                            .putString("host", bHost).putString("port", bPort).putString("username", bUser)
+                            .putString("password", bPass).putString("sni", bSni).putString("ss_method", bSs)
+                            .putString("reality_pk", bRpk).putString("reality_sid", bRsid)
+                            .putString("proxy_type", bType.name).putString("transport_mode", bTrans.name)
+                            .putString("ip_mode", bIp.name).putBoolean("route_whole_profile", bRoute)
+                            .putStringSet("selected_packages", bPkgs)
+                            .apply()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        applySettingsToState("", "1080", "", "", "", "2022-blake3-aes-128-gcm", "", "", ProxyType.SOCKS5, TransportMode.TCP_AND_UDP, IpMode.IPV4_ONLY, true, emptySet())
+                    }
+                }
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -341,11 +413,89 @@ fun MainScreen(
         }
     }
 
+    // Dynamic Live Background Canvas Animation
+    val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
+    val auroraAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 16000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "auroraAngle"
+    )
+
+    val auraPulse by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "auraPulse"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF07080D))
     ) {
+        // Hardware-Accelerated Floating Aurora Mesh Canvas
+        Canvas(modifier = Modifier.fillMaxSize().graphicsLayer().alpha(if (isProxyActive) auraPulse else 0.25f)) {
+            val w = size.width
+            val h = size.height
+            val rad = Math.toRadians(auroraAngle.toDouble())
+
+            val orb1X = (w * 0.30f) + (cos(rad) * 110f).toFloat()
+            val orb1Y = (h * 0.20f) + (sin(rad) * 70f).toFloat()
+
+            val orb2X = (w * 0.70f) - (sin(rad) * 130f).toFloat()
+            val orb2Y = (h * 0.45f) + (cos(rad) * 90f).toFloat()
+
+            val orb3X = (w * 0.45f) + (sin(rad * 1.2) * 90f).toFloat()
+            val orb3Y = (h * 0.75f) - (cos(rad * 1.2) * 60f).toFloat()
+
+            if (isProxyActive) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x5510B981), Color(0x1810B981), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.75f
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = w * 0.75f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x4406B6D4), Color(0x1206B6D4), Color.Transparent),
+                        center = Offset(orb2X, orb2Y),
+                        radius = w * 0.85f
+                    ),
+                    center = Offset(orb2X, orb2Y),
+                    radius = w * 0.85f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x408B5CF6), Color(0x108B5CF6), Color.Transparent),
+                        center = Offset(orb3X, orb3Y),
+                        radius = w * 0.70f
+                    ),
+                    center = Offset(orb3X, orb3Y),
+                    radius = w * 0.70f
+                )
+            } else {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x281E293B), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.65f
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = w * 0.65f
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -828,7 +978,8 @@ fun MainScreen(
                                         Pair(TransportMode.TCP_AND_UDP, "TCP + UDP (WebRTC)"),
                                         Pair(TransportMode.TCP_ONLY, "TCP Only")
                                     )
-                                    transportOptions.forEach { item ->
+                                    for (i in 0 until transportOptions.size) {
+                                        val item = transportOptions[i]
                                         val mode = item.first
                                         val label = item.second
                                         FilterChip(
@@ -852,7 +1003,8 @@ fun MainScreen(
                                         Pair(IpMode.DUAL_STACK, "Dual-Stack"),
                                         Pair(IpMode.IPV6_ONLY, "IPv6")
                                     )
-                                    ipOptions.forEach { item ->
+                                    for (i in 0 until ipOptions.size) {
+                                        val item = ipOptions[i]
                                         val mode = item.first
                                         val label = item.second
                                         FilterChip(
