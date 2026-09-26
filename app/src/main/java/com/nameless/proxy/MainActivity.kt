@@ -749,10 +749,13 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(
-                            TransportMode.TCP_AND_UDP to "TCP + UDP (WebRTC)",
-                            TransportMode.TCP_ONLY to "TCP Only"
-                        ).forEach { (mode, label) ->
+                        val transportOptions = listOf(
+                            Pair(TransportMode.TCP_AND_UDP, "TCP + UDP (WebRTC)"),
+                            Pair(TransportMode.TCP_ONLY, "TCP Only")
+                        )
+                        transportOptions.forEach { item ->
+                            val mode = item.first
+                            val label = item.second
                             FilterChip(
                                 selected = transportMode == mode,
                                 onClick = { transportMode = mode; saveConfigForSlot(activeSlot) },
@@ -769,11 +772,14 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(
-                            IpMode.IPV4_ONLY to "IPv4",
-                            IpMode.DUAL_STACK to "Dual-Stack",
-                            IpMode.IPV6_ONLY to "IPv6"
-                        ).forEach { (mode, label) ->
+                        val ipOptions = listOf(
+                            Pair(IpMode.IPV4_ONLY, "IPv4"),
+                            Pair(IpMode.DUAL_STACK, "Dual-Stack"),
+                            Pair(IpMode.IPV6_ONLY, "IPv6")
+                        )
+                        ipOptions.forEach { item ->
+                            val mode = item.first
+                            val label = item.second
                             FilterChip(
                                 selected = ipMode == mode,
                                 onClick = { ipMode = mode; saveConfigForSlot(activeSlot) },
@@ -872,7 +878,7 @@ fun MainScreen(
                                         modifier = Modifier
                                             .clickable { passwordVisible = !passwordVisible }
                                             .padding(end = 12.dp)
-                                        )
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(14.dp),
@@ -1366,6 +1372,7 @@ fun ConsoleHUDTab(
                         IpMode.IPV4_ONLY -> "IPv4"
                         IpMode.DUAL_STACK -> "Dual-Stack"
                         IpMode.IPV6_ONLY -> "IPv6"
+                        else -> "IPv4"
                     },
                     fontSize = 10.sp,
                     color = Color(0xFF00E5FF),
