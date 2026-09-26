@@ -75,7 +75,7 @@ object ProxyController {
     fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = getBinaryPath()
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $ADB_DIR && rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath"))
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $ADB_DIR && rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath && chcon u:object_r:system_file:s0 $targetPath 2>/dev/null"))
             context.assets.open("sing-box").use { input ->
                 input.copyTo(process.outputStream)
             }
@@ -150,7 +150,7 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val port = ProfileManager.localInboundPort
 
-        // Verify core binary presence
+        // Verify binary presence
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
@@ -166,11 +166,11 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Stop any running instance
+        // Stop any running instance cleanly
         stopProxy(context, user)
 
-        // Start daemon
-        val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
+        // Launch directly without nohup
+        val runCmd = "$binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
         executeSu(listOf(runCmd))
 
         Thread.sleep(700)
@@ -200,15 +200,17 @@ object ProxyController {
     ): Boolean {
         val commands = mutableListOf<String>()
 
-        // Flush iptables rules across all slots
+        // 1. Flush iptables rules across all slots
         for (s in 0..4) {
             commands.addAll(IptablesManager.generateDisableCommands(user, s))
             val pFile = getPidFile(user, s)
             commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
+        // 2. Terminate background processes
         commands.add("rm -f $ACTIVE_SLOT_FILE")
         commands.add("killall -9 sing-box 2>/dev/null")
+        commands.add("pkill -9 -f sing-box 2>/dev/null")
 
         return executeSu(commands)
     }
