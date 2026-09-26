@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine: Resolves via Cloudflare Anycast through proxy tunnel
+        // 2. DNS Engine
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Clean syntax for sing-box >= 1.11.0 / 1.13.0
+        // 3. Inbounds
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -92,7 +92,6 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // TPROXY listener is active in both modes for UDP Port 53 DNS interception
         val tproxyInbound = JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
@@ -210,7 +209,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Sing-Box 1.11+ Action Architecture)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
@@ -218,13 +217,11 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // 1. Sniff inbound metadata
         val sniffRule = JSONObject().apply {
             put("action", "sniff")
         }
         routeRules.put(sniffRule)
 
-        // 2. Hijack port 53 DNS to internal engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
@@ -232,7 +229,6 @@ object ConfigGenerator {
         }
         routeRules.put(dnsRouteRule)
 
-        // 3. In TCP-only mode, reject UDP 443 (QUIC) so browsers fall back to TCP HTTP/2 cleanly
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             val quicFallbackRule = JSONObject().apply {
                 put("network", "udp")
