@@ -44,7 +44,7 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine: Resolves strictly through the proxy tunnel via Cloudflare Anycast
+        // 2. DNS Engine: Resolves via Cloudflare Anycast through proxy tunnel
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Compliant with sing-box >= 1.11.0 / 1.13.0
+        // 3. Inbounds: Clean syntax for sing-box >= 1.11.0 / 1.13.0
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -92,7 +92,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // TPROXY inbound remains active in both modes for UDP Port 53 DNS interception
+        // TPROXY listener is active in both modes for UDP Port 53 DNS interception
         val tproxyInbound = JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
@@ -210,7 +210,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (Sing-Box 1.11+ Action Architecture)
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
@@ -218,13 +218,13 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // A. Sniff inbound metadata (sing-box 1.11+ syntax)
+        // 1. Sniff inbound metadata
         val sniffRule = JSONObject().apply {
             put("action", "sniff")
         }
         routeRules.put(sniffRule)
 
-        // B. Intercept Port 53 DNS directly to sing-box internal DNS engine
+        // 2. Hijack port 53 DNS to internal engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
@@ -232,41 +232,7 @@ object ConfigGenerator {
         }
         routeRules.put(dnsRouteRule)
 
-        // C. Block public DoH/DoT IPs to prevent Chrome from bypassing system DNS
-        val blockPublicDoh = JSONObject().apply {
-            val ipArray = JSONArray().apply {
-                put("8.8.8.8/32")
-                put("8.8.4.4/32")
-                put("9.9.9.9/32")
-                put("149.112.112.112/32")
-                put("208.67.222.222/32")
-                put("208.67.220.220/32")
-            }
-            val portArray = JSONArray().apply {
-                put(443)
-                put(853)
-            }
-            put("ip_cidr", ipArray)
-            put("port", portArray)
-            put("action", "reject")
-        }
-        routeRules.put(blockPublicDoh)
-
-        // D. Block known DoH hostnames
-        val blockDohDomains = JSONObject().apply {
-            val domainArray = JSONArray().apply {
-                put("dns.google")
-                put("dns.google.com")
-                put("cloudflare-dns.com")
-                put("dns.quad9.net")
-                put("doh.opendns.com")
-            }
-            put("domain", domainArray)
-            put("action", "reject")
-        }
-        routeRules.put(blockDohDomains)
-
-        // E. In TCP-only mode, reject UDP 443 (QUIC) so browsers fall back to TCP HTTP/2 cleanly
+        // 3. In TCP-only mode, reject UDP 443 (QUIC) so browsers fall back to TCP HTTP/2 cleanly
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             val quicFallbackRule = JSONObject().apply {
                 put("network", "udp")
