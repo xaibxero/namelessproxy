@@ -13,16 +13,17 @@ data class StartResult(
 object ProxyController {
 
     private const val ADB_DIR = "/data/adb/nameless_proxy"
+    private const val ACTIVE_SLOT_FILE = "$ADB_DIR/running_slot"
 
     fun getBinaryPath() = "$ADB_DIR/sing-box"
 
-    fun getConfigPath(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
+    fun getConfigPath(user: Int, slot: Int) =
         "$ADB_DIR/config_u${user}_s${slot}.json"
 
-    fun getPidFile(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
+    fun getPidFile(user: Int, slot: Int) =
         "$ADB_DIR/singbox_u${user}_s${slot}.pid"
 
-    fun getLogFile(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) =
+    fun getLogFile(user: Int, slot: Int) =
         "$ADB_DIR/singbox_u${user}_s${slot}.log"
 
     private fun executeSuWithOutput(commands: List<String>): String {
@@ -44,7 +45,6 @@ object ProxyController {
             process.waitFor()
             sb.toString().trim()
         } catch (e: Exception) {
-            e.printStackTrace()
             ""
         }
     }
@@ -60,9 +60,16 @@ object ProxyController {
             os.flush()
             process.waitFor() == 0
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
+    }
+
+    fun getRunningSlot(user: Int = ProfileManager.androidUserId): Int? {
+        val out = executeSuWithOutput(listOf(
+            "if [ -f $ACTIVE_SLOT_FILE ]; then cat $ACTIVE_SLOT_FILE; fi"
+        )).trim()
+        val s = out.toIntOrNull()
+        return if (s != null && isRunning(user, s)) s else null
     }
 
     fun extractBinaryDirectly(context: Context): Boolean {
@@ -76,7 +83,6 @@ object ProxyController {
             process.outputStream.close()
             process.waitFor() == 0
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
@@ -89,7 +95,6 @@ object ProxyController {
             process.outputStream.close()
             process.waitFor() == 0
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
@@ -159,9 +164,10 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        stopProxy(context, user, slot)
+        // Cleanly stop any existing running slot first
+        stopProxy(context)
 
-        val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile"
+        val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
         executeSu(listOf(runCmd))
 
         Thread.sleep(700)
@@ -179,21 +185,30 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context, user, slot)
+            stopProxy(context)
             StartResult(success = false, errorMessage = "Failed to apply iptables rules")
         }
     }
 
     fun stopProxy(
         context: Context,
-        user: Int = ProfileManager.androidUserId,
-        slot: Int = ProfileManager.activeSlot
+        user: Int = ProfileManager.androidUserId
     ): Boolean {
-        val pidFile = getPidFile(user, slot)
+        // Kill whichever slot is recorded as running, plus all known slots for safety
         val commands = mutableListOf<String>()
+        val running = getRunningSlot(user)
+        if (running != null) {
+            commands.addAll(IptablesManager.generateDisableCommands(user, running))
+            val pidFile = getPidFile(user, running)
+            commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
+        }
 
-        commands.add("if [ -f $pidFile ]; then kill -9 \$(cat $pidFile) 2>/dev/null; rm -f $pidFile; fi")
-        commands.addAll(IptablesManager.generateDisableCommands(user, slot))
+        // Wipe active slot indicator and kill any leftover singbox process
+        commands.add("rm -f $ACTIVE_SLOT_FILE")
+        commands.add("killall -9 sing-box 2>/dev/null")
+
+        // Also clean up current viewed slot's chains
+        commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
         return executeSu(commands)
     }
