@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Compliant with sing-box >= 1.11.0 / 1.13.0
+        // 3. Inbounds: Clean syntax compliant with sing-box >= 1.11.0 / 1.13.0
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -92,7 +92,7 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // TPROXY inbound is active in both modes to receive local UDP Port 53 queries
+        // TPROXY inbound handles UDP in both modes so Port 53 DNS is intercepted cleanly
         val tproxyInbound = JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
@@ -214,18 +214,43 @@ object ConfigGenerator {
         val route = JSONObject().apply {
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
-            put("auto_detect_interface", true)
         }
 
         val routeRules = JSONArray()
 
-        // Hijack DNS port 53 directly into internal secure DNS engine
+        // Hijack DNS port 53 directly into sing-box's internal DNS engine
         val dnsRouteRule = JSONObject().apply {
             val portArray = JSONArray().apply { put(53) }
             put("port", portArray)
             put("action", "hijack-dns")
         }
         routeRules.put(dnsRouteRule)
+
+        // Reject Chrome's built-in DoH probe to 8.8.8.8:443 so Chrome immediately falls back to standard DNS
+        val dohRejectRule = JSONObject().apply {
+            val ipArray = JSONArray().apply {
+                put("8.8.8.8/32")
+                put("8.8.4.4/32")
+                put("1.1.1.1/32")
+                put("1.0.0.1/32")
+            }
+            val portArray = JSONArray().apply { put(443) }
+            put("ip_cidr", ipArray)
+            put("port", portArray)
+            put("action", "reject")
+        }
+        routeRules.put(dohRejectRule)
+
+        // Reject QUIC (UDP 443) on TCP-only proxies so Chrome falls back to TCP HTTP/2 without connection refusal
+        if (settings.transportMode == TransportMode.TCP_ONLY) {
+            val quicFallbackRule = JSONObject().apply {
+                put("network", "udp")
+                val portArray = JSONArray().apply { put(443) }
+                put("port", portArray)
+                put("action", "reject")
+            }
+            routeRules.put(quicFallbackRule)
+        }
 
         route.put("rules", routeRules)
         root.put("route", route)
