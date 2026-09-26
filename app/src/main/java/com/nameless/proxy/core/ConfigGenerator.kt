@@ -1,285 +1,266 @@
 package com.nameless.proxy.core
 
-import org.json.JSONArray
-import org.json.JSONObject
+object IptablesManager {
 
-enum class ProxyType {
-    SOCKS5, SOCKS4, HTTP, SHADOWSOCKS, VLESS, TROJAN, HYSTERIA2
-}
+    fun generateEnableCommands(
+        inboundPort: Int,
+        settings: ProxySettings,
+        selectedUids: List<Int>? = null
+    ): List<String> {
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
+        val key = ProfileManager.sessionKey
 
-enum class TransportMode {
-    TCP_AND_UDP,
-    TCP_ONLY
-}
+        val chainNatV4 = ProfileManager.chainName
+        val chainNatV6 = "${ProfileManager.chainName}_V6"
+        val chainPreMangle = "NAMELESS_PRE_$key"
+        val chainOutMangle = "NAMELESS_OUT_$key"
+        val chainFilter = "NAMELESS_FILTER_$key"
+        val chainV6Filter = "NAMELESS_V6_FILTER_$key"
+        val chainHotspotNat = "NAMELESS_HS_NAT_$key"
+        val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
+        val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-enum class IpMode {
-    IPV4_ONLY,
-    DUAL_STACK,
-    IPV6_ONLY
-}
+        val start = user * 100000
+        val end = start + 99999
 
-data class ProxySettings(
-    val type: ProxyType = ProxyType.SOCKS5,
-    val transportMode: TransportMode = TransportMode.TCP_AND_UDP,
-    val ipMode: IpMode = IpMode.IPV4_ONLY,
-    val host: String = "",
-    val port: Int = 1080,
-    val username: String = "",
-    val password: String = "",
-    val routeHotspot: Boolean = true,
-    val sni: String = "",
-    val ssMethod: String = "2022-blake3-aes-128-gcm",
-    val realityPublicKey: String = "",
-    val realityShortId: String = ""
-)
+        val tableId = ProfileManager.routingTableId
+        val markHex = ProfileManager.markHex
 
-object ConfigGenerator {
-    fun generateJson(settings: ProxySettings, inboundPort: Int): String {
-        val root = JSONObject()
+        val commands = mutableListOf<String>()
 
-        // 1. Logging
-        val log = JSONObject().apply {
-            put("level", "info")
-            put("timestamp", true)
-        }
-        root.put("log", log)
+        // 1. Cleanup all existing rules for this user & slot
+        commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. DNS Engine: Resolves via Cloudflare Anycast strictly through the proxy tunnel
-        val dns = JSONObject()
-        val dnsServers = JSONArray()
+        // 2. Policy Routing for UDP (TPROXY)
+        commands.add("ip rule add fwmark $markHex table $tableId pref 100")
+        commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
-        val remoteDns = JSONObject().apply {
-            put("tag", "dns-remote")
-            put("type", "tcp")
-            put("server", "1.1.1.1")
-            put("server_port", 53)
-            put("detour", "proxy-out")
-        }
-        dnsServers.put(remoteDns)
-
-        val directDns = JSONObject().apply {
-            put("tag", "dns-direct")
-            put("type", "udp")
-            put("server", "1.1.1.1")
-            put("server_port", 53)
-        }
-        dnsServers.put(directDns)
-        dns.put("servers", dnsServers)
-
-        when (settings.ipMode) {
-            IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
-            IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
-            IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
+        if (settings.ipMode != IpMode.IPV4_ONLY) {
+            commands.add("ip -6 rule add fwmark $markHex table $tableId pref 100")
+            commands.add("ip -6 route add local ::/0 dev lo table $tableId")
         }
 
-        dns.put("final", "dns-remote")
-        root.put("dns", dns)
+        commands.add("iptables -t mangle -N $chainPreMangle")
+        commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+        commands.add("iptables -t mangle -A PREROUTING -j $chainPreMangle")
 
-        // 3. Inbounds: Clean syntax for sing-box >= 1.11.0 / 1.13.0
-        val listenAddress = when (settings.ipMode) {
-            IpMode.IPV4_ONLY -> "0.0.0.0"
-            IpMode.DUAL_STACK -> "::"
-            IpMode.IPV6_ONLY -> "::"
+        commands.add("iptables -t mangle -N $chainOutMangle")
+        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
+
+        // Intercept UDP Port 53 DNS globally to sing-box
+        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
+
+        val reservedV4 = listOf(
+            "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
+            "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
+        )
+        for (range in reservedV4) {
+            commands.add("iptables -t mangle -A $chainOutMangle -d $range -j RETURN")
+        }
+        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
+            commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host} -j RETURN")
         }
 
-        val inbounds = JSONArray()
-
-        val redirectInbound = JSONObject().apply {
-            put("type", "redirect")
-            put("tag", "redirect-in")
-            put("listen", listenAddress)
-            put("listen_port", inboundPort)
-        }
-        inbounds.put(redirectInbound)
-
-        // TPROXY listener is active in both modes for UDP Port 53 DNS interception
-        val tproxyInbound = JSONObject().apply {
-            put("type", "tproxy")
-            put("tag", "tproxy-in")
-            put("listen", listenAddress)
-            put("listen_port", inboundPort)
-            put("network", "udp")
-        }
-        inbounds.put(tproxyInbound)
-
-        val internalSocksInbound = JSONObject().apply {
-            put("type", "socks")
-            put("tag", "internal-socks-in")
-            put("listen", "127.0.0.1")
-            put("listen_port", inboundPort + 1)
-        }
-        inbounds.put(internalSocksInbound)
-
-        root.put("inbounds", inbounds)
-
-        // 4. Outbounds
-        val outbounds = JSONArray()
-        val proxyOutbound = JSONObject()
-
-        when (settings.type) {
-            ProxyType.SOCKS5 -> {
-                proxyOutbound.put("type", "socks")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("version", "5")
-                if (settings.username.isNotEmpty()) {
-                    proxyOutbound.put("username", settings.username)
-                    proxyOutbound.put("password", settings.password)
+        // In TCP+UDP mode, route all remaining UDP through the tunnel
+        if (settings.transportMode == TransportMode.TCP_AND_UDP) {
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp -j MARK --set-mark $markHex")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $uid -j MARK --set-mark $markHex")
                 }
             }
-            ProxyType.SOCKS4 -> {
-                proxyOutbound.put("type", "socks")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("version", "4")
-            }
-            ProxyType.HTTP -> {
-                proxyOutbound.put("type", "http")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                if (settings.username.isNotEmpty()) {
-                    proxyOutbound.put("username", settings.username)
-                    proxyOutbound.put("password", settings.password)
-                }
-            }
-            ProxyType.SHADOWSOCKS -> {
-                proxyOutbound.put("type", "shadowsocks")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("method", settings.ssMethod.ifEmpty { "2022-blake3-aes-128-gcm" })
-                proxyOutbound.put("password", settings.password)
-            }
-            ProxyType.VLESS -> {
-                proxyOutbound.put("type", "vless")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
-                if (settings.transportMode == TransportMode.TCP_ONLY) {
-                    proxyOutbound.put("flow", "xtls-rprx-vision")
-                }
-                val tlsObj = JSONObject().apply {
-                    put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { settings.host })
-                    if (settings.realityPublicKey.isNotEmpty()) {
-                        val realityObj = JSONObject().apply {
-                            put("enabled", true)
-                            put("public_key", settings.realityPublicKey)
-                            put("short_id", settings.realityShortId)
-                        }
-                        put("reality", realityObj)
-                    }
-                }
-                proxyOutbound.put("tls", tlsObj)
-            }
-            ProxyType.TROJAN -> {
-                proxyOutbound.put("type", "trojan")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("password", settings.password)
-                val tlsObj = JSONObject().apply {
-                    put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { settings.host })
-                }
-                proxyOutbound.put("tls", tlsObj)
-            }
-            ProxyType.HYSTERIA2 -> {
-                proxyOutbound.put("type", "hysteria2")
-                proxyOutbound.put("tag", "proxy-out")
-                proxyOutbound.put("server", settings.host)
-                proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("password", settings.password)
-                val tlsObj = JSONObject().apply {
-                    put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { settings.host })
-                }
-                proxyOutbound.put("tls", tlsObj)
-            }
         }
-        outbounds.put(proxyOutbound)
+        commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
 
-        val directOutbound = JSONObject().apply {
-            put("type", "direct")
-            put("tag", "direct-out")
-        }
-        outbounds.put(directOutbound)
-        root.put("outbounds", outbounds)
+        // 3. WebRTC Shield & DoH Reject Chain
+        commands.add("iptables -N $chainFilter 2>/dev/null")
+        commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
-        // 5. Routing Rules (Sing-Box 1.11+ Action Architecture)
-        val route = JSONObject().apply {
-            put("default_domain_resolver", "dns-remote")
-            put("final", "proxy-out")
+        // Reject Google DNS DoH/DoT directly so Chrome falls back to standard DNS
+        val publicDnsIps = listOf("8.8.8.8", "8.8.4.4")
+        for (dnsIp in publicDnsIps) {
+            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 443 -j REJECT")
+            commands.add("iptables -A $chainFilter -d $dnsIp -p tcp --dport 853 -j REJECT")
+            commands.add("iptables -A $chainFilter -d $dnsIp -p udp --dport 853 -j REJECT")
         }
 
-        val routeRules = JSONArray()
-
-        // 1. Sniff inbound metadata
-        val sniffRule = JSONObject().apply {
-            put("action", "sniff")
-        }
-        routeRules.put(sniffRule)
-
-        // 2. Hijack port 53 DNS to internal engine
-        val dnsRouteRule = JSONObject().apply {
-            val portArray = JSONArray().apply { put(53) }
-            put("port", portArray)
-            put("action", "hijack-dns")
-        }
-        routeRules.put(dnsRouteRule)
-
-        // 3. Block public DoH providers so Chrome falls back to standard Port 53 DNS
-        val blockPublicDoh = JSONObject().apply {
-            val ipArray = JSONArray().apply {
-                put("8.8.8.8/32")
-                put("8.8.4.4/32")
-                put("9.9.9.9/32")
-                put("149.112.112.112/32")
-                put("208.67.222.222/32")
-                put("208.67.220.220/32")
-            }
-            val portArray = JSONArray().apply {
-                put(443)
-                put(853)
-            }
-            put("ip_cidr", ipArray)
-            put("port", portArray)
-            put("action", "reject")
-        }
-        routeRules.put(blockPublicDoh)
-
-        // 4. Block DoH domain hostnames
-        val blockDohDomains = JSONObject().apply {
-            val domainArray = JSONArray().apply {
-                put("dns.google")
-                put("dns.google.com")
-                put("cloudflare-dns.com")
-                put("dns.quad9.net")
-                put("doh.opendns.com")
-            }
-            put("domain", domainArray)
-            put("action", "reject")
-        }
-        routeRules.put(blockDohDomains)
-
-        // 5. Reject QUIC (UDP 443) in TCP-only mode so Chrome falls back to TCP HTTP/2 cleanly
+        // In TCP Only mode, drop non-DNS UDP to prevent WebRTC leaks over Wi-Fi
         if (settings.transportMode == TransportMode.TCP_ONLY) {
-            val quicFallbackRule = JSONObject().apply {
-                put("network", "udp")
-                val portArray = JSONArray().apply { put(443) }
-                put("port", portArray)
-                put("action", "reject")
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -A $chainFilter -p udp -j DROP")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
+                }
             }
-            routeRules.put(quicFallbackRule)
+        }
+        commands.add("iptables -A OUTPUT -m owner --uid-owner $start-$end -j $chainFilter")
+
+        // 4. IPv4 TCP Redirection (NAT Table)
+        commands.add("iptables -t nat -N $chainNatV4")
+        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+
+        for (range in reservedV4) {
+            commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
         }
 
-        route.put("rules", routeRules)
-        root.put("route", route)
+        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
+            commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
+        }
 
-        return root.toString(2)
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -j REDIRECT --to-ports $inboundPort")
+        } else {
+            for (uid in selectedUids) {
+                commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+            }
+        }
+        commands.add("iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4")
+
+        // 5. IPv6 Leak Shield
+        if (settings.ipMode == IpMode.IPV4_ONLY) {
+            commands.add("ip6tables -N $chainV6Filter 2>/dev/null")
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("ip6tables -A $chainV6Filter -j DROP")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $uid -j DROP")
+                }
+            }
+            commands.add("ip6tables -A OUTPUT -m owner --uid-owner $start-$end -j $chainV6Filter")
+        } else {
+            commands.add("ip6tables -t nat -N $chainNatV6")
+            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
+            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+            commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
+            commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
+
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -j REDIRECT --to-ports $inboundPort")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
+                }
+            }
+            commands.add("ip6tables -t nat -A OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
+        }
+
+        // 6. Hotspot & Tethering Routing (User 0 Only)
+        if (settings.routeHotspot && user == 0) {
+            commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
+            commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
+
+            val hotspotGateways = listOf("192.168.42.1", "192.168.43.1", "192.168.44.1", "192.168.49.1", "192.168.50.1")
+            val hotspotSubnets = listOf(
+                "192.168.42.0/24", "192.168.43.0/24", "192.168.44.0/24", "192.168.49.0/24", "192.168.50.0/24"
+            )
+            val tetherInterfaces = listOf("ap+", "rndis+", "usb+", "softap+", "wlan1", "wlan2", "bt-pan+")
+
+            commands.add("ip6tables -N $chainHotspotV6Block 2>/dev/null")
+            for (iface in tetherInterfaces) {
+                commands.add("ip6tables -A $chainHotspotV6Block -i $iface -j DROP")
+            }
+            commands.add("ip6tables -I FORWARD -j $chainHotspotV6Block")
+
+            commands.add("iptables -t nat -N $chainHotspotNat")
+            commands.add("iptables -t nat -A $chainHotspotNat -i lo -j RETURN")
+            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+
+            for (gw in hotspotGateways) {
+                commands.add("iptables -t nat -A $chainHotspotNat -d $gw -j RETURN")
+            }
+            for (subnet in hotspotSubnets) {
+                commands.add("iptables -t nat -A $chainHotspotNat -s $subnet -p tcp -j REDIRECT --to-ports $inboundPort")
+            }
+            for (iface in tetherInterfaces) {
+                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp -j REDIRECT --to-ports $inboundPort")
+            }
+            commands.add("iptables -t nat -A PREROUTING -j $chainHotspotNat")
+
+            commands.add("iptables -t mangle -N $chainHotspotMangle")
+            commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
+            commands.add("iptables -t mangle -A $chainHotspotMangle -p udp --dport 53 -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+
+            if (settings.transportMode == TransportMode.TCP_AND_UDP) {
+                for (gw in hotspotGateways) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -d $gw -j RETURN")
+                }
+                for (subnet in hotspotSubnets) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -s $subnet -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+                }
+                for (iface in tetherInterfaces) {
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+                }
+            }
+            commands.add("iptables -t mangle -A PREROUTING -j $chainHotspotMangle")
+        }
+
+        return commands
+    }
+
+    fun generateDisableCommands(
+        user: Int = ProfileManager.androidUserId,
+        slot: Int = ProfileManager.activeSlot
+    ): List<String> {
+        val key = "u${user}_s$slot"
+        val chainNatV4 = "NAMELESS_U${user}_S$slot"
+        val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
+        val chainPreMangle = "NAMELESS_PRE_$key"
+        val chainOutMangle = "NAMELESS_OUT_$key"
+        val chainFilter = "NAMELESS_FILTER_$key"
+        val chainV6Filter = "NAMELESS_V6_FILTER_$key"
+        val chainHotspotNat = "NAMELESS_HS_NAT_$key"
+        val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
+        val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
+
+        val start = user * 100000
+        val end = start + 99999
+
+        val tableId = 1000 + (user * 10) + slot
+        val markHex = "0x" + Integer.toHexString(0x20000 + (user * 0x100) + slot)
+
+        return listOf(
+            "ip6tables -D FORWARD -j $chainHotspotV6Block 2>/dev/null",
+            "ip6tables -F $chainHotspotV6Block 2>/dev/null",
+            "ip6tables -X $chainHotspotV6Block 2>/dev/null",
+
+            "iptables -t nat -D PREROUTING -j $chainHotspotNat 2>/dev/null",
+            "iptables -t nat -F $chainHotspotNat 2>/dev/null",
+            "iptables -t nat -X $chainHotspotNat 2>/dev/null",
+            "iptables -t mangle -D PREROUTING -j $chainHotspotMangle 2>/dev/null",
+            "iptables -t mangle -F $chainHotspotMangle 2>/dev/null",
+            "iptables -t mangle -X $chainHotspotMangle 2>/dev/null",
+
+            "iptables -D OUTPUT -m owner --uid-owner $start-$end -j $chainFilter 2>/dev/null",
+            "iptables -F $chainFilter 2>/dev/null",
+            "iptables -X $chainFilter 2>/dev/null",
+
+            "iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4 2>/dev/null",
+            "iptables -t nat -F $chainNatV4 2>/dev/null",
+            "iptables -t nat -X $chainNatV4 2>/dev/null",
+
+            "iptables -t mangle -D PREROUTING -j $chainPreMangle 2>/dev/null",
+            "iptables -t mangle -F $chainPreMangle 2>/dev/null",
+            "iptables -t mangle -X $chainPreMangle 2>/dev/null",
+            "iptables -t mangle -D OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle 2>/dev/null",
+            "iptables -t mangle -F $chainOutMangle 2>/dev/null",
+            "iptables -t mangle -X $chainOutMangle 2>/dev/null",
+
+            "ip rule del fwmark $markHex table $tableId 2>/dev/null",
+            "ip route flush table $tableId 2>/dev/null",
+            "ip -6 rule del fwmark $markHex table $tableId 2>/dev/null",
+            "ip -6 route flush table $tableId 2>/dev/null",
+
+            "ip6tables -D OUTPUT -m owner --uid-owner $start-$end -j $chainV6Filter 2>/dev/null",
+            "ip6tables -F $chainV6Filter 2>/dev/null",
+            "ip6tables -X $chainV6Filter 2>/dev/null",
+
+            "ip6tables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6 2>/dev/null",
+            "ip6tables -t nat -F $chainNatV6 2>/dev/null",
+            "ip6tables -t nat -X $chainNatV6 2>/dev/null"
+        )
     }
 }
