@@ -32,37 +32,39 @@ object IptablesManager {
         // 1. Cleanup all existing rules for this user & slot
         commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. Policy Routing for UDP TPROXY (Full UDP Mode)
+        // 2. Policy Routing for UDP (TPROXY)
+        // Required in BOTH modes so local UDP Port 53 DNS is intercepted to sing-box
+        commands.add("ip rule add fwmark $markHex table $tableId pref 100")
+        commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
+
+        if (settings.ipMode != IpMode.IPV4_ONLY) {
+            commands.add("ip -6 rule add fwmark $markHex table $tableId pref 100")
+            commands.add("ip -6 route add local ::/0 dev lo table $tableId")
+        }
+
+        commands.add("iptables -t mangle -N $chainPreMangle")
+        commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+        commands.add("iptables -t mangle -A PREROUTING -j $chainPreMangle")
+
+        commands.add("iptables -t mangle -N $chainOutMangle")
+        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
+
+        // Intercept UDP Port 53 DNS to sing-box to prevent leaks and align DNS country
+        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
+
+        val reservedV4 = listOf(
+            "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
+            "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
+        )
+        for (range in reservedV4) {
+            commands.add("iptables -t mangle -A $chainOutMangle -d $range -j RETURN")
+        }
+        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
+            commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host} -j RETURN")
+        }
+
+        // In TCP+UDP mode, route all remaining UDP through the tunnel
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
-            commands.add("ip rule add fwmark $markHex table $tableId pref 100")
-            commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
-
-            if (settings.ipMode != IpMode.IPV4_ONLY) {
-                commands.add("ip -6 rule add fwmark $markHex table $tableId pref 100")
-                commands.add("ip -6 route add local ::/0 dev lo table $tableId")
-            }
-
-            commands.add("iptables -t mangle -N $chainPreMangle")
-            commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
-            commands.add("iptables -t mangle -A PREROUTING -j $chainPreMangle")
-
-            commands.add("iptables -t mangle -N $chainOutMangle")
-            commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
-
-            // Hijack UDP Port 53 DNS globally for the profile
-            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
-
-            val reservedV4 = listOf(
-                "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
-                "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
-            )
-            for (range in reservedV4) {
-                commands.add("iptables -t mangle -A $chainOutMangle -d $range -j RETURN")
-            }
-            if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-                commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host} -j RETURN")
-            }
-
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("iptables -t mangle -A $chainOutMangle -p udp -j MARK --set-mark $markHex")
             } else {
@@ -70,29 +72,21 @@ object IptablesManager {
                     commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $uid -j MARK --set-mark $markHex")
                 }
             }
-            commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
         }
+        commands.add("iptables -t mangle -A OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle")
 
-        // 3. WebRTC & QUIC Anti-Leak Shield
+        // 3. WebRTC Shield & Clean TCP Fallback Filter
+        // When in TCP Only mode, silently DROP non-DNS UDP so WebRTC STUN requests cannot reach physical Wi-Fi.
+        // Silent DROP allows Chrome to fall back to TCP HTTP/2 without triggering ERR_CONNECTION_REFUSED.
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
-        // Force Chrome to fall back to TCP HTTP/2 immediately on UDP 443
-        if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -A $chainFilter -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable")
-        } else {
-            for (uid in selectedUids) {
-                commands.add("iptables -A $chainFilter -p udp --dport 443 -m owner --uid-owner $uid -j REJECT --reject-with icmp-port-unreachable")
-            }
-        }
-
-        // In TCP Only mode, block WebRTC STUN UDP queries to prevent leaks
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -A $chainFilter -p udp -j REJECT --reject-with icmp-port-unreachable")
+                commands.add("iptables -A $chainFilter -p udp -j DROP")
             } else {
                 for (uid in selectedUids) {
-                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j REJECT --reject-with icmp-port-unreachable")
+                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
                 }
             }
         }
@@ -103,10 +97,6 @@ object IptablesManager {
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
-        val reservedV4 = listOf(
-            "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
-            "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
-        )
         for (range in reservedV4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
         }
@@ -184,11 +174,11 @@ object IptablesManager {
             }
             commands.add("iptables -t nat -A PREROUTING -j $chainHotspotNat")
 
-            if (settings.transportMode == TransportMode.TCP_AND_UDP) {
-                commands.add("iptables -t mangle -N $chainHotspotMangle")
-                commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
-                commands.add("iptables -t mangle -A $chainHotspotMangle -p udp --dport 53 -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
+            commands.add("iptables -t mangle -N $chainHotspotMangle")
+            commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
+            commands.add("iptables -t mangle -A $chainHotspotMangle -p udp --dport 53 -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
 
+            if (settings.transportMode == TransportMode.TCP_AND_UDP) {
                 for (gw in hotspotGateways) {
                     commands.add("iptables -t mangle -A $chainHotspotMangle -d $gw -j RETURN")
                 }
@@ -198,8 +188,8 @@ object IptablesManager {
                 for (iface in tetherInterfaces) {
                     commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp -j TPROXY --on-port $inboundPort --tproxy-mark $markHex")
                 }
-                commands.add("iptables -t mangle -A PREROUTING -j $chainHotspotMangle")
             }
+            commands.add("iptables -t mangle -A PREROUTING -j $chainHotspotMangle")
         }
 
         return commands
