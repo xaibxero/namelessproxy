@@ -251,7 +251,6 @@ fun MainScreen(
                 pPkgs = prefs.getStringSet("selected_packages", emptySet()) ?: emptySet()
             )
         } else {
-            // Restore from root storage if local prefs were wiped
             coroutineScope.launch(Dispatchers.IO) {
                 val backup = PersistentStorage.loadBackup(slot, ProfileManager.androidUserId)
                 if (backup != null) {
@@ -278,7 +277,6 @@ fun MainScreen(
 
                     withContext(Dispatchers.Main) {
                         applySettingsToState(bHost, bPort, bUser, bPass, bSni, bSs, bRpk, bRsid, bType, bTrans, bIp, bRoute, bPkgs)
-                        // Repopulate SharedPreferences
                         prefs.edit()
                             .putString("host", bHost).putString("port", bPort).putString("username", bUser)
                             .putString("password", bPass).putString("sni", bSni).putString("ss_method", bSs)
@@ -386,7 +384,7 @@ fun MainScreen(
         isFetchingIp = true
         ipFetchFailed = false
         coroutineScope.launch {
-            delay(800)
+            delay(700)
             val currentRunning = ProxyController.getRunningSlot(ProfileManager.androidUserId) ?: activeSlot
             val socksPort = 10800 + (ProfileManager.androidUserId * 100) + (currentRunning * 10) + 1
             var result = IpFetcher.getPublicIpInfo(socksPort)
@@ -413,13 +411,13 @@ fun MainScreen(
         }
     }
 
-    // Dynamic Live Background Canvas Animation
-    val infiniteTransition = rememberInfiniteTransition(label = "livingAurora")
+    // 120 FPS Living Background Canvas Animation
+    val infiniteTransition = rememberInfiniteTransition(label = "livingAuroraEngine")
     val auroraAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 16000, easing = LinearEasing),
+            animation = tween(durationMillis = 20000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "auroraAngle"
@@ -427,9 +425,9 @@ fun MainScreen(
 
     val auraPulse by infiniteTransition.animateFloat(
         initialValue = 0.35f,
-        targetValue = 0.75f,
+        targetValue = 0.70f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 3600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "auraPulse"
@@ -438,60 +436,65 @@ fun MainScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF07080D))
+            .background(Color(0xFF040508))
     ) {
-        // Hardware-Accelerated Floating Aurora Mesh Canvas
-        Canvas(modifier = Modifier.fillMaxSize().graphicsLayer().alpha(if (isProxyActive) auraPulse else 0.25f)) {
+        // Hardware-Accelerated Floating Mesh Canvas
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer()
+                .alpha(if (isProxyActive) auraPulse else 0.22f)
+        ) {
             val w = size.width
             val h = size.height
             val rad = Math.toRadians(auroraAngle.toDouble())
 
-            val orb1X = (w * 0.30f) + (cos(rad) * 110f).toFloat()
-            val orb1Y = (h * 0.20f) + (sin(rad) * 70f).toFloat()
+            val orb1X = (w * 0.30f) + (cos(rad) * 130f).toFloat()
+            val orb1Y = (h * 0.22f) + (sin(rad) * 90f).toFloat()
 
-            val orb2X = (w * 0.70f) - (sin(rad) * 130f).toFloat()
-            val orb2Y = (h * 0.45f) + (cos(rad) * 90f).toFloat()
+            val orb2X = (w * 0.72f) - (sin(rad) * 140f).toFloat()
+            val orb2Y = (h * 0.48f) + (cos(rad) * 100f).toFloat()
 
-            val orb3X = (w * 0.45f) + (sin(rad * 1.2) * 90f).toFloat()
-            val orb3Y = (h * 0.75f) - (cos(rad * 1.2) * 60f).toFloat()
+            val orb3X = (w * 0.50f) + (sin(rad * 1.3) * 100f).toFloat()
+            val orb3Y = (h * 0.78f) - (cos(rad * 1.3) * 80f).toFloat()
 
             if (isProxyActive) {
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0x5510B981), Color(0x1810B981), Color.Transparent),
+                        colors = listOf(Color(0x4510B981), Color(0x1210B981), Color.Transparent),
                         center = Offset(orb1X, orb1Y),
-                        radius = w * 0.75f
-                    ),
-                    center = Offset(orb1X, orb1Y),
-                    radius = w * 0.75f
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0x4406B6D4), Color(0x1206B6D4), Color.Transparent),
-                        center = Offset(orb2X, orb2Y),
                         radius = w * 0.85f
                     ),
-                    center = Offset(orb2X, orb2Y),
+                    center = Offset(orb1X, orb1Y),
                     radius = w * 0.85f
                 )
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0x408B5CF6), Color(0x108B5CF6), Color.Transparent),
+                        colors = listOf(Color(0x3806B6D4), Color(0x0E06B6D4), Color.Transparent),
+                        center = Offset(orb2X, orb2Y),
+                        radius = w * 0.90f
+                    ),
+                    center = Offset(orb2X, orb2Y),
+                    radius = w * 0.90f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x306366F1), Color(0x0A6366F1), Color.Transparent),
                         center = Offset(orb3X, orb3Y),
-                        radius = w * 0.70f
+                        radius = w * 0.75f
                     ),
                     center = Offset(orb3X, orb3Y),
-                    radius = w * 0.70f
+                    radius = w * 0.75f
                 )
             } else {
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0x281E293B), Color.Transparent),
+                        colors = listOf(Color(0x1F1E293B), Color.Transparent),
                         center = Offset(orb1X, orb1Y),
-                        radius = w * 0.65f
+                        radius = w * 0.70f
                     ),
                     center = Offset(orb1X, orb1Y),
-                    radius = w * 0.65f
+                    radius = w * 0.70f
                 )
             }
         }
@@ -514,10 +517,10 @@ fun MainScreen(
                 Column {
                     Text(
                         text = "NAMELESS",
-                        fontSize = 24.sp,
+                        fontSize = 23.sp,
                         fontWeight = FontWeight.Black,
                         color = Color.White,
-                        letterSpacing = 1.5.sp
+                        letterSpacing = 1.8.sp
                     )
                     Text(
                         text = "USER ${ProfileManager.androidUserId} • VIEWING P$activeSlot • KERNEL TUNNEL",
@@ -529,20 +532,20 @@ fun MainScreen(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0x18FFFFFF),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0x12FFFFFF),
                     border = BorderStroke(
                         1.dp,
                         when (rootState) {
-                            RootState.GRANTED -> Color(0x8810B981)
-                            RootState.DENIED -> Color(0x88F43F5E)
-                            RootState.CHECKING -> Color(0x88F59E0B)
+                            RootState.GRANTED -> Color(0x4D10B981)
+                            RootState.DENIED -> Color(0x4DF43F5E)
+                            RootState.CHECKING -> Color(0x4DF59E0B)
                         }
                     ),
                     modifier = Modifier.clickable { onRecheckRoot() }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -565,7 +568,7 @@ fun MainScreen(
                                 RootState.CHECKING -> "CHECKING"
                             },
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.Black,
                             color = Color.White,
                             letterSpacing = 0.5.sp
                         )
@@ -588,17 +591,17 @@ fun MainScreen(
                     val isBootTarget = startOnBoot && (slotIndex == bootSlot)
                     val slotBg by animateColorAsState(
                         targetValue = when {
-                            isRunning -> Color(0x3310B981)
-                            isSelected -> Color(0x228B5CF6)
-                            else -> Color(0x14FFFFFF)
+                            isRunning -> Color(0x2B10B981)
+                            isSelected -> Color(0x2238BDF8)
+                            else -> Color(0x0EFFFFFF)
                         },
                         animationSpec = tween(200),
                         label = "slotBg"
                     )
                     val borderColor = when {
                         isRunning -> Color(0xFF10B981)
-                        isSelected -> Color(0xFFA855F7)
-                        else -> Color(0x1AFFFFFF)
+                        isSelected -> Color(0xFF38BDF8)
+                        else -> Color(0x14FFFFFF)
                     }
 
                     Surface(
@@ -611,15 +614,15 @@ fun MainScreen(
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(vertical = 6.dp)
+                            modifier = Modifier.padding(vertical = 7.dp)
                         ) {
                             Text(
                                 text = "P$slotIndex",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = if (isSelected || isRunning) FontWeight.Black else FontWeight.Bold,
                                 color = when {
                                     isRunning -> Color(0xFF10B981)
-                                    isSelected -> Color(0xFFA855F7)
+                                    isSelected -> Color(0xFF38BDF8)
                                     else -> Color(0xFF94A3B8)
                                 }
                             )
@@ -627,7 +630,7 @@ fun MainScreen(
                                 Text(
                                     text = "ACTIVE",
                                     fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.ExtraBold,
+                                    fontWeight = FontWeight.Black,
                                     color = Color(0xFF10B981)
                                 )
                             } else if (isBootTarget) {
@@ -635,7 +638,7 @@ fun MainScreen(
                                     text = "BOOT",
                                     fontSize = 7.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = Color(0xFF38BDF8)
+                                    color = Color(0xFF64748B)
                                 )
                             }
                         }
@@ -648,8 +651,8 @@ fun MainScreen(
             // 3. SEGMENTED GLASS BAR
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0x12FFFFFF),
-                border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                color = Color(0x0CFFFFFF),
+                border = BorderStroke(1.dp, Color(0x14FFFFFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -660,7 +663,7 @@ fun MainScreen(
                     tabs.forEachIndexed { index, title ->
                         val isTabSelected = selectedNavTab == index
                         val tabBg by animateColorAsState(
-                            targetValue = if (isTabSelected) Color(0x358B5CF6) else Color.Transparent,
+                            targetValue = if (isTabSelected) Color(0x2838BDF8) else Color.Transparent,
                             label = "tabBg"
                         )
                         val tabTextColor by animateColorAsState(
@@ -671,12 +674,12 @@ fun MainScreen(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(11.dp))
                                 .background(tabBg)
                                 .border(
                                     1.dp,
-                                    if (isTabSelected) Color(0x55A855F7) else Color.Transparent,
-                                    RoundedCornerShape(10.dp)
+                                    if (isTabSelected) Color(0x4038BDF8) else Color.Transparent,
+                                    RoundedCornerShape(11.dp)
                                 )
                                 .clickable { selectedNavTab = index }
                                 .padding(vertical = 8.dp),
@@ -684,7 +687,7 @@ fun MainScreen(
                         ) {
                             Text(
                                 text = title,
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
                                 color = tabTextColor
                             )
@@ -786,9 +789,9 @@ fun MainScreen(
                         var aliveCheckResult by remember { mutableStateOf<TestResult?>(null) }
 
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0x14FFFFFF),
-                            border = BorderStroke(1.dp, Color(0x24FFFFFF)),
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0x0CFFFFFF),
+                            border = BorderStroke(1.dp, Color(0x14FFFFFF)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -800,14 +803,14 @@ fun MainScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Server Health Check",
-                                            fontSize = 14.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White
                                         )
                                         Text(
                                             text = "Direct socket test without starting tunnel",
                                             fontSize = 11.sp,
-                                            color = Color(0xFF94A3B8)
+                                            color = Color(0xFF64748B)
                                         )
                                     }
 
@@ -830,12 +833,12 @@ fun MainScreen(
                                         shape = RoundedCornerShape(12.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = Color(0xFF10B981),
-                                            contentColor = Color(0xFF020408)
+                                            contentColor = Color(0xFF030407)
                                         )
                                     ) {
                                         Text(
                                             text = if (isCheckingAlive) "Checking..." else "Check If Alive",
-                                            fontSize = 12.sp,
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -847,8 +850,8 @@ fun MainScreen(
                                         is TestResult.Success -> {
                                             Surface(
                                                 shape = RoundedCornerShape(12.dp),
-                                                color = Color(0x2210B981),
-                                                border = BorderStroke(1.dp, Color(0x6610B981)),
+                                                color = Color(0x1F10B981),
+                                                border = BorderStroke(1.dp, Color(0x5510B981)),
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Row(
@@ -870,8 +873,8 @@ fun MainScreen(
                                         is TestResult.Failure -> {
                                             Surface(
                                                 shape = RoundedCornerShape(12.dp),
-                                                color = Color(0x22F43F5E),
-                                                border = BorderStroke(1.dp, Color(0x66F43F5E)),
+                                                color = Color(0x1FF43F5E),
+                                                border = BorderStroke(1.dp, Color(0x55F43F5E)),
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Row(
@@ -898,9 +901,9 @@ fun MainScreen(
 
                         // PROFILE SETTINGS CARD
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0x14FFFFFF),
-                            border = BorderStroke(1.dp, Color(0x24FFFFFF)),
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0x0CFFFFFF),
+                            border = BorderStroke(1.dp, Color(0x14FFFFFF)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -909,7 +912,7 @@ fun MainScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("PROFILE P$activeSlot SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFFA855F7), letterSpacing = 1.sp)
+                                    Text("PROFILE P$activeSlot SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF38BDF8), letterSpacing = 1.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
@@ -933,14 +936,14 @@ fun MainScreen(
                                         }
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
-                                            color = Color(0x228B5CF6),
-                                            border = BorderStroke(1.dp, Color(0x44A855F7))
+                                            color = Color(0x1A38BDF8),
+                                            border = BorderStroke(1.dp, Color(0x3338BDF8))
                                         ) {
                                             Text(
                                                 text = "SLOT $activeSlot",
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFA855F7),
+                                                color = Color(0xFF38BDF8),
                                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                             )
                                         }
@@ -949,7 +952,7 @@ fun MainScreen(
 
                                 Spacer(modifier = Modifier.height(14.dp))
 
-                                Text("PROTOCOL TYPE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+                                Text("PROTOCOL TYPE", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 0.8.sp)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(
                                     modifier = Modifier
@@ -961,14 +964,14 @@ fun MainScreen(
                                         FilterChip(
                                             selected = proxyType == type,
                                             onClick = { proxyType = type; saveConfigForSlot(activeSlot) },
-                                            label = { Text(type.name) }
+                                            label = { Text(type.name, fontSize = 11.sp) }
                                         )
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                Text("TRANSPORT PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+                                Text("TRANSPORT PROTOCOL", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 0.8.sp)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -985,14 +988,14 @@ fun MainScreen(
                                         FilterChip(
                                             selected = transportMode == mode,
                                             onClick = { transportMode = mode; saveConfigForSlot(activeSlot) },
-                                            label = { Text(label) }
+                                            label = { Text(label, fontSize = 11.sp) }
                                         )
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                Text("IP MODE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 1.sp)
+                                Text("IP MODE", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 0.8.sp)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1010,7 +1013,7 @@ fun MainScreen(
                                         FilterChip(
                                             selected = ipMode == mode,
                                             onClick = { ipMode = mode; saveConfigForSlot(activeSlot) },
-                                            label = { Text(label) }
+                                            label = { Text(label, fontSize = 11.sp) }
                                         )
                                     }
                                 }
@@ -1021,9 +1024,9 @@ fun MainScreen(
                                     value = host,
                                     onValueChange = { host = it; saveConfigForSlot(activeSlot) },
                                     label = { Text("Server Host / IP") },
-                                    placeholder = { Text("e.g. 192.168.1.100 or proxy.domain.com") },
+                                    placeholder = { Text("e.g. 192.168.1.100 or proxy.com") },
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     singleLine = true
                                 )
 
@@ -1035,7 +1038,7 @@ fun MainScreen(
                                     label = { Text("Server Port") },
                                     placeholder = { Text("1080") },
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     singleLine = true
                                 )
 
@@ -1054,7 +1057,7 @@ fun MainScreen(
                                                 label = { Text("Username") },
                                                 placeholder = { Text("Optional") },
                                                 modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(14.dp),
+                                                shape = RoundedCornerShape(12.dp),
                                                 singleLine = true
                                             )
                                             OutlinedTextField(
@@ -1074,7 +1077,7 @@ fun MainScreen(
                                                     )
                                                 },
                                                 modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(14.dp),
+                                                shape = RoundedCornerShape(12.dp),
                                                 singleLine = true
                                             )
                                         }
@@ -1088,7 +1091,7 @@ fun MainScreen(
                                             label = { Text("Cipher / Method") },
                                             placeholder = { Text("2022-blake3-aes-128-gcm or aes-128-gcm") },
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             singleLine = true
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
@@ -1108,7 +1111,7 @@ fun MainScreen(
                                                 )
                                             },
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             singleLine = true
                                         )
                                     }
@@ -1120,7 +1123,7 @@ fun MainScreen(
                                             label = { Text("UUID") },
                                             placeholder = { Text("e.g. 550e8400-e29b-41d4-a716-446655440000") },
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             singleLine = true
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
@@ -1130,7 +1133,7 @@ fun MainScreen(
                                             label = { Text("SNI / Server Name") },
                                             placeholder = { Text("e.g. gateway.cloudflare.com") },
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             singleLine = true
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
@@ -1144,7 +1147,7 @@ fun MainScreen(
                                                 label = { Text("Reality Public Key") },
                                                 placeholder = { Text("Optional") },
                                                 modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(14.dp),
+                                                shape = RoundedCornerShape(12.dp),
                                                 singleLine = true
                                             )
                                             OutlinedTextField(
@@ -1153,7 +1156,7 @@ fun MainScreen(
                                                 label = { Text("Reality Short ID") },
                                                 placeholder = { Text("Optional") },
                                                 modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(14.dp),
+                                                shape = RoundedCornerShape(12.dp),
                                                 singleLine = true
                                             )
                                         }
@@ -1177,7 +1180,7 @@ fun MainScreen(
                                                 )
                                             },
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             singleLine = true
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
@@ -1187,7 +1190,7 @@ fun MainScreen(
                                             label = { Text("SNI / Server Name") },
                                             placeholder = { Text("e.g. yourdomain.com") },
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                             singleLine = true
                                         )
                                     }
@@ -1209,9 +1212,9 @@ fun MainScreen(
                     ) {
                         // GLOBAL MASTER SETTINGS CARD
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0x14FFFFFF),
-                            border = BorderStroke(1.dp, Color(0x24FFFFFF)),
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0x0CFFFFFF),
+                            border = BorderStroke(1.dp, Color(0x14FFFFFF)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -1226,7 +1229,7 @@ fun MainScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Auto-Start on Boot",
-                                            fontSize = 14.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White
                                         )
@@ -1251,7 +1254,7 @@ fun MainScreen(
                                             }
                                         },
                                         colors = SwitchDefaults.colors(
-                                            checkedThumbColor = Color(0xFF020408),
+                                            checkedThumbColor = Color(0xFF030407),
                                             checkedTrackColor = Color(0xFF10B981)
                                         )
                                     )
@@ -1259,7 +1262,7 @@ fun MainScreen(
 
                                 if (startOnBoot) {
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    Text("DESIGNATE STARTUP PROFILE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8), letterSpacing = 0.8.sp)
+                                    Text("DESIGNATE STARTUP PROFILE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 0.8.sp)
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1275,17 +1278,13 @@ fun MainScreen(
                                                     saveConfigForSlot(activeSlot)
                                                     Toast.makeText(context, "P$s will start on boot", Toast.LENGTH_SHORT).show()
                                                 },
-                                                label = { Text("P$s") },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = Color(0xFF38BDF8),
-                                                    selectedLabelColor = Color(0xFF020408)
-                                                )
+                                                label = { Text("P$s", fontSize = 11.sp) }
                                             )
                                         }
                                     }
                                 }
 
-                                Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
+                                Divider(color = Color(0x10FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1295,7 +1294,7 @@ fun MainScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Share via Hotspot / Tethering",
-                                            fontSize = 14.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White
                                         )
@@ -1313,7 +1312,7 @@ fun MainScreen(
                                             saveConfigForSlot(activeSlot)
                                         },
                                         colors = SwitchDefaults.colors(
-                                            checkedThumbColor = Color(0xFF020408),
+                                            checkedThumbColor = Color(0xFF030407),
                                             checkedTrackColor = Color(0xFF10B981)
                                         )
                                     )
@@ -1323,9 +1322,9 @@ fun MainScreen(
 
                         // PER-APP ROUTING FILTER CARD
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0x14FFFFFF),
-                            border = BorderStroke(1.dp, Color(0x24FFFFFF)),
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0x0CFFFFFF),
+                            border = BorderStroke(1.dp, Color(0x14FFFFFF)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
@@ -1339,14 +1338,14 @@ fun MainScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Route Entire Profile",
-                                            fontSize = 14.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White
                                         )
                                         Text(
                                             text = if (routeWholeProfile) "All applications redirected" else "Per-App filter active (${selectedPackages.size} selected)",
                                             fontSize = 11.sp,
-                                            color = Color(0xFF94A3B8)
+                                            color = Color(0xFF64748B)
                                         )
                                     }
                                     Switch(
@@ -1356,7 +1355,7 @@ fun MainScreen(
                                             saveConfigForSlot(activeSlot)
                                         },
                                         colors = SwitchDefaults.colors(
-                                            checkedThumbColor = Color(0xFF020408),
+                                            checkedThumbColor = Color(0xFF030407),
                                             checkedTrackColor = Color(0xFF10B981)
                                         )
                                     )
@@ -1376,9 +1375,9 @@ fun MainScreen(
                                     OutlinedTextField(
                                         value = appSearchQuery,
                                         onValueChange = { appSearchQuery = it },
-                                        label = { Text("Search applications...") },
+                                        placeholder = { Text("Search applications...") },
                                         modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RoundedCornerShape(11.dp),
                                         singleLine = true
                                     )
 
@@ -1391,11 +1390,11 @@ fun MainScreen(
                                         TextButton(onClick = {
                                             selectedPackages = installedApps.map { it.packageName }.toSet()
                                             saveConfigForSlot(activeSlot)
-                                        }) { Text("Select All", color = Color(0xFF10B981)) }
+                                        }) { Text("Select All", color = Color(0xFF10B981), fontSize = 12.sp) }
                                         TextButton(onClick = {
                                             selectedPackages = emptySet()
                                             saveConfigForSlot(activeSlot)
-                                        }) { Text("Clear All", color = Color(0xFF94A3B8)) }
+                                        }) { Text("Clear All", color = Color(0xFF94A3B8), fontSize = 12.sp) }
                                     }
 
                                     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -1433,11 +1432,11 @@ fun MainScreen(
                                                     },
                                                     colors = CheckboxDefaults.colors(
                                                         checkedColor = Color(0xFF10B981),
-                                                        checkmarkColor = Color(0xFF020408)
+                                                        checkmarkColor = Color(0xFF030407)
                                                     )
                                                 )
                                             }
-                                            Divider(color = Color(0x0EFFFFFF), thickness = 0.5.dp)
+                                            Divider(color = Color(0x0CFFFFFF), thickness = 0.5.dp)
                                         }
                                     }
                                 }
@@ -1498,14 +1497,14 @@ fun MainScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(380.dp)
-                        .background(Color(0xFF08080C), RoundedCornerShape(12.dp))
+                        .height(360.dp)
+                        .background(Color(0xFF040608), RoundedCornerShape(10.dp))
                         .padding(12.dp)
                 ) {
                     Text(
                         text = currentLogs,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         color = Color(0xFFC0C0C5),
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     )
@@ -1539,25 +1538,26 @@ fun ConsoleHUDTab(
     val context = LocalContext.current
     val isCurrentSlotRunning = isProxyActive && (runningSlot == activeSlot)
 
-    val borderBrush = if (isProxyActive) {
-        Brush.sweepGradient(
-            colors = listOf(Color(0xFF10B981), Color(0xFF06B6D4), Color(0x3310B981), Color(0xFF10B981))
-        )
-    } else {
-        Brush.sweepGradient(
-            colors = listOf(Color(0x22FFFFFF), Color(0x338B5CF6), Color(0x11FFFFFF), Color(0x22FFFFFF))
-        )
-    }
+    // Animated Hero Dial & Pulse Wave
+    val infiniteTransition = rememberInfiniteTransition(label = "pulseRing")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .border(1.5.dp, borderBrush, RoundedCornerShape(24.dp))
-            .background(Color(0x14FFFFFF))
-            .padding(18.dp)
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0x0EFFFFFF),
+        border = BorderStroke(1.dp, if (isProxyActive) Color(0x4010B981) else Color(0x18FFFFFF)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column {
+        Column(modifier = Modifier.padding(18.dp)) {
+            // Live Header Status & Pulse
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1565,10 +1565,26 @@ fun ConsoleHUDTab(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(if (isProxyActive) Color(0xFF10B981) else Color(0xFF64748B), CircleShape)
-                    )
+                        modifier = Modifier.size(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isProxyActive) {
+                            Box(
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .graphicsLayer {
+                                        scaleX = pulseScale
+                                        scaleY = pulseScale
+                                    }
+                                    .background(Color(0x3510B981), CircleShape)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(if (isProxyActive) Color(0xFF10B981) else Color(0xFF64748B), CircleShape)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when {
@@ -1600,14 +1616,16 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Real-Time Throughput River Waveform
             LiveThroughputRiverEngine(isProxyActive = isProxyActive)
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // IP & Geo HUD Surface
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0x14FFFFFF),
-                border = BorderStroke(1.dp, Color(0x1AFFFFFF)),
+                color = Color(0x0CFFFFFF),
+                border = BorderStroke(1.dp, Color(0x14FFFFFF)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
@@ -1655,7 +1673,7 @@ fun ConsoleHUDTab(
                                         else -> "Stabilizing..."
                                     },
                                     fontSize = 11.sp,
-                                    color = if (ipFetchFailed) Color(0xFFFBBF24) else Color(0xFF06B6D4),
+                                    color = if (ipFetchFailed) Color(0xFFFBBF24) else Color(0xFF38BDF8),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -1665,7 +1683,7 @@ fun ConsoleHUDTab(
                     if (isProxyActive) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = Color(0x2210B981),
+                            color = Color(0x1F10B981),
                             modifier = Modifier.clickable { onRefreshIp() }
                         ) {
                             Text(
@@ -1682,6 +1700,7 @@ fun ConsoleHUDTab(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Quick Badges
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1689,8 +1708,8 @@ fun ConsoleHUDTab(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 val pillModifier = Modifier
-                    .background(Color(0x22FFFFFF), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(8.dp))
+                    .background(Color(0x18FFFFFF), RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(8.dp))
                     .padding(horizontal = 9.dp, vertical = 4.dp)
 
                 Text(proxyType.name, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = pillModifier)
@@ -1708,7 +1727,7 @@ fun ConsoleHUDTab(
                         IpMode.IPV6_ONLY -> "IPv6"
                     },
                     fontSize = 10.sp,
-                    color = Color(0xFF06B6D4),
+                    color = Color(0xFF38BDF8),
                     fontWeight = FontWeight.Bold,
                     modifier = pillModifier
                 )
@@ -1727,22 +1746,22 @@ fun ConsoleHUDTab(
 
     Spacer(modifier = Modifier.height(14.dp))
 
-    // LIVE CHECK IF ALIVE ON DASHBOARD
+    // Interactive Action Controls
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Button(
             onClick = onTestUpstream,
-            modifier = Modifier.weight(1f).height(50.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0x228B5CF6)),
-            border = BorderStroke(1.dp, Color(0x66A855F7)),
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0x1C38BDF8)),
+            border = BorderStroke(1.dp, Color(0x4038BDF8)),
             enabled = !isTesting
         ) {
             Text(
                 if (isTesting) "Checking..." else "⚡ Check If Alive",
-                color = Color(0xFFA855F7),
+                color = Color(0xFF38BDF8),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -1750,9 +1769,9 @@ fun ConsoleHUDTab(
 
         OutlinedButton(
             onClick = onViewLogs,
-            modifier = Modifier.weight(1f).height(50.dp),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, Color(0x1AFFFFFF)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
         ) {
             Text("Core Logs", fontSize = 12.sp)
@@ -1783,8 +1802,8 @@ fun ConsoleHUDTab(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(54.dp)
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onToggleProxy() }
     ) {
         Box(
@@ -1794,7 +1813,7 @@ fun ConsoleHUDTab(
                     if (isDisconnecting) {
                         Brush.horizontalGradient(listOf(Color(0xFFE11D48), Color(0xFFF43F5E), Color(0xFFE11D48)))
                     } else {
-                        Brush.horizontalGradient(listOf(Color(0xFF7C3AED), Color(0xFF06B6D4), Color(0xFF10B981)))
+                        Brush.horizontalGradient(listOf(Color(0xFF0D9488), Color(0xFF06B6D4), Color(0xFF10B981)))
                     }
                 )
         )
@@ -1805,7 +1824,7 @@ fun ConsoleHUDTab(
         ) {
             Text(
                 text = buttonText,
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Black,
                 color = Color.White,
                 letterSpacing = 0.8.sp
@@ -1860,7 +1879,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
         initialValue = 0f,
         targetValue = (2 * PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(if (isProxyActive) 1500 else 4500, easing = LinearEasing),
+            animation = tween(if (isProxyActive) 1600 else 5000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "phase1"
@@ -1870,14 +1889,14 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
         initialValue = 0f,
         targetValue = -(2 * PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(if (isProxyActive) 2200 else 6500, easing = LinearEasing),
+            animation = tween(if (isProxyActive) 2400 else 7000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "phase2"
     )
 
     val mbps = ((rawRxRate + rawTxRate) * 8.0) / (1024.0 * 1024.0)
-    val dynamicAmp = if (!isProxyActive) 4f else (8f + (mbps * 2f).toFloat()).coerceIn(8f, 26f)
+    val dynamicAmp = if (!isProxyActive) 3.5f else (7f + (mbps * 2f).toFloat()).coerceIn(7f, 24f)
 
     Column(modifier = Modifier.fillMaxWidth().graphicsLayer()) {
         Row(
@@ -1885,9 +1904,9 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0x14FFFFFF),
-                border = BorderStroke(1.dp, Color(0x2210B981)),
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0x0CFFFFFF),
+                border = BorderStroke(1.dp, Color(0x1C10B981)),
                 modifier = Modifier.weight(1f)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -1906,7 +1925,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = splitSpeedValue(rawRxRate),
-                            fontSize = 20.sp,
+                            fontSize = 19.sp,
                             fontWeight = FontWeight.Black,
                             color = Color.White,
                             fontFamily = FontFamily.Monospace
@@ -1925,16 +1944,16 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     Text(
                         text = "Total: ${formatBytes(totalRxBytes)}",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8),
+                        color = Color(0xFF64748B),
                         fontFamily = FontFamily.Monospace
                     )
                 }
             }
 
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0x14FFFFFF),
-                border = BorderStroke(1.dp, Color(0x2206B6D4)),
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0x0CFFFFFF),
+                border = BorderStroke(1.dp, Color(0x1C06B6D4)),
                 modifier = Modifier.weight(1f)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -1953,7 +1972,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = splitSpeedValue(rawTxRate),
-                            fontSize = 20.sp,
+                            fontSize = 19.sp,
                             fontWeight = FontWeight.Black,
                             color = Color.White,
                             fontFamily = FontFamily.Monospace
@@ -1972,7 +1991,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     Text(
                         text = "Total: ${formatBytes(totalTxBytes)}",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8),
+                        color = Color(0xFF64748B),
                         fontFamily = FontFamily.Monospace
                     )
                 }
@@ -1981,13 +2000,14 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Dynamic Dual-Wave Real-Time Canvas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(68.dp)
+                .height(60.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0x14FFFFFF))
-                .border(1.dp, Color(0x18FFFFFF), RoundedCornerShape(14.dp))
+                .background(Color(0x0CFFFFFF))
+                .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(14.dp))
         ) {
             Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
                 val w = size.width
@@ -2018,13 +2038,13 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                 if (isProxyActive) {
                     drawPath(
                         path = fill1,
-                        brush = Brush.verticalGradient(listOf(Color(0x2006B6D4), Color.Transparent))
+                        brush = Brush.verticalGradient(listOf(Color(0x1806B6D4), Color.Transparent))
                     )
                 }
 
                 drawPath(
                     path = path1,
-                    color = if (isProxyActive) Color(0x6606B6D4) else Color(0x1A475569),
+                    color = if (isProxyActive) Color(0x5506B6D4) else Color(0x14475569),
                     style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
                 )
 
@@ -2051,7 +2071,7 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                 if (isProxyActive) {
                     drawPath(
                         path = fill2,
-                        brush = Brush.verticalGradient(listOf(Color(0x3010B981), Color.Transparent))
+                        brush = Brush.verticalGradient(listOf(Color(0x2810B981), Color.Transparent))
                     )
                 }
 
@@ -2059,8 +2079,8 @@ fun LiveThroughputRiverEngine(isProxyActive: Boolean) {
                     path = path2,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            if (isProxyActive) Color(0xFF10B981) else Color(0x33475569),
-                            if (isProxyActive) Color(0xFF06B6D4) else Color(0x33475569)
+                            if (isProxyActive) Color(0xFF10B981) else Color(0x2B475569),
+                            if (isProxyActive) Color(0xFF06B6D4) else Color(0x2B475569)
                         )
                     ),
                     style = Stroke(width = if (isProxyActive) 2.2.dp.toPx() else 1.2.dp.toPx(), cap = StrokeCap.Round)
@@ -2089,7 +2109,7 @@ fun ActiveTimer() {
     Text(
         text = timeStr,
         fontFamily = FontFamily.Monospace,
-        fontSize = 12.sp,
+        fontSize = 11.sp,
         color = Color(0xFF10B981),
         fontWeight = FontWeight.Bold
     )
