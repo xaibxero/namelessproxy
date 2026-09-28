@@ -34,22 +34,6 @@ data class ProxySettings(
 )
 
 object ConfigGenerator {
-
-    /**
-     * Android UID layout: user N owns UIDs N*100000 .. N*100000+99999.
-     *  - N*100000 + 0..9999      = system / radio / netd / shell (must NOT be tunnelled)
-     *  - N*100000 + 10000..99999 = normal apps
-     */
-    private fun systemUidRanges(currentUser: Int): JSONArray {
-        val arr = JSONArray()
-        arr.put("0:9999")
-        if (currentUser > 0) {
-            val start = currentUser * 100000
-            arr.put("$start:${start + 9999}")
-        }
-        return arr
-    }
-
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
@@ -64,38 +48,55 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS
-        //    dns-local  : only used to resolve the proxy server's own hostname (must go direct,
-        //                 otherwise resolving the proxy host would need the proxy = loop)
-        //    dns-remote : used for everything hijacked from apps, sent through the proxy
+        // 2. DNS Engine
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        dnsServers.put(JSONObject().apply {
-            put("type", "local")
-            put("tag", "dns-local")
-        })
-        dnsServers.put(JSONObject().apply {
-            put("type", "tcp")
+        // Direct DNS for connectivity checks and resolving the proxy server itself
+        val directDns = JSONObject().apply {
+            put("tag", "dns-direct")
+            put("type", "udp")
+            put("server", "1.1.1.1")
+            put("server_port", 53)
+            put("detour", "direct-out")
+        }
+        dnsServers.put(directDns)
+
+        // Remote DNS routed through the US proxy for all apps and browsers
+        val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
+            put("type", "tcp")
             put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
-        })
+        }
+        dnsServers.put(remoteDns)
         dns.put("servers", dnsServers)
+
+        // DNS Rules: Keep connectivity probes alive to prevent 4G flapping; proxy everything else
+        val dnsRules = JSONArray()
+        val probeRule = JSONObject().apply {
+            val domainArray = JSONArray().apply {
+                put("connectivitycheck.gstatic.com")
+                put("clients3.google.com")
+            }
+            put("domain_suffix", domainArray)
+            put("server", "dns-direct")
+        }
+        dnsRules.put(probeRule)
+        dns.put("rules", dnsRules)
 
         when (settings.ipMode) {
             IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
             IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
         }
+
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 3. Inbounds: Clean TUN Mode (sing-box 1.13+ compatible, no deprecated fields)
         val inbounds = JSONArray()
-
-        // Unique per Android user + slot so several profiles can run at the same time
         val ifaceName = "nlp${user}s${slot}"
         val v4 = "172.19.${user % 200}.${slot * 4 + 1}/30"
         val v6 = "fdfe:dcba:9876:${Integer.toHexString(slotId + 1)}::1/126"
@@ -104,37 +105,19 @@ object ConfigGenerator {
             put("type", "tun")
             put("tag", "tun-in")
             put("interface_name", ifaceName)
-            put("address", JSONArray().apply {
+            val addressArray = JSONArray().apply {
                 put(v4)
-                put(v6)   // IPv6 goes INTO the tunnel too, otherwise real IPv6 leaks (WebRTC)
-            })
+                put(v6)
+            }
+            put("address", addressArray)
             put("auto_route", true)
-            // strict_route makes every non-covered network "unreachable" and can break
-            // Android's own connectivity checks on cellular -> keep it off
             put("strict_route", false)
             put("iproute2_table_index", 3000 + slotId)
             put("iproute2_rule_index", 9000 + slotId * 10)
-            // NOTE: no "stack" field on purpose.
-            //  - "mixed"/"gvisor" need the with_gvisor build tag and crash without it
-            //  - "stack" is deprecated from sing-box 1.15 and removed in 1.17
-            //  - when omitted, sing-box picks a stack that works for the binary it is running
-
-            if (settings.routeHotspot) {
-                // Global mode: everything (all apps of all users + hotspot clients) goes through
-                // the tunnel, but system / radio / netd UIDs stay direct so the modem and
-                // Android's connectivity validation are never touched.
-                put("exclude_uid_range", systemUidRanges(user))
-            } else {
-                // Profile mode: only the apps of THIS Android user go through this proxy.
-                val start = user * 100000
-                put("include_uid_range", JSONArray().apply {
-                    put("${start + 10000}:${start + 99999}")
-                })
-            }
         }
         inbounds.put(tunInbound)
 
-        // Local SOCKS listener (used by the in-app proxy tester)
+        // Local SOCKS listener for in-app latency checks
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -199,7 +182,6 @@ object ConfigGenerator {
                     put("enabled", true)
                     put("server_name", settings.sni.ifEmpty { settings.host })
                     if (settings.realityPublicKey.isNotEmpty()) {
-                        // Reality needs the with_utls build tag in the sing-box binary
                         put("utls", JSONObject().apply {
                             put("enabled", true)
                             put("fingerprint", "chrome")
@@ -227,7 +209,6 @@ object ConfigGenerator {
                 proxyOutbound.put("tls", tlsObj)
             }
             ProxyType.HYSTERIA2 -> {
-                // Hysteria2 needs the with_quic build tag in the sing-box binary
                 proxyOutbound.put("type", "hysteria2")
                 proxyOutbound.put("tag", "proxy-out")
                 proxyOutbound.put("server", settings.host)
@@ -242,37 +223,50 @@ object ConfigGenerator {
         }
         outbounds.put(proxyOutbound)
 
-        outbounds.put(JSONObject().apply {
+        val directOutbound = JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
-        })
+        }
+        outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing
+        // 5. Routing Rules (Action sniff is defined here, NOT inside inbound)
         val route = JSONObject().apply {
             put("auto_detect_interface", true)
-            // resolves the proxy server hostname (if it is a domain) WITHOUT using the proxy
-            put("default_domain_resolver", "dns-local")
+            put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
 
-        // sniff must be first so the following rules can match "protocol": "dns"
-        routeRules.put(JSONObject().apply { put("action", "sniff") })
+        // Sniff rule (Required first in sing-box 1.13+)
+        routeRules.put(JSONObject().apply {
+            put("action", "sniff")
+        })
 
+        // DNS Hijack rule: capture all port 53 traffic into the sing-box DNS engine
         routeRules.put(JSONObject().apply {
             put("protocol", "dns")
             put("action", "hijack-dns")
         })
 
-        // LAN / private ranges stay direct
+        // Direct connectivity probes to avoid mobile data teardowns
+        routeRules.put(JSONObject().apply {
+            val domainArray = JSONArray().apply {
+                put("connectivitycheck.gstatic.com")
+                put("clients3.google.com")
+            }
+            put("domain_suffix", domainArray)
+            put("outbound", "direct-out")
+        })
+
+        // Private LAN addresses route direct
         routeRules.put(JSONObject().apply {
             put("ip_is_private", true)
             put("outbound", "direct-out")
         })
 
-        // The proxy server itself must never be routed back into the proxy
+        // Prevent proxy server connection loops
         if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
             val isIpv4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(settings.host)
             if (isIpv4) {
@@ -288,6 +282,7 @@ object ConfigGenerator {
             }
         }
 
+        // WebRTC STUN Protection
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             routeRules.put(JSONObject().apply {
                 put("network", "udp")
