@@ -11,7 +11,7 @@ object IptablesManager {
         val slot = ProfileManager.activeSlot
         val key = "u${user}_s$slot"
 
-        val tproxyPort = inboundPort + 4
+        val tproxyPort = inboundPort + 8
         val chainNatV4 = "NAMELESS_U${user}_S$slot"
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
         val chainPreMangle = "NAMELESS_PRE_$key"
@@ -21,7 +21,8 @@ object IptablesManager {
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        // Explicit app UID boundaries: Never touch system daemons or Telephony RIL (UID 0-9999)
+        // Strictly target User Installed Apps (10000-19999 and isolated 90000-99999).
+        // Never touch UIDs 0-9999 (RIL Radio 1001, NetworkStack 1073, System 1000).
         val appStart = user * 100000 + 10000
         val appEnd = user * 100000 + 19999
         val isolatedStart = user * 100000 + 90000
@@ -32,13 +33,11 @@ object IptablesManager {
 
         val commands = mutableListOf<String>()
 
-        // 1. Flush old slot rules
+        // 1. Flush existing rules
         commands.addAll(generateDisableCommands(user, slot))
-        commands.add("ip route flush cache 2>/dev/null")
 
-        // 2. Safely configure loopback & non-cellular rp_filter (never touch rmnet/cellular interfaces)
+        // 2. Safe Loopback Settings (Never touch cellular rmnet interfaces)
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null")
-        commands.add("echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/lo/rp_filter 2>/dev/null")
         commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
 
@@ -51,15 +50,14 @@ object IptablesManager {
             commands.add("ip -6 route add local ::/0 dev lo table $tableId")
         }
 
-        // 4. Intercept marked UDP/TCP packets in PREROUTING to sing-box TPROXY (10804)
+        // 4. Intercept marked packets in PREROUTING to sing-box TPROXY (10808)
         commands.add("iptables -t mangle -N $chainPreMangle")
         commands.add("iptables -t mangle -A $chainPreMangle -p tcp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 5. Exclude system UIDs and mark Phone's App Outbound UDP
+        // 5. App Outbound UDP Interception (Protects System UIDs 0-9999)
         commands.add("iptables -t mangle -N $chainOutMangle")
-        // NEVER route Android System, Telephony RIL, NetworkStack, or Root (UID 0 - 9999)
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
@@ -103,9 +101,8 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 7. Phone's Local TCP Redirection (Port 10800)
+        // 7. Phone's Local TCP Redirection (10800)
         commands.add("iptables -t nat -N $chainNatV4")
-        // NEVER redirect System / Telephony / Radio (UID 0 - 9999) to prevent cellular reset
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
@@ -157,11 +154,9 @@ object IptablesManager {
             commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6")
         }
 
-        // 9. Hotspot Tethering Engine -> Direct to TPROXY Port 10804
+        // 9. Hotspot Tethering Engine -> TPROXY Port 10808
         if (settings.routeHotspot && user == 0) {
-            commands.add("settings put global tether_offload_disabled 1 2>/dev/null")
-            commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
-            commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
+            commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null")
 
             val tetherInterfaces = listOf("wlan+", "ap+", "rndis+", "usb+", "softap+", "bt-pan+")
 
