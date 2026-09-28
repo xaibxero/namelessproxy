@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme()) {
+            MaterialTheme(colorScheme = darkColorScheme()) {
                 MainScreen(
                     rootState = rootState,
                     rootLabel = rootLabel,
@@ -414,10 +414,10 @@ fun MainScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(Color(0xFF05070E))
     ) {
-        // Live Floating Red + Blue Fluid Canvas
-        RedBlueFluidCanvas(isProxyActive = isProxyActive)
+        // High-Tech Living Red + Blue Plasma Nebula Canvas
+        RedBlueNebulaCanvas(isProxyActive = isProxyActive)
 
         Column(
             modifier = Modifier
@@ -428,8 +428,8 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 1. TOP HEADER (Red & Blue Contrast)
-            RedBlueTopHeader(
+            // 1. TOP HEADER (Cobalt & Crimson Lighting)
+            RedBlueDarkHeader(
                 activeSlot = activeSlot,
                 isProxyActive = isProxyActive,
                 rootState = rootState,
@@ -439,7 +439,7 @@ fun MainScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             // 2. SLOTS RIBBON (P0 - P4)
-            RedBlueSlotRibbon(
+            RedBlueDarkSlotRibbon(
                 activeSlot = activeSlot,
                 runningSlot = runningSlot,
                 isProxyActive = isProxyActive,
@@ -451,7 +451,7 @@ fun MainScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             // 3. SEGMENTED TABS
-            RedBluePillTabs(
+            RedBlueDarkPillTabs(
                 selectedTab = selectedNavTab,
                 onTabSelected = { selectedNavTab = it }
             )
@@ -585,7 +585,7 @@ fun MainScreen(
                                     bootSlot = activeSlot
                                     globalPrefs.edit().putBoolean("start_on_boot", true).putInt("boot_slot", activeSlot).apply()
                                     saveConfigForSlot(activeSlot)
-                                    Toast.makeText(context, "P$activeSlot set as startup profile", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "P$activeSlot set as startup target", Toast.LENGTH_SHORT).show()
                                 } else {
                                     globalPrefs.edit().putBoolean("start_on_boot", false).apply()
                                     BootManager.removeBootScript()
@@ -639,14 +639,14 @@ fun MainScreen(
                             clipboard.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", currentLogs))
                             Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
                         }) {
-                            Text("Copy", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
+                            Text("Copy", color = Color(0xFF00D2FF), fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = {
                             val targetSlot = runningSlot ?: activeSlot
                             ProxyController.clearLogs(ProfileManager.androidUserId, targetSlot)
                             currentLogs = "Logs cleared."
                         }) {
-                            Text("Clear", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                            Text("Clear", color = Color(0xFFFF2A55), fontWeight = FontWeight.Bold)
                         }
                     }
                     Row {
@@ -659,36 +659,36 @@ fun MainScreen(
                                 }
                             }
                         }) {
-                            Text("Refresh", color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
+                            Text("Refresh", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = { showLogsDialog = false }) {
-                            Text("Close", color = Color(0xFF64748B))
+                            Text("Close", color = Color(0xFF94A3B8))
                         }
                     }
                 }
             },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF2563EB), CircleShape))
+                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF00D2FF), CircleShape))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("KERNEL CORE LOGS & TELEMETRY", fontSize = 13.5.sp, fontWeight = FontWeight.Black, color = Color(0xFF0F172A))
+                    Text("KERNEL CORE LOGS & TELEMETRY", fontSize = 13.5.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                 }
             },
-            containerColor = Color(0xFFFFFFFF),
+            containerColor = Color(0xFF0D111A),
             text = {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(380.dp)
-                        .background(Color(0xFFF1F5F9), RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
+                        .background(Color(0xFF070912), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0x3300D2FF), RoundedCornerShape(12.dp))
                         .padding(12.dp)
                 ) {
                     Text(
                         text = currentLogs,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = Color(0xFF1E293B),
+                        color = Color(0xFFCBD5E1),
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     )
                 }
@@ -698,32 +698,32 @@ fun MainScreen(
 }
 
 // -------------------------------------------------------------
-// LIVE LIGHT-MODE RED + BLUE FLUID CANVAS
+// LIVE DUAL-ENERGY RED + BLUE PLASMA CANVAS (DARK MODE)
 // -------------------------------------------------------------
 
 @Composable
-fun RedBlueFluidCanvas(isProxyActive: Boolean) {
-    val infiniteTransition = rememberInfiniteTransition(label = "fluidEngine")
+fun RedBlueNebulaCanvas(isProxyActive: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "dualEnergyEngine")
 
     val driftAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(tween(26000, easing = LinearEasing), RepeatMode.Restart),
-        label = "drift"
+        label = "energyDrift"
     )
 
     val auraPulse by infiniteTransition.animateFloat(
-        initialValue = 0.40f,
+        initialValue = 0.35f,
         targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(tween(3000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "aura"
+        animationSpec = infiniteRepeatable(tween(3200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "energyAura"
     )
 
     val motesOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(tween(if (isProxyActive) 8000 else 16000, easing = LinearEasing), RepeatMode.Restart),
-        label = "motes"
+        label = "energyMotes"
     )
 
     Canvas(
@@ -735,21 +735,21 @@ fun RedBlueFluidCanvas(isProxyActive: Boolean) {
         val h = size.height
         val rad = Math.toRadians(driftAngle.toDouble())
 
-        // Dual Crimson Red + Sapphire Blue Fluid Plasma Orbs
-        val orbRedX = (w * 0.28f) + (cos(rad) * 130f).toFloat()
-        val orbRedY = (h * 0.24f) + (sin(rad) * 90f).toFloat()
+        // Dual Laser Crimson + Cyan/Cobalt Spheres
+        val orbBlueX = (w * 0.74f) - (sin(rad) * 150f).toFloat()
+        val orbBlueY = (h * 0.48f) + (cos(rad) * 110f).toFloat()
 
-        val orbBlueX = (w * 0.74f) - (sin(rad) * 140f).toFloat()
-        val orbBlueY = (h * 0.50f) + (cos(rad) * 100f).toFloat()
+        val orbRedX = (w * 0.28f) + (cos(rad) * 140f).toFloat()
+        val orbRedY = (h * 0.22f) + (sin(rad) * 100f).toFloat()
 
-        val orbCenter = (w * 0.50f) + (sin(rad * 1.2) * 90f).toFloat()
-        val orbCenterY = (h * 0.82f) - (cos(rad * 1.2) * 80f).toFloat()
+        val orbCenter = (w * 0.48f) + (sin(rad * 1.3) * 100f).toFloat()
+        val orbCenterY = (h * 0.80f) - (cos(rad * 1.3) * 80f).toFloat()
 
         if (isProxyActive) {
-            // Sapphire Blue Orb
+            // Sapphire & Electric Cyan Orb
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0x302563EB), Color(0x0C2563EB), Color.Transparent),
+                    colors = listOf(Color(0x3500D2FF), Color(0x0C0070F3), Color.Transparent),
                     center = Offset(orbBlueX, orbBlueY),
                     radius = w * 0.85f
                 ),
@@ -757,10 +757,10 @@ fun RedBlueFluidCanvas(isProxyActive: Boolean) {
                 radius = w * 0.85f,
                 alpha = auraPulse
             )
-            // Crimson Red Orb
+            // Laser Crimson Red Orb
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0x28EF4444), Color(0x0AEF4444), Color.Transparent),
+                    colors = listOf(Color(0x30FF2A55), Color(0x0AEF4444), Color.Transparent),
                     center = Offset(orbRedX, orbRedY),
                     radius = w * 0.80f
                 ),
@@ -768,10 +768,10 @@ fun RedBlueFluidCanvas(isProxyActive: Boolean) {
                 radius = w * 0.80f,
                 alpha = auraPulse
             )
-            // Indigo Synthesis
+            // Indigo Synthesis Orb
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0x206366F1), Color(0x086366F1), Color.Transparent),
+                    colors = listOf(Color(0x226366F1), Color(0x064F46E5), Color.Transparent),
                     center = Offset(orbCenter, orbCenterY),
                     radius = w * 0.75f
                 ),
@@ -782,32 +782,32 @@ fun RedBlueFluidCanvas(isProxyActive: Boolean) {
         } else {
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0x15CBD5E1), Color.Transparent),
+                    colors = listOf(Color(0x181E293B), Color.Transparent),
                     center = Offset(orbBlueX, orbBlueY),
-                    radius = w * 0.65f
+                    radius = w * 0.70f
                 ),
                 center = Offset(orbBlueX, orbBlueY),
-                radius = w * 0.65f
+                radius = w * 0.70f
             )
         }
 
-        // Floating Red + Blue Nano Motes
-        val moteCount = 26
+        // Floating Dual-Color Energy Motes
+        val moteCount = 32
         for (i in 0 until moteCount) {
             val px = (w * ((i * 37) % 100) / 100f)
             val baseY = (h * ((i * 53) % 100) / 100f)
             val py = (baseY - (motesOffset * (0.5f + (i % 5) * 0.2f))) % h
             val actualY = if (py < 0) py + h else py
-            val sizeDot = (1.5f + (i % 3) * 1.2f).dp.toPx()
+            val sizeDot = (1.4f + (i % 3) * 1.2f).dp.toPx()
 
             drawCircle(
                 color = when (i % 2) {
-                    0 -> Color(0xFF2563EB)
-                    else -> Color(0xFFEF4444)
+                    0 -> Color(0xFF00D2FF)
+                    else -> Color(0xFFFF2A55)
                 },
                 radius = sizeDot,
                 center = Offset(px, actualY),
-                alpha = if (isProxyActive) (0.25f + (i % 4) * 0.12f) * auraPulse else 0.08f
+                alpha = if (isProxyActive) (0.35f + (i % 4) * 0.15f) * auraPulse else 0.12f
             )
         }
     }
@@ -818,7 +818,7 @@ fun RedBlueFluidCanvas(isProxyActive: Boolean) {
 // -------------------------------------------------------------
 
 @Composable
-fun RedBlueTopHeader(
+fun RedBlueDarkHeader(
     activeSlot: Int,
     isProxyActive: Boolean,
     rootState: RootState,
@@ -843,21 +843,21 @@ fun RedBlueTopHeader(
                     text = "NAMELESS",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Black,
-                    color = Color(0xFF0F172A),
+                    color = Color.White,
                     letterSpacing = 2.5.sp
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Box(
                     modifier = Modifier
                         .size(8.dp)
-                        .background(if (isProxyActive) Color(0xFF2563EB) else Color(0xFF94A3B8), CircleShape)
+                        .background(if (isProxyActive) Color(0xFF00D2FF) else Color(0xFF475569), CircleShape)
                         .graphicsLayer { alpha = if (isProxyActive) badgeGlow else 1f }
                 )
             }
             Text(
                 text = "USER ${ProfileManager.androidUserId} • SLOT P$activeSlot • KERNEL TUNNEL",
                 fontSize = 10.sp,
-                color = if (isProxyActive) Color(0xFF2563EB) else Color(0xFF64748B),
+                color = if (isProxyActive) Color(0xFF38BDF8) else Color(0xFF64748B),
                 fontWeight = FontWeight.Black,
                 letterSpacing = 1.2.sp
             )
@@ -865,14 +865,13 @@ fun RedBlueTopHeader(
 
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = Color(0xFFFFFFFF),
-            shadowElevation = 2.dp,
+            color = Color(0x18FFFFFF),
             border = BorderStroke(
                 1.dp,
                 when (rootState) {
-                    RootState.GRANTED -> Color(0xFF2563EB)
-                    RootState.DENIED -> Color(0xFFEF4444)
-                    RootState.CHECKING -> Color(0xFFF59E0B)
+                    RootState.GRANTED -> Color(0xFF00D2FF)
+                    RootState.DENIED -> Color(0xFFFF2A55)
+                    RootState.CHECKING -> Color(0xFFFBBF24)
                 }
             ),
             modifier = Modifier.clickable { onRecheckRoot() }
@@ -886,9 +885,9 @@ fun RedBlueTopHeader(
                         .size(7.dp)
                         .background(
                             when (rootState) {
-                                RootState.GRANTED -> Color(0xFF2563EB)
-                                RootState.DENIED -> Color(0xFFEF4444)
-                                RootState.CHECKING -> Color(0xFFF59E0B)
+                                RootState.GRANTED -> Color(0xFF00D2FF)
+                                RootState.DENIED -> Color(0xFFFF2A55)
+                                RootState.CHECKING -> Color(0xFFFBBF24)
                             },
                             CircleShape
                         )
@@ -902,7 +901,7 @@ fun RedBlueTopHeader(
                     },
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Black,
-                    color = Color(0xFF0F172A),
+                    color = Color.White,
                     letterSpacing = 0.5.sp
                 )
             }
@@ -915,7 +914,7 @@ fun RedBlueTopHeader(
 // -------------------------------------------------------------
 
 @Composable
-fun RedBlueSlotRibbon(
+fun RedBlueDarkSlotRibbon(
     activeSlot: Int,
     runningSlot: Int?,
     isProxyActive: Boolean,
@@ -934,9 +933,9 @@ fun RedBlueSlotRibbon(
 
             val animatedBorder by animateColorAsState(
                 targetValue = when {
-                    isRunning -> Color(0xFF2563EB)
-                    isSelected -> Color(0xFFEF4444)
-                    else -> Color(0xFFE2E8F0)
+                    isRunning -> Color(0xFF00D2FF)
+                    isSelected -> Color(0xFFFF2A55)
+                    else -> Color(0x18FFFFFF)
                 },
                 animationSpec = tween(250),
                 label = "slotBorder"
@@ -944,35 +943,33 @@ fun RedBlueSlotRibbon(
 
             val animatedBg by animateColorAsState(
                 targetValue = when {
-                    isRunning -> Color(0x182563EB)
-                    isSelected -> Color(0x12EF4444)
-                    else -> Color(0xFFFFFFFF)
+                    isRunning -> Color(0x3500D2FF)
+                    isSelected -> Color(0x28FF2A55)
+                    else -> Color(0x0CFFFFFF)
                 },
                 animationSpec = tween(250),
                 label = "slotBg"
             )
 
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = animatedBg,
-                shadowElevation = if (isSelected || isRunning) 3.dp else 1.dp,
-                border = BorderStroke(1.2.dp, animatedBorder),
+            Box(
                 modifier = Modifier
                     .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(animatedBg)
+                    .border(1.2.dp, animatedBorder, RoundedCornerShape(14.dp))
                     .clickable { onSelectSlot(slotIdx) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "P$slotIdx",
                         fontSize = 13.sp,
                         fontWeight = if (isSelected || isRunning) FontWeight.Black else FontWeight.Bold,
                         color = when {
-                            isRunning -> Color(0xFF2563EB)
-                            isSelected -> Color(0xFFEF4444)
-                            else -> Color(0xFF64748B)
+                            isRunning -> Color(0xFF00D2FF)
+                            isSelected -> Color(0xFFFF2A55)
+                            else -> Color(0xFF94A3B8)
                         },
                         letterSpacing = 0.5.sp
                     )
@@ -987,10 +984,10 @@ fun RedBlueSlotRibbon(
                         fontSize = 7.5.sp,
                         fontWeight = FontWeight.Black,
                         color = when {
-                            isRunning -> Color(0xFF2563EB)
-                            isBootTarget -> Color(0xFF0284C7)
-                            isSelected -> Color(0xFFEF4444)
-                            else -> Color(0xFF94A3B8)
+                            isRunning -> Color(0xFF00D2FF)
+                            isBootTarget -> Color(0xFF38BDF8)
+                            isSelected -> Color(0xFFFF2A55)
+                            else -> Color(0xFF475569)
                         }
                     )
                 }
@@ -1004,7 +1001,7 @@ fun RedBlueSlotRibbon(
 // -------------------------------------------------------------
 
 @Composable
-fun RedBluePillTabs(
+fun RedBlueDarkPillTabs(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit
 ) {
@@ -1012,9 +1009,8 @@ fun RedBluePillTabs(
 
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFFFFFFFF),
-        shadowElevation = 2.dp,
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        color = Color(0x0EFFFFFF),
+        border = BorderStroke(1.dp, Color(0x1AFFFFFF)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -1025,17 +1021,17 @@ fun RedBluePillTabs(
                 val isSelected = selectedTab == index
 
                 val bg by animateColorAsState(
-                    targetValue = if (isSelected) Color(0x1A2563EB) else Color.Transparent,
+                    targetValue = if (isSelected) Color(0x3500D2FF) else Color.Transparent,
                     animationSpec = tween(220),
                     label = "tabBg"
                 )
                 val borderCol by animateColorAsState(
-                    targetValue = if (isSelected) Color(0xFF2563EB) else Color.Transparent,
+                    targetValue = if (isSelected) Color(0xFF00D2FF) else Color.Transparent,
                     animationSpec = tween(220),
                     label = "tabBorder"
                 )
                 val textCol by animateColorAsState(
-                    targetValue = if (isSelected) Color(0xFF2563EB) else Color(0xFF64748B),
+                    targetValue = if (isSelected) Color.White else Color(0xFF94A3B8),
                     animationSpec = tween(220),
                     label = "tabText"
                 )
@@ -1097,7 +1093,7 @@ fun ConsoleHudView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // QUANTUM RED+BLUE GYROSCOPE HUD CARD
+        // QUANTUM SHIELD GYRO HUD CARD
         QuantumGyroCard(
             isProxyActive = isProxyActive,
             runningSlot = runningSlot,
@@ -1109,7 +1105,7 @@ fun ConsoleHudView(
             onRefreshIp = onRefreshIp
         )
 
-        // DUAL LASER RIVER OSCILLOSCOPE (SAPPHIRE BLUE & CRIMSON RED)
+        // REAL-TIME LASER OSCILLOSCOPE (CYAN & CRIMSON)
         QuantumLaserOscilloscope(isProxyActive = isProxyActive)
 
         // STATUS BADGES
@@ -1119,21 +1115,21 @@ fun ConsoleHudView(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            RedBlueStatusBadge(label = proxyType.name, color = Color(0xFF0F172A))
-            RedBlueStatusBadge(
+            RedBlueDarkStatusBadge(label = proxyType.name, color = Color.White)
+            RedBlueDarkStatusBadge(
                 label = if (transportMode == TransportMode.TCP_AND_UDP) "TCP+UDP (WEBRTC)" else "TCP ONLY",
-                color = Color(0xFF2563EB)
+                color = Color(0xFF00D2FF)
             )
-            RedBlueStatusBadge(
+            RedBlueDarkStatusBadge(
                 label = when (ipMode) {
                     IpMode.IPV4_ONLY -> "IPV4"
                     IpMode.DUAL_STACK -> "DUAL-STACK"
                     IpMode.IPV6_ONLY -> "IPV6"
                 },
-                color = Color(0xFF0284C7)
+                color = Color(0xFF38BDF8)
             )
             if (routeHotspot) {
-                RedBlueStatusBadge(label = "HOTSPOT ACTIVE", color = Color(0xFFEF4444))
+                RedBlueDarkStatusBadge(label = "HOTSPOT ACTIVE", color = Color(0xFFFF2A55))
             }
         }
 
@@ -1146,13 +1142,13 @@ fun ConsoleHudView(
                 onClick = onTestUpstream,
                 modifier = Modifier.weight(1f).height(48.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0x182563EB)),
-                border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0x2200D2FF)),
+                border = BorderStroke(1.dp, Color(0xFF00D2FF)),
                 enabled = !isTesting
             ) {
                 Text(
                     text = if (isTesting) "Scanning..." else "⚡ Check If Alive",
-                    color = Color(0xFF2563EB),
+                    color = Color(0xFF00D2FF),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -1162,8 +1158,8 @@ fun ConsoleHudView(
                 onClick = onViewLogs,
                 modifier = Modifier.weight(1f).height(48.dp),
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF475569))
+                border = BorderStroke(1.dp, Color(0x28FFFFFF)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCBD5E1))
             ) {
                 Text("Core Logs", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
@@ -1172,7 +1168,7 @@ fun ConsoleHudView(
         if (testStatus != null) {
             Text(
                 text = testStatus,
-                color = if (testStatus.startsWith("Online")) Color(0xFF2563EB) else Color(0xFFEF4444),
+                color = if (testStatus.startsWith("Online")) Color(0xFF00D2FF) else Color(0xFFFF2A55),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
@@ -1188,9 +1184,9 @@ fun ConsoleHudView(
         }
 
         val buttonGrad = if (isCurrentSlotRunning) {
-            Brush.horizontalGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626), Color(0xFFB91C1C)))
+            Brush.horizontalGradient(listOf(Color(0xFFFF2A55), Color(0xFFEF4444), Color(0xFF991B1B)))
         } else {
-            Brush.horizontalGradient(listOf(Color(0xFF2563EB), Color(0xFF0066FF), Color(0xFF0284C7)))
+            Brush.horizontalGradient(listOf(Color(0xFF0055FF), Color(0xFF00D2FF), Color(0xFFFF2A55)))
         }
 
         Box(
@@ -1224,7 +1220,7 @@ fun ConsoleHudView(
 }
 
 // -------------------------------------------------------------
-// RED + BLUE QUANTUM GYROSCOPE HUD CARD
+// QUANTUM SHIELD GYROSCOPE HUD CARD
 // -------------------------------------------------------------
 
 @Composable
@@ -1264,9 +1260,8 @@ fun QuantumGyroCard(
 
     Surface(
         shape = RoundedCornerShape(22.dp),
-        color = Color(0xFFFFFFFF),
-        shadowElevation = 3.dp,
-        border = BorderStroke(1.2.dp, if (isProxyActive) Color(0xFF2563EB) else Color(0xFFE2E8F0)),
+        color = Color(0x18111624),
+        border = BorderStroke(1.2.dp, if (isProxyActive) Color(0xFF00D2FF) else Color(0x22FFFFFF)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -1282,14 +1277,14 @@ fun QuantumGyroCard(
                     Box(
                         modifier = Modifier
                             .size(9.dp)
-                            .background(if (isProxyActive) Color(0xFF2563EB) else Color(0xFF94A3B8), CircleShape)
+                            .background(if (isProxyActive) Color(0xFF00D2FF) else Color(0xFF475569), CircleShape)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (isProxyActive) "CORE RUNNING • NODE P$runningSlot" else "CORE STANDBY",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = if (isProxyActive) Color(0xFF2563EB) else Color(0xFF64748B),
+                        color = if (isProxyActive) Color(0xFF00D2FF) else Color(0xFF94A3B8),
                         letterSpacing = 1.sp
                     )
                     if (isProxyActive && activePid != null) {
@@ -1297,7 +1292,7 @@ fun QuantumGyroCard(
                         Text(
                             text = "PID $activePid",
                             fontSize = 10.sp,
-                            color = Color(0xFF94A3B8),
+                            color = Color(0xFF64748B),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
@@ -1311,7 +1306,7 @@ fun QuantumGyroCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // ANIMATED ORBITAL GYROSCOPE CORE (RED + BLUE ARCS)
+            // ANIMATED ORBITAL GYROSCOPE CORE
             Box(
                 modifier = Modifier.size(112.dp),
                 contentAlignment = Alignment.Center
@@ -1320,39 +1315,39 @@ fun QuantumGyroCard(
                     val center = Offset(size.width / 2, size.height / 2)
                     val r = size.width / 2
 
-                    // Outer Sweeping Sapphire Blue Arc
+                    // Outer Sweeping Sapphire Arc
                     drawArc(
                         brush = Brush.sweepGradient(
-                            listOf(Color(0xFF2563EB), Color(0xFF0066FF), Color.Transparent, Color(0xFF2563EB))
+                            listOf(Color(0xFF00D2FF), Color(0xFF0055FF), Color.Transparent, Color(0xFF00D2FF))
                         ),
                         startAngle = outerRingAngle,
                         sweepAngle = 260f,
                         useCenter = false,
-                        style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
 
-                    // Inner Counter-Rotating Crimson Red Dashed Arc
+                    // Inner Counter-Rotating Crimson Arc
                     drawArc(
                         brush = Brush.sweepGradient(
-                            listOf(Color(0xFFEF4444), Color(0xFFDC2626), Color.Transparent)
+                            listOf(Color(0xFFFF2A55), Color(0xFFEF4444), Color.Transparent)
                         ),
                         startAngle = innerRingAngle,
                         sweepAngle = 200f,
                         useCenter = false,
                         style = Stroke(
-                            width = 2.4.dp.toPx(),
+                            width = 2.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 8f), 0f)
                         )
                     )
 
                     // Pulsing Core
                     drawCircle(
-                        color = if (isProxyActive) Color(0x252563EB) else Color(0x10000000),
+                        color = if (isProxyActive) Color(0x3500D2FF) else Color(0x10FFFFFF),
                         radius = (r * 0.46f) * if (isProxyActive) corePulse else 1f,
                         center = center
                     )
                     drawCircle(
-                        color = if (isProxyActive) Color(0xFF2563EB) else Color(0xFF94A3B8),
+                        color = if (isProxyActive) Color(0xFF00D2FF) else Color(0xFF475569),
                         radius = r * 0.18f,
                         center = center
                     )
@@ -1371,8 +1366,8 @@ fun QuantumGyroCard(
             // IP & TELEMETRY TILE
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0xFFF8FAFC),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                color = Color(0x14FFFFFF),
+                border = BorderStroke(1.dp, Color(0x1AFFFFFF)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
@@ -1408,7 +1403,7 @@ fun QuantumGyroCard(
                                 } else "Native Device Interface",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color(0xFF0F172A),
+                                color = Color.White,
                                 fontFamily = FontFamily.Monospace
                             )
                             if (isProxyActive) {
@@ -1420,7 +1415,7 @@ fun QuantumGyroCard(
                                         else -> "Synchronizing..."
                                     },
                                     fontSize = 11.sp,
-                                    color = if (ipFetchFailed) Color(0xFFEF4444) else Color(0xFF2563EB),
+                                    color = if (ipFetchFailed) Color(0xFFFF2A55) else Color(0xFF00D2FF),
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -1430,13 +1425,13 @@ fun QuantumGyroCard(
                     if (isProxyActive) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0x182563EB),
+                            color = Color(0x2200D2FF),
                             modifier = Modifier.clickable { onRefreshIp() }
                         ) {
                             Text(
                                 text = if (isFetchingIp) "..." else "Refresh",
                                 fontSize = 11.sp,
-                                color = Color(0xFF2563EB),
+                                color = Color(0xFF00D2FF),
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
@@ -1449,7 +1444,7 @@ fun QuantumGyroCard(
 }
 
 // -------------------------------------------------------------
-// DUAL LASER RIVER OSCILLOSCOPE (SAPPHIRE BLUE & CRIMSON RED)
+// DUAL LASER RIVER OSCILLOSCOPE (CYAN & CRIMSON)
 // -------------------------------------------------------------
 
 @Composable
@@ -1507,9 +1502,8 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
 
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = Color(0xFFFFFFFF),
-        shadowElevation = 2.dp,
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        color = Color(0x18111624),
+        border = BorderStroke(1.dp, Color(0x1AFFFFFF)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -1519,19 +1513,19 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
             ) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0x102563EB),
-                    border = BorderStroke(1.dp, Color(0x332563EB)),
+                    color = Color(0x1800D2FF),
+                    border = BorderStroke(1.dp, Color(0x3300D2FF)),
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        Text("DOWNLOAD", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB), letterSpacing = 1.sp)
+                        Text("DOWNLOAD", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFF00D2FF), letterSpacing = 1.sp)
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
                                 text = splitSpeedValue(rawRxRate),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color(0xFF0F172A),
+                                color = Color.White,
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.width(3.dp))
@@ -1539,7 +1533,7 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
                                 text = splitSpeedUnit(rawRxRate),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF2563EB),
+                                color = Color(0xFF00D2FF),
                                 fontFamily = FontFamily.Monospace
                             )
                         }
@@ -1554,19 +1548,19 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
 
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0x10EF4444),
-                    border = BorderStroke(1.dp, Color(0x33EF4444)),
+                    color = Color(0x18FF2A55),
+                    border = BorderStroke(1.dp, Color(0x33FF2A55)),
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        Text("UPLOAD", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFFEF4444), letterSpacing = 1.sp)
+                        Text("UPLOAD", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFFFF2A55), letterSpacing = 1.sp)
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
                                 text = splitSpeedValue(rawTxRate),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color(0xFF0F172A),
+                                color = Color.White,
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.width(3.dp))
@@ -1574,7 +1568,7 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
                                 text = splitSpeedUnit(rawTxRate),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFEF4444),
+                                color = Color(0xFFFF2A55),
                                 fontFamily = FontFamily.Monospace
                             )
                         }
@@ -1590,14 +1584,14 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Dual Sine Wave River (Blue & Red)
+            // Dynamic Dual Sine Wave River Canvas (Cyan & Crimson)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF8FAFC))
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                    .background(Color(0x0EFFFFFF))
+                    .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(12.dp))
             ) {
                 Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
                     val w = size.width
@@ -1625,12 +1619,12 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
                     fill1.close()
 
                     if (isProxyActive) {
-                        drawPath(fill1, Brush.verticalGradient(listOf(Color(0x20EF4444), Color.Transparent)))
+                        drawPath(fill1, Brush.verticalGradient(listOf(Color(0x22FF2A55), Color.Transparent)))
                     }
                     drawPath(
                         path = path1,
-                        color = if (isProxyActive) Color(0xFFEF4444) else Color(0x33CBD5E1),
-                        style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                        color = if (isProxyActive) Color(0xFFFF2A55) else Color(0x22475569),
+                        style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
                     )
 
                     val path2 = Path()
@@ -1653,14 +1647,14 @@ fun QuantumLaserOscilloscope(isProxyActive: Boolean) {
                     fill2.close()
 
                     if (isProxyActive) {
-                        drawPath(fill2, Brush.verticalGradient(listOf(Color(0x282563EB), Color.Transparent)))
+                        drawPath(fill2, Brush.verticalGradient(listOf(Color(0x3500D2FF), Color.Transparent)))
                     }
                     drawPath(
                         path = path2,
                         brush = Brush.horizontalGradient(
                             listOf(
-                                if (isProxyActive) Color(0xFF2563EB) else Color(0x4494A3B8),
-                                if (isProxyActive) Color(0xFF0066FF) else Color(0x4494A3B8)
+                                if (isProxyActive) Color(0xFF00D2FF) else Color(0x33475569),
+                                if (isProxyActive) Color(0xFFFF2A55) else Color(0x33475569)
                             )
                         ),
                         style = Stroke(width = if (isProxyActive) 2.2.dp.toPx() else 1.2.dp.toPx(), cap = StrokeCap.Round)
@@ -1716,9 +1710,8 @@ fun ServerConfigView(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFFFFFFF),
-            shadowElevation = 2.dp,
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            color = Color(0x18111624),
+            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1728,7 +1721,7 @@ fun ServerConfigView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Server Health Check", fontSize = 13.5.sp, fontWeight = FontWeight.Black, color = Color(0xFF0F172A))
+                        Text("Server Health Check", fontSize = 13.5.sp, fontWeight = FontWeight.Black, color = Color.White)
                         Text("Direct socket test without starting tunnel", fontSize = 10.5.sp, color = Color(0xFF64748B))
                     }
 
@@ -1748,7 +1741,7 @@ fun ServerConfigView(
                         },
                         enabled = !isCheckingAlive,
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D2FF), contentColor = Color(0xFF05070E))
                     ) {
                         Text(
                             text = if (isCheckingAlive) "Testing..." else "Test Socket",
@@ -1764,13 +1757,13 @@ fun ServerConfigView(
                         is TestResult.Success -> {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = Color(0x182563EB),
-                                border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                                color = Color(0x2200D2FF),
+                                border = BorderStroke(1.dp, Color(0xFF00D2FF)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
                                     text = "PROXY ALIVE • ⚡ ${res.latencyMs} ms",
-                                    color = Color(0xFF2563EB),
+                                    color = Color(0xFF00D2FF),
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
@@ -1781,13 +1774,13 @@ fun ServerConfigView(
                         is TestResult.Failure -> {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = Color(0x18EF4444),
-                                border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                                color = Color(0x22FF2A55),
+                                border = BorderStroke(1.dp, Color(0xFFFF2A55)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
                                     text = "PROXY DEAD • ${res.error}",
-                                    color = Color(0xFFEF4444),
+                                    color = Color(0xFFFF2A55),
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
@@ -1803,9 +1796,8 @@ fun ServerConfigView(
 
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFFFFFFF),
-            shadowElevation = 2.dp,
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            color = Color(0x18111624),
+            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1814,18 +1806,18 @@ fun ServerConfigView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("SLOT P$activeSlot PARAMETERS", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB), letterSpacing = 1.sp)
+                    Text("SLOT P$activeSlot PARAMETERS", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = Color(0xFF00D2FF), letterSpacing = 1.sp)
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = Color(0x18EF4444),
-                        border = BorderStroke(1.dp, Color(0x40EF4444)),
+                        color = Color(0x22FF2A55),
+                        border = BorderStroke(1.dp, Color(0x55FF2A55)),
                         modifier = Modifier.clickable { onResetSlot() }
                     ) {
                         Text(
                             text = "Reset P$activeSlot",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color(0xFFEF4444),
+                            color = Color(0xFFFF2A55),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
@@ -1847,8 +1839,8 @@ fun ServerConfigView(
                             onClick = { onProxyTypeChange(t); onConfigChanged() },
                             label = { Text(t.name, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                selectedLabelColor = Color.White
+                                selectedContainerColor = Color(0xFF00D2FF),
+                                selectedLabelColor = Color(0xFF05070E)
                             )
                         )
                     }
@@ -1864,8 +1856,8 @@ fun ServerConfigView(
                         onClick = { onTransportModeChange(TransportMode.TCP_AND_UDP); onConfigChanged() },
                         label = { Text("TCP + UDP (WebRTC)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF2563EB),
-                            selectedLabelColor = Color.White
+                            selectedContainerColor = Color(0xFF00D2FF),
+                            selectedLabelColor = Color(0xFF05070E)
                         )
                     )
                     FilterChip(
@@ -1943,7 +1935,7 @@ fun ServerConfigView(
                                     Text(
                                         text = if (passVisible) "Hide" else "Show",
                                         fontSize = 11.sp,
-                                        color = Color(0xFF2563EB),
+                                        color = Color(0xFF00D2FF),
                                         modifier = Modifier.clickable { passVisible = !passVisible }.padding(end = 10.dp)
                                     )
                                 },
@@ -1975,7 +1967,7 @@ fun ServerConfigView(
                                 Text(
                                     text = if (passVisible) "Hide" else "Show",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF2563EB),
+                                    color = Color(0xFF00D2FF),
                                     modifier = Modifier.clickable { passVisible = !passVisible }.padding(end = 10.dp)
                                 )
                             },
@@ -2039,7 +2031,7 @@ fun ServerConfigView(
                                 Text(
                                     text = if (passVisible) "Hide" else "Show",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF2563EB),
+                                    color = Color(0xFF00D2FF),
                                     modifier = Modifier.clickable { passVisible = !passVisible }.padding(end = 10.dp)
                                 )
                             },
@@ -2095,13 +2087,12 @@ fun AppsMasterView(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFFFFFFF),
-            shadowElevation = 2.dp,
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            color = Color(0x18111624),
+            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("GLOBAL SYSTEM RULES", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB), letterSpacing = 1.sp)
+                Text("GLOBAL SYSTEM RULES", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = Color(0xFF00D2FF), letterSpacing = 1.sp)
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
@@ -2110,19 +2101,19 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Start on Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        Text("Auto-Start on Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Text(
                             text = if (startOnBoot) "P$bootSlot starts automatically on system boot" else "Disabled — tunnel starts manually",
                             fontSize = 11.sp,
-                            color = if (startOnBoot) Color(0xFF2563EB) else Color(0xFF64748B)
+                            color = if (startOnBoot) Color(0xFF00D2FF) else Color(0xFF64748B)
                         )
                     }
                     Switch(
                         checked = startOnBoot,
                         onCheckedChange = onStartOnBootChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF2563EB)
+                            checkedThumbColor = Color(0xFF05070E),
+                            checkedTrackColor = Color(0xFF00D2FF)
                         )
                     )
                 }
@@ -2141,15 +2132,15 @@ fun AppsMasterView(
                                 onClick = { onBootSlotChange(s) },
                                 label = { Text("P$s", fontSize = 11.sp, fontWeight = FontWeight.Black) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF2563EB),
-                                    selectedLabelColor = Color.White
+                                    selectedContainerColor = Color(0xFF00D2FF),
+                                    selectedLabelColor = Color(0xFF05070E)
                                 )
                             )
                         }
                     }
                 }
 
-                Divider(color = Color(0xFFE2E8F0), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
+                Divider(color = Color(0x14FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2157,19 +2148,19 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Share via Hotspot / Tethering", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        Text("Share via Hotspot / Tethering", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Text(
                             text = "Route laptop & connected Wi-Fi/USB clients",
                             fontSize = 11.sp,
-                            color = if (routeHotspot) Color(0xFF2563EB) else Color(0xFF64748B)
+                            color = if (routeHotspot) Color(0xFF00D2FF) else Color(0xFF64748B)
                         )
                     }
                     Switch(
                         checked = routeHotspot,
                         onCheckedChange = onRouteHotspotChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF2563EB)
+                            checkedThumbColor = Color(0xFF05070E),
+                            checkedTrackColor = Color(0xFF00D2FF)
                         )
                     )
                 }
@@ -2178,9 +2169,8 @@ fun AppsMasterView(
 
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFFFFFFF),
-            shadowElevation = 2.dp,
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            color = Color(0x18111624),
+            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
             modifier = Modifier.fillMaxWidth().weight(1f)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -2190,7 +2180,7 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Route Entire Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        Text("Route Entire Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Text(
                             text = if (routeWholeProfile) "All applications tunneled" else "Per-App filter active (${selectedPackages.size} selected)",
                             fontSize = 11.sp,
@@ -2201,8 +2191,8 @@ fun AppsMasterView(
                         checked = routeWholeProfile,
                         onCheckedChange = onRouteWholeProfileChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF2563EB)
+                            checkedThumbColor = Color(0xFF05070E),
+                            checkedTrackColor = Color(0xFF00D2FF)
                         )
                     )
                 }
@@ -2232,8 +2222,8 @@ fun AppsMasterView(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        TextButton(onClick = onSelectAll) { Text("Select All", color = Color(0xFF2563EB), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                        TextButton(onClick = onClearAll) { Text("Clear All", color = Color(0xFF64748B), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = onSelectAll) { Text("Select All", color = Color(0xFF00D2FF), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = onClearAll) { Text("Clear All", color = Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     }
 
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -2248,19 +2238,19 @@ fun AppsMasterView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(app.name, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text(app.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     Text("${app.packageName} • UID ${app.uid}", color = Color(0xFF64748B), fontSize = 10.sp)
                                 }
                                 Checkbox(
                                     checked = isChecked,
                                     onCheckedChange = { onToggleAppSelection(app.packageName) },
                                     colors = CheckboxDefaults.colors(
-                                        checkedColor = Color(0xFF2563EB),
-                                        checkmarkColor = Color.White
+                                        checkedColor = Color(0xFF00D2FF),
+                                        checkmarkColor = Color(0xFF05070E)
                                     )
                                 )
                             }
-                            Divider(color = Color(0xFFF1F5F9), thickness = 0.5.dp)
+                            Divider(color = Color(0x0EFFFFFF), thickness = 0.5.dp)
                         }
                     }
                 }
@@ -2276,11 +2266,11 @@ fun AppsMasterView(
 // -------------------------------------------------------------
 
 @Composable
-fun RedBlueStatusBadge(label: String, color: Color) {
+fun RedBlueDarkStatusBadge(label: String, color: Color) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFFF1F5F9),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        color = Color(0x18FFFFFF),
+        border = BorderStroke(1.dp, Color(0x22FFFFFF))
     ) {
         Text(
             text = label,
@@ -2313,7 +2303,7 @@ fun RedBlueActiveTimer() {
         text = timeStr,
         fontFamily = FontFamily.Monospace,
         fontSize = 12.sp,
-        color = Color(0xFF2563EB),
+        color = Color(0xFF00D2FF),
         fontWeight = FontWeight.Black
     )
 }
