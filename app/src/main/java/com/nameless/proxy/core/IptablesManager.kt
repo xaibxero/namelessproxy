@@ -21,22 +21,22 @@ object IptablesManager {
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        // Strictly target User Installed Apps (10000-19999 and isolated 90000-99999).
-        // Never touch UIDs 0-9999 (RIL Radio 1001, NetworkStack 1073, System 1000).
+        // App UIDs range (excludes system daemons & telephony RIL)
         val appStart = user * 100000 + 10000
         val appEnd = user * 100000 + 19999
         val isolatedStart = user * 100000 + 90000
         val isolatedEnd = user * 100000 + 99999
 
-        val tableId = 1000 + (user * 10) + slot
-        val markHex = "0x" + Integer.toHexString(0x20000 + (user * 0x100) + slot)
+        // Safe table and mark range to avoid colliding with Android's reserved bits
+        val tableId = 2000 + slot
+        val markHex = "0x" + Integer.toHexString(0x1000 + slot)
 
         val commands = mutableListOf<String>()
 
         // 1. Flush existing rules
         commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. Safe Loopback Settings (Never touch cellular rmnet interfaces)
+        // 2. Loopback Settings
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/lo/rp_filter 2>/dev/null")
         commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
@@ -56,11 +56,9 @@ object IptablesManager {
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 5. App Outbound UDP Interception (Protects System UIDs 0-9999)
+        // 5. Outbound Mangle Rules
         commands.add("iptables -t mangle -N $chainOutMangle")
-        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
-        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
-
+        
         val reservedV4 = listOf(
             "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
             "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
@@ -71,6 +69,12 @@ object IptablesManager {
         if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
             commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host} -j RETURN")
         }
+
+        // Intercept all UDP Port 53 DNS queries to prevent carrier leakage
+        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
+
+        // Exclude Android System/RIL (UIDs 0-9999) from regular UDP proxying to avoid 4G flapping
+        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
 
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             if (selectedUids.isNullOrEmpty()) {
@@ -86,8 +90,8 @@ object IptablesManager {
 
         // 6. WebRTC Shield (TCP Only Mode for Phone)
         commands.add("iptables -N $chainFilter 2>/dev/null")
-        commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
+        commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
 
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
@@ -101,17 +105,20 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 7. Phone's Local TCP Redirection (10800)
+        // 7. Local TCP Redirection (Port 10800)
         commands.add("iptables -t nat -N $chainNatV4")
-        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
-        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-
         for (range in reservedV4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
         }
         if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
             commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
         }
+
+        // Intercept all TCP Port 53 DNS queries
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+
+        // Exclude system daemons from regular TCP redirection
+        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
 
         if (selectedUids.isNullOrEmpty()) {
             commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
@@ -138,8 +145,8 @@ object IptablesManager {
             commands.add("ip6tables -I OUTPUT 1 -j $chainV6Filter")
         } else {
             commands.add("ip6tables -t nat -N $chainNatV6")
-            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
 
@@ -214,8 +221,8 @@ object IptablesManager {
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val tableId = 1000 + (user * 10) + slot
-        val markHex = "0x" + Integer.toHexString(0x20000 + (user * 0x100) + slot)
+        val tableId = 2000 + slot
+        val markHex = "0x" + Integer.toHexString(0x1000 + slot)
 
         return listOf(
             "ip6tables -D FORWARD -j $chainHotspotV6Block 2>/dev/null",
