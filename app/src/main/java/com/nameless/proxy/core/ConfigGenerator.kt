@@ -67,7 +67,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Native TUN Inbound (Modern sing-box 1.13+ compatible)
+        // 3. Inbounds: Native TUN Inbound (Free of deprecated 1.13+ legacy fields)
         val inbounds = JSONArray()
         val tunInbound = JSONObject().apply {
             put("type", "tun")
@@ -80,12 +80,9 @@ object ConfigGenerator {
             put("auto_route", true)
             put("strict_route", true)
             put("stack", "mixed")
-            put("sniff", true)
-            put("sniff_override_destination", true)
         }
         inbounds.put(tunInbound)
 
-        // Internal SOCKS for diagnostics
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -194,7 +191,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (Compatible with 1.13+ rule actions)
         val route = JSONObject().apply {
             put("auto_detect_interface", true)
             put("default_domain_resolver", "dns-remote")
