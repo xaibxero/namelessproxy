@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 3. Inbounds (Both Redirect & TProxy bound to inboundPort)
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -97,7 +97,11 @@ object ConfigGenerator {
             put("tag", "tproxy-in")
             put("listen", listenAddress)
             put("listen_port", inboundPort)
-            put("network", "udp")
+            val netArray = JSONArray().apply {
+                put("tcp")
+                put("udp")
+            }
+            put("network", netArray)
         }
         inbounds.put(tproxyInbound)
 
@@ -209,8 +213,9 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (auto_detect_interface false stops cellular crashes)
         val route = JSONObject().apply {
+            put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
