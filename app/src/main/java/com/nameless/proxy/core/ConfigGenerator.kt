@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Distinct ports prevent "bind: address already in use"
+        // 3. Inbounds: Separated ports prevent port collision crashes
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -93,12 +93,12 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // TProxy UDP & Hotspot on dedicated port inboundPort + 4 (10804)
+        // TProxy UDP & Hotspot on dedicated port inboundPort + 8 (10808)
         val tproxyInbound = JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
             put("listen", listenAddress)
-            put("listen_port", inboundPort + 4)
+            put("listen_port", inboundPort + 8)
             val netArray = JSONArray().apply {
                 put("tcp")
                 put("udp")
@@ -216,7 +216,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (auto_detect_interface: false fixes cellular data crashes)
+        // 5. Routing Rules (auto_detect_interface false stops cellular 4G crashes)
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-remote")
