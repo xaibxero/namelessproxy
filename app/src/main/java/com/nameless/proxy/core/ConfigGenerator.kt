@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds (Both Redirect & TProxy bound to inboundPort)
+        // 3. Inbounds: Separated ports prevent "bind: address already in use"
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
@@ -84,6 +84,7 @@ object ConfigGenerator {
 
         val inbounds = JSONArray()
 
+        // Local TCP Redirect on inboundPort (10800)
         val redirectInbound = JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -92,11 +93,12 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
+        // TProxy UDP & Hotspot on dedicated port inboundPort + 8 (10808)
         val tproxyInbound = JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
             put("listen", listenAddress)
-            put("listen_port", inboundPort)
+            put("listen_port", inboundPort + 8)
             val netArray = JSONArray().apply {
                 put("tcp")
                 put("udp")
@@ -105,6 +107,7 @@ object ConfigGenerator {
         }
         inbounds.put(tproxyInbound)
 
+        // Internal SOCKS on inboundPort + 1 (10801)
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -213,7 +216,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (auto_detect_interface false stops cellular crashes)
+        // 5. Routing Rules (auto_detect_interface false prevents 4G crashes)
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-remote")
