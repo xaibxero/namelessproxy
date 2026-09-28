@@ -75,7 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Separated ports prevent port collision crashes
+        // 3. Inbounds: Separated ports prevent "bind: address already in use"
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK -> "::"
