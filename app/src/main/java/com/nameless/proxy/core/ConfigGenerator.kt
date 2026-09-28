@@ -67,7 +67,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Native TUN Inbound (Eliminates 4G flapping, DNS/WebRTC leaks)
+        // 3. Inbounds: Native TUN Inbound (Modern sing-box 1.13+ compatible)
         val inbounds = JSONArray()
         val tunInbound = JSONObject().apply {
             put("type", "tun")
@@ -85,6 +85,7 @@ object ConfigGenerator {
         }
         inbounds.put(tunInbound)
 
+        // Internal SOCKS for diagnostics
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -193,7 +194,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules with anti-loop & DNS hijack
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", true)
             put("default_domain_resolver", "dns-remote")
