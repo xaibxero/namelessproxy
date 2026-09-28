@@ -93,12 +93,12 @@ object ConfigGenerator {
         }
         inbounds.put(redirectInbound)
 
-        // TProxy UDP & Hotspot on dedicated port inboundPort + 8 (10808)
+        // TProxy UDP & Hotspot on dedicated port inboundPort + 4 (10804)
         val tproxyInbound = JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
             put("listen", listenAddress)
-            put("listen_port", inboundPort + 8)
+            put("listen_port", inboundPort + 4)
             val netArray = JSONArray().apply {
                 put("tcp")
                 put("udp")
@@ -216,7 +216,7 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (auto_detect_interface false stops cellular 4G crashes)
+        // 5. Routing Rules (auto_detect_interface false stops cellular crashes)
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-remote")
