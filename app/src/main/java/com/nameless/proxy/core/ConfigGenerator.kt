@@ -37,10 +37,6 @@ object ConfigGenerator {
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
-        val user = ProfileManager.androidUserId
-        val slot = ProfileManager.activeSlot
-        val slotId = user * ProfileManager.MAX_SLOTS + slot
-
         // 1. Logging
         val log = JSONObject().apply {
             put("level", "info")
@@ -48,37 +44,27 @@ object ConfigGenerator {
         }
         root.put("log", log)
 
-        // 2. DNS Engine
+        // 2. DNS Engine (Remote DNS routed through US proxy)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        // Local DNS: Used exclusively for connectivity probes and proxy hostname resolution
-        dnsServers.put(JSONObject().apply {
-            put("tag", "dns-local")
-            put("type", "local")
-        })
-
-        // Remote DNS: Securely routed through proxy tunnel for all applications and browsers
-        dnsServers.put(JSONObject().apply {
+        val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
             put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
-        })
-        dns.put("servers", dnsServers)
+        }
+        dnsServers.put(remoteDns)
 
-        // DNS Rules: Allow Android connectivity checks to resolve directly so 4G never flaps
-        val dnsRules = JSONArray()
-        dnsRules.put(JSONObject().apply {
-            val probeDomains = JSONArray().apply {
-                put("connectivitycheck.gstatic.com")
-                put("clients3.google.com")
-            }
-            put("domain_suffix", probeDomains)
-            put("server", "dns-local")
-        })
-        dns.put("rules", dnsRules)
+        val directDns = JSONObject().apply {
+            put("tag", "dns-direct")
+            put("type", "udp")
+            put("server", "1.1.1.1")
+            put("server_port", 53)
+        }
+        dnsServers.put(directDns)
+        dns.put("servers", dnsServers)
 
         when (settings.ipMode) {
             IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
@@ -86,32 +72,39 @@ object ConfigGenerator {
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
         }
 
-        // All unhandled DNS resolves securely through the US proxy
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Clean TUN Inbound (Free of deprecated legacy fields and tagless-compatible)
-        val inbounds = JSONArray()
-        val ifaceName = "nlp${user}s${slot}"
-        val v4 = "172.19.${user % 200}.${slot * 4 + 1}/30"
-        val v6 = "fdfe:dcba:9876:${Integer.toHexString(slotId + 1)}::1/126"
-
-        val tunInbound = JSONObject().apply {
-            put("type", "tun")
-            put("tag", "tun-in")
-            put("interface_name", ifaceName)
-            put("address", JSONArray().apply {
-                put(v4)
-                put(v6)
-            })
-            put("auto_route", true)
-            put("strict_route", false)
-            put("iproute2_table_index", 3000 + slotId)
-            put("iproute2_rule_index", 9000 + slotId * 10)
+        // 3. Inbounds: Clean TCP Redirect (10800) + UDP TProxy (10808)
+        val listenAddress = when (settings.ipMode) {
+            IpMode.IPV4_ONLY -> "0.0.0.0"
+            IpMode.DUAL_STACK -> "::"
+            IpMode.IPV6_ONLY -> "::"
         }
-        inbounds.put(tunInbound)
 
-        // Internal SOCKS for diagnostics and in-app latency tester
+        val inbounds = JSONArray()
+
+        val redirectInbound = JSONObject().apply {
+            put("type", "redirect")
+            put("tag", "redirect-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort)
+        }
+        inbounds.put(redirectInbound)
+
+        val tproxyInbound = JSONObject().apply {
+            put("type", "tproxy")
+            put("tag", "tproxy-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort + 8)
+            val netArray = JSONArray().apply {
+                put("tcp")
+                put("udp")
+            }
+            put("network", netArray)
+        }
+        inbounds.put(tproxyInbound)
+
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -176,10 +169,6 @@ object ConfigGenerator {
                     put("enabled", true)
                     put("server_name", settings.sni.ifEmpty { settings.host })
                     if (settings.realityPublicKey.isNotEmpty()) {
-                        put("utls", JSONObject().apply {
-                            put("enabled", true)
-                            put("fingerprint", "chrome")
-                        })
                         val realityObj = JSONObject().apply {
                             put("enabled", true)
                             put("public_key", settings.realityPublicKey)
@@ -224,65 +213,35 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Modern sing-box 1.13+ rule actions)
+        // 5. Routing Rules (Compatible with sing-box 1.13+)
         val route = JSONObject().apply {
-            put("auto_detect_interface", true)
-            put("default_domain_resolver", "dns-local")
+            put("auto_detect_interface", false)
+            put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
 
-        // Sniff rule (mandatory first rule in sing-box 1.13+)
-        routeRules.put(JSONObject().apply {
+        val sniffRule = JSONObject().apply {
             put("action", "sniff")
-        })
-
-        // DNS Hijack rule: capture all port 53 traffic into sing-box DNS engine
-        routeRules.put(JSONObject().apply {
-            put("protocol", "dns")
-            put("action", "hijack-dns")
-        })
-
-        // Route Android connectivity probes directly
-        routeRules.put(JSONObject().apply {
-            val probeDomains = JSONArray().apply {
-                put("connectivitycheck.gstatic.com")
-                put("clients3.google.com")
-            }
-            put("domain_suffix", probeDomains)
-            put("outbound", "direct-out")
-        })
-
-        // LAN / private networks stay direct
-        routeRules.put(JSONObject().apply {
-            put("ip_is_private", true)
-            put("outbound", "direct-out")
-        })
-
-        // Direct outbound for proxy host to prevent routing loops
-        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-            val isIpv4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(settings.host)
-            if (isIpv4) {
-                routeRules.put(JSONObject().apply {
-                    put("ip_cidr", JSONArray().apply { put("${settings.host}/32") })
-                    put("outbound", "direct-out")
-                })
-            } else {
-                routeRules.put(JSONObject().apply {
-                    put("domain", JSONArray().apply { put(settings.host) })
-                    put("outbound", "direct-out")
-                })
-            }
         }
+        routeRules.put(sniffRule)
 
-        // WebRTC STUN and QUIC leak mitigation
+        val dnsRouteRule = JSONObject().apply {
+            val portArray = JSONArray().apply { put(53) }
+            put("port", portArray)
+            put("action", "hijack-dns")
+        }
+        routeRules.put(dnsRouteRule)
+
         if (settings.transportMode == TransportMode.TCP_ONLY) {
-            routeRules.put(JSONObject().apply {
+            val quicFallbackRule = JSONObject().apply {
                 put("network", "udp")
-                put("port", JSONArray().apply { put(443); put(3478) })
+                val portArray = JSONArray().apply { put(443); put(3478) }
+                put("port", portArray)
                 put("action", "reject")
-            })
+            }
+            routeRules.put(quicFallbackRule)
         }
 
         route.put("rules", routeRules)
