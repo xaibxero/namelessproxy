@@ -11,7 +11,7 @@ object IptablesManager {
         val slot = ProfileManager.activeSlot
         val key = "u${user}_s$slot"
 
-        val tproxyPort = inboundPort
+        val tproxyPort = inboundPort + 8
         val chainNatV4 = "NAMELESS_U${user}_S$slot"
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
         val chainPreMangle = "NAMELESS_PRE_$key"
@@ -35,7 +35,7 @@ object IptablesManager {
         commands.add("ndc resolver flushdefaultif 2>/dev/null")
         commands.add("conntrack -F 2>/dev/null")
 
-        // 2. Disable RP filter on all network interfaces (fixes cellular UDP martian packet drops)
+        // 2. Disable RP filter on all interfaces (avoids cellular UDP drop)
         commands.add("""
             for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
                 echo 0 > ${'$'}f 2>/dev/null
@@ -52,7 +52,7 @@ object IptablesManager {
             commands.add("ip -6 route add local ::/0 dev lo table $tableId")
         }
 
-        // 4. Intercept marked UDP/TCP packets in PREROUTING to sing-box TPROXY
+        // 4. Intercept marked UDP/TCP packets in PREROUTING to sing-box TPROXY (10808)
         commands.add("iptables -t mangle -N $chainPreMangle")
         commands.add("iptables -t mangle -A $chainPreMangle -p tcp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
@@ -100,7 +100,7 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -m owner --uid-owner $start-$end -j $chainFilter")
 
-        // 7. Phone's Local TCP Redirection (Rule #1 in OUTPUT)
+        // 7. Phone's Local TCP Redirection (Rule #1 in OUTPUT -> Port 10800)
         commands.add("iptables -t nat -N $chainNatV4")
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
@@ -149,7 +149,7 @@ object IptablesManager {
             commands.add("ip6tables -t nat -I OUTPUT 1 -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
         }
 
-        // 9. Hotspot Tethering Engine
+        // 9. Hotspot Tethering Engine -> Direct to TPROXY Port 10808
         if (settings.routeHotspot && user == 0) {
             commands.add("settings put global tether_offload_disabled 1 2>/dev/null")
             commands.add("setprop persist.sys.tether_offload 0 2>/dev/null")
