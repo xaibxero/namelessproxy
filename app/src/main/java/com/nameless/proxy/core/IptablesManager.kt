@@ -14,6 +14,7 @@ object IptablesManager {
         val tproxyPort = inboundPort + 8
         val chainNatV4 = "NAMELESS_U${user}_S$slot"
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
+        val chainOutMangle = "NAMELESS_OUT_$key"
         val chainFilter = "NAMELESS_FILTER_$key"
         val chainV6Filter = "NAMELESS_V6_FILTER_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
@@ -230,9 +231,9 @@ object IptablesManager {
             "iptables -t mangle -D PREROUTING -j NAMELESS_PRE_$key 2>/dev/null",
             "iptables -t mangle -F NAMELESS_PRE_$key 2>/dev/null",
             "iptables -t mangle -X NAMELESS_PRE_$key 2>/dev/null",
-            "iptables -t mangle -D OUTPUT -j $chainOutMangle 2>/dev/null",
-            "iptables -t mangle -F $chainOutMangle 2>/dev/null",
-            "iptables -t mangle -X $chainOutMangle 2>/dev/null",
+            "iptables -t mangle -D OUTPUT -j NAMELESS_OUT_$key 2>/dev/null",
+            "iptables -t mangle -F NAMELESS_OUT_$key 2>/dev/null",
+            "iptables -t mangle -X NAMELESS_OUT_$key 2>/dev/null",
 
             "ip rule del fwmark $markHex table $tableId 2>/dev/null",
             "ip route flush table $tableId 2>/dev/null",
