@@ -52,38 +52,32 @@ object ConfigGenerator {
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        // Direct DNS for connectivity checks and resolving the proxy server itself
-        val directDns = JSONObject().apply {
-            put("tag", "dns-direct")
-            put("type", "udp")
-            put("server", "1.1.1.1")
-            put("server_port", 53)
-            put("detour", "direct-out")
-        }
-        dnsServers.put(directDns)
+        // Local DNS: Used exclusively for connectivity probes and proxy hostname resolution
+        dnsServers.put(JSONObject().apply {
+            put("tag", "dns-local")
+            put("type", "local")
+        })
 
-        // Remote DNS routed through the US proxy for all apps and browsers
-        val remoteDns = JSONObject().apply {
+        // Remote DNS: Securely routed through proxy tunnel for all applications and browsers
+        dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
             put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
-        }
-        dnsServers.put(remoteDns)
+        })
         dns.put("servers", dnsServers)
 
-        // DNS Rules: Keep connectivity probes alive to prevent 4G flapping; proxy everything else
+        // DNS Rules: Allow Android connectivity checks to resolve directly so 4G never flaps
         val dnsRules = JSONArray()
-        val probeRule = JSONObject().apply {
-            val domainArray = JSONArray().apply {
+        dnsRules.put(JSONObject().apply {
+            val probeDomains = JSONArray().apply {
                 put("connectivitycheck.gstatic.com")
                 put("clients3.google.com")
             }
-            put("domain_suffix", domainArray)
-            put("server", "dns-direct")
-        }
-        dnsRules.put(probeRule)
+            put("domain_suffix", probeDomains)
+            put("server", "dns-local")
+        })
         dns.put("rules", dnsRules)
 
         when (settings.ipMode) {
@@ -92,10 +86,11 @@ object ConfigGenerator {
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
         }
 
+        // All unhandled DNS resolves securely through the US proxy
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Clean TUN Mode (sing-box 1.13+ compatible, no deprecated fields)
+        // 3. Inbounds: Clean TUN Inbound (Free of deprecated legacy fields and tagless-compatible)
         val inbounds = JSONArray()
         val ifaceName = "nlp${user}s${slot}"
         val v4 = "172.19.${user % 200}.${slot * 4 + 1}/30"
@@ -105,11 +100,10 @@ object ConfigGenerator {
             put("type", "tun")
             put("tag", "tun-in")
             put("interface_name", ifaceName)
-            val addressArray = JSONArray().apply {
+            put("address", JSONArray().apply {
                 put(v4)
                 put(v6)
-            }
-            put("address", addressArray)
+            })
             put("auto_route", true)
             put("strict_route", false)
             put("iproute2_table_index", 3000 + slotId)
@@ -117,7 +111,7 @@ object ConfigGenerator {
         }
         inbounds.put(tunInbound)
 
-        // Local SOCKS listener for in-app latency checks
+        // Internal SOCKS for diagnostics and in-app latency tester
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -230,43 +224,43 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Action sniff is defined here, NOT inside inbound)
+        // 5. Routing Rules (Modern sing-box 1.13+ rule actions)
         val route = JSONObject().apply {
             put("auto_detect_interface", true)
-            put("default_domain_resolver", "dns-direct")
+            put("default_domain_resolver", "dns-local")
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
 
-        // Sniff rule (Required first in sing-box 1.13+)
+        // Sniff rule (mandatory first rule in sing-box 1.13+)
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
         })
 
-        // DNS Hijack rule: capture all port 53 traffic into the sing-box DNS engine
+        // DNS Hijack rule: capture all port 53 traffic into sing-box DNS engine
         routeRules.put(JSONObject().apply {
             put("protocol", "dns")
             put("action", "hijack-dns")
         })
 
-        // Direct connectivity probes to avoid mobile data teardowns
+        // Route Android connectivity probes directly
         routeRules.put(JSONObject().apply {
-            val domainArray = JSONArray().apply {
+            val probeDomains = JSONArray().apply {
                 put("connectivitycheck.gstatic.com")
                 put("clients3.google.com")
             }
-            put("domain_suffix", domainArray)
+            put("domain_suffix", probeDomains)
             put("outbound", "direct-out")
         })
 
-        // Private LAN addresses route direct
+        // LAN / private networks stay direct
         routeRules.put(JSONObject().apply {
             put("ip_is_private", true)
             put("outbound", "direct-out")
         })
 
-        // Prevent proxy server connection loops
+        // Direct outbound for proxy host to prevent routing loops
         if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
             val isIpv4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(settings.host)
             if (isIpv4) {
@@ -282,7 +276,7 @@ object ConfigGenerator {
             }
         }
 
-        // WebRTC STUN Protection
+        // WebRTC STUN and QUIC leak mitigation
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             routeRules.put(JSONObject().apply {
                 put("network", "udp")
