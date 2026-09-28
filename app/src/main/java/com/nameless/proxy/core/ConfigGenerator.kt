@@ -56,6 +56,14 @@ object ConfigGenerator {
             put("detour", "proxy-out")
         }
         dnsServers.put(remoteDns)
+
+        val directDns = JSONObject().apply {
+            put("tag", "dns-direct")
+            put("type", "udp")
+            put("server", "1.1.1.1")
+            put("server_port", 53)
+        }
+        dnsServers.put(directDns)
         dns.put("servers", dnsServers)
 
         when (settings.ipMode) {
@@ -67,25 +75,36 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Native TUN Inbound (Zero 4G flapping, zero DNS/WebRTC leaks)
-        val inbounds = JSONArray()
-        val tunInbound = JSONObject().apply {
-            put("type", "tun")
-            put("tag", "tun-in")
-            put("interface_name", "tun0")
-            val addressArray = JSONArray().apply {
-                put("172.19.0.1/28")
-            }
-            put("address", addressArray)
-            put("auto_route", true)
-            put("strict_route", true)
-            put("stack", "mixed")
-            put("sniff", true)
-            put("sniff_override_destination", true)
+        // 3. Inbounds: Separated ports prevent address collisions
+        val listenAddress = when (settings.ipMode) {
+            IpMode.IPV4_ONLY -> "0.0.0.0"
+            IpMode.DUAL_STACK -> "::"
+            IpMode.IPV6_ONLY -> "::"
         }
-        inbounds.put(tunInbound)
 
-        // Internal SOCKS for local diagnostics
+        val inbounds = JSONArray()
+
+        val redirectInbound = JSONObject().apply {
+            put("type", "redirect")
+            put("tag", "redirect-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort)
+        }
+        inbounds.put(redirectInbound)
+
+        val tproxyInbound = JSONObject().apply {
+            put("type", "tproxy")
+            put("tag", "tproxy-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort + 8)
+            val netArray = JSONArray().apply {
+                put("tcp")
+                put("udp")
+            }
+            put("network", netArray)
+        }
+        inbounds.put(tproxyInbound)
+
         val internalSocksInbound = JSONObject().apply {
             put("type", "socks")
             put("tag", "internal-socks-in")
@@ -194,9 +213,9 @@ object ConfigGenerator {
         outbounds.put(directOutbound)
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Native DNS hijacking & auto interface binding)
+        // 5. Routing Rules
         val route = JSONObject().apply {
-            put("auto_detect_interface", true)
+            put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
