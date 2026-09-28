@@ -11,7 +11,7 @@ object IptablesManager {
         val slot = ProfileManager.activeSlot
         val key = "u${user}_s$slot"
 
-        val tproxyPort = inboundPort + 8
+        val tproxyPort = inboundPort + 4
         val chainNatV4 = "NAMELESS_U${user}_S$slot"
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
         val chainPreMangle = "NAMELESS_PRE_$key"
@@ -21,27 +21,26 @@ object IptablesManager {
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val start = user * 100000
-        val end = start + 99999
+        // Explicit app UID boundaries: Never touch system daemons or Telephony RIL (UID 0-9999)
+        val appStart = user * 100000 + 10000
+        val appEnd = user * 100000 + 19999
+        val isolatedStart = user * 100000 + 90000
+        val isolatedEnd = user * 100000 + 99999
 
         val tableId = 1000 + (user * 10) + slot
         val markHex = "0x" + Integer.toHexString(0x20000 + (user * 0x100) + slot)
 
         val commands = mutableListOf<String>()
 
-        // 1. Flush existing rules and stale socket caches
+        // 1. Flush old slot rules
         commands.addAll(generateDisableCommands(user, slot))
         commands.add("ip route flush cache 2>/dev/null")
-        commands.add("ndc resolver flushdefaultif 2>/dev/null")
-        commands.add("conntrack -F 2>/dev/null")
 
-        // 2. Disable RP filter on all interfaces (avoids cellular UDP drop)
-        commands.add("""
-            for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
-                echo 0 > ${'$'}f 2>/dev/null
-            done
-            echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null
-        """.trimIndent())
+        // 2. Safely configure loopback & non-cellular rp_filter (never touch rmnet/cellular interfaces)
+        commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null")
+        commands.add("echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null")
+        commands.add("echo 0 > /proc/sys/net/ipv4/conf/lo/rp_filter 2>/dev/null")
+        commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
 
         // 3. Policy Routing for TPROXY
         commands.add("ip rule add fwmark $markHex table $tableId pref 100")
@@ -52,15 +51,16 @@ object IptablesManager {
             commands.add("ip -6 route add local ::/0 dev lo table $tableId")
         }
 
-        // 4. Intercept marked UDP/TCP packets in PREROUTING to sing-box TPROXY (10808)
+        // 4. Intercept marked UDP/TCP packets in PREROUTING to sing-box TPROXY (10804)
         commands.add("iptables -t mangle -N $chainPreMangle")
         commands.add("iptables -t mangle -A $chainPreMangle -p tcp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 5. Mark Phone's Local Outbound UDP
+        // 5. Exclude system UIDs and mark Phone's App Outbound UDP
         commands.add("iptables -t mangle -N $chainOutMangle")
-        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0 -j RETURN")
+        // NEVER route Android System, Telephony RIL, NetworkStack, or Root (UID 0 - 9999)
+        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
         val reservedV4 = listOf(
@@ -76,33 +76,37 @@ object IptablesManager {
 
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp -j MARK --set-mark $markHex")
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
             } else {
                 for (uid in selectedUids) {
                     commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $uid -j MARK --set-mark $markHex")
                 }
             }
         }
-        commands.add("iptables -t mangle -I OUTPUT 1 -m owner --uid-owner $start-$end -j $chainOutMangle")
+        commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
         // 6. WebRTC Shield (TCP Only Mode for Phone)
         commands.add("iptables -N $chainFilter 2>/dev/null")
+        commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
 
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -A $chainFilter -p udp -j DROP")
+                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $appStart-$appEnd -j DROP")
+                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j DROP")
             } else {
                 for (uid in selectedUids) {
                     commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
                 }
             }
         }
-        commands.add("iptables -I OUTPUT 1 -m owner --uid-owner $start-$end -j $chainFilter")
+        commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 7. Phone's Local TCP Redirection (Rule #1 in OUTPUT -> Port 10800)
+        // 7. Phone's Local TCP Redirection (Port 10800)
         commands.add("iptables -t nat -N $chainNatV4")
-        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0 -j RETURN")
+        // NEVER redirect System / Telephony / Radio (UID 0 - 9999) to prevent cellular reset
+        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
 
         for (range in reservedV4) {
@@ -113,46 +117,49 @@ object IptablesManager {
         }
 
         if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -t nat -A $chainNatV4 -p tcp -j REDIRECT --to-ports $inboundPort")
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $isolatedStart-$isolatedEnd -j REDIRECT --to-ports $inboundPort")
         } else {
             for (uid in selectedUids) {
                 commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
             }
         }
-        commands.add("iptables -t nat -I OUTPUT 1 -p tcp -m owner --uid-owner $start-$end -j $chainNatV4")
+        commands.add("iptables -t nat -I OUTPUT 1 -j $chainNatV4")
 
         // 8. IPv6 Leak Shield
         if (settings.ipMode == IpMode.IPV4_ONLY) {
             commands.add("ip6tables -N $chainV6Filter 2>/dev/null")
+            commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner 0-9999 -j RETURN")
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("ip6tables -A $chainV6Filter -j DROP")
+                commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $appStart-$appEnd -j DROP")
+                commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $isolatedStart-$isolatedEnd -j DROP")
             } else {
                 for (uid in selectedUids) {
                     commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $uid -j DROP")
                 }
             }
-            commands.add("ip6tables -I OUTPUT 1 -m owner --uid-owner $start-$end -j $chainV6Filter")
+            commands.add("ip6tables -I OUTPUT 1 -j $chainV6Filter")
         } else {
             commands.add("ip6tables -t nat -N $chainNatV6")
-            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0 -j RETURN")
+            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
 
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -j REDIRECT --to-ports $inboundPort")
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $isolatedStart-$isolatedEnd -j REDIRECT --to-ports $inboundPort")
             } else {
                 for (uid in selectedUids) {
                     commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
                 }
             }
-            commands.add("ip6tables -t nat -I OUTPUT 1 -p tcp -m owner --uid-owner $start-$end -j $chainNatV6")
+            commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6")
         }
 
-        // 9. Hotspot Tethering Engine -> Direct to TPROXY Port 10808
+        // 9. Hotspot Tethering Engine -> Direct to TPROXY Port 10804
         if (settings.routeHotspot && user == 0) {
             commands.add("settings put global tether_offload_disabled 1 2>/dev/null")
-            commands.add("setprop persist.sys.tether_offload 0 2>/dev/null")
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward")
             commands.add("echo 0 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null")
 
@@ -212,9 +219,6 @@ object IptablesManager {
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val start = user * 100000
-        val end = start + 99999
-
         val tableId = 1000 + (user * 10) + slot
         val markHex = "0x" + Integer.toHexString(0x20000 + (user * 0x100) + slot)
 
@@ -227,18 +231,18 @@ object IptablesManager {
             "iptables -t mangle -F $chainHotspotMangle 2>/dev/null",
             "iptables -t mangle -X $chainHotspotMangle 2>/dev/null",
 
-            "iptables -D OUTPUT -m owner --uid-owner $start-$end -j $chainFilter 2>/dev/null",
+            "iptables -D OUTPUT -j $chainFilter 2>/dev/null",
             "iptables -F $chainFilter 2>/dev/null",
             "iptables -X $chainFilter 2>/dev/null",
 
-            "iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV4 2>/dev/null",
+            "iptables -t nat -D OUTPUT -j $chainNatV4 2>/dev/null",
             "iptables -t nat -F $chainNatV4 2>/dev/null",
             "iptables -t nat -X $chainNatV4 2>/dev/null",
 
             "iptables -t mangle -D PREROUTING -j $chainPreMangle 2>/dev/null",
             "iptables -t mangle -F $chainPreMangle 2>/dev/null",
             "iptables -t mangle -X $chainPreMangle 2>/dev/null",
-            "iptables -t mangle -D OUTPUT -m owner --uid-owner $start-$end -j $chainOutMangle 2>/dev/null",
+            "iptables -t mangle -D OUTPUT -j $chainOutMangle 2>/dev/null",
             "iptables -t mangle -F $chainOutMangle 2>/dev/null",
             "iptables -t mangle -X $chainOutMangle 2>/dev/null",
 
@@ -247,11 +251,11 @@ object IptablesManager {
             "ip -6 rule del fwmark $markHex table $tableId 2>/dev/null",
             "ip -6 route flush table $tableId 2>/dev/null",
 
-            "ip6tables -D OUTPUT -m owner --uid-owner $start-$end -j $chainV6Filter 2>/dev/null",
+            "ip6tables -D OUTPUT -j $chainV6Filter 2>/dev/null",
             "ip6tables -F $chainV6Filter 2>/dev/null",
             "ip6tables -X $chainV6Filter 2>/dev/null",
 
-            "ip6tables -t nat -D OUTPUT -p tcp -m owner --uid-owner $start-$end -j $chainNatV6 2>/dev/null",
+            "ip6tables -t nat -D OUTPUT -j $chainNatV6 2>/dev/null",
             "ip6tables -t nat -F $chainNatV6 2>/dev/null",
             "ip6tables -t nat -X $chainNatV6 2>/dev/null"
         )
