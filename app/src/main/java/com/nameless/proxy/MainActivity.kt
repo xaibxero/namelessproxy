@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
@@ -36,7 +37,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -74,18 +77,85 @@ data class AppItem(
     val uid: Int
 )
 
-// Cyber-Obsidian Theme Palette
-private val BgObsidian = Color(0xFF04070F)
-private val CardSurface = Color(0xCC0B111E)
-private val CardSurfaceElevated = Color(0xE6111A2E)
-private val CyberEmerald = Color(0xFF00F5A0)
-private val CyberCyan = Color(0xFF00D9F5)
-private val CyberIndigo = Color(0xFF6366F1)
-private val CyberAmber = Color(0xFFF59E0B)
-private val CyberCrimson = Color(0xFFFF3366)
-private val TextPrimary = Color(0xFFF8FAFC)
-private val TextSecondary = Color(0xFF94A3B8)
-private val TextMuted = Color(0xFF64748B)
+private val ProxyType.displayName: String
+    get() = when (this) {
+        ProxyType.SOCKS5 -> "SOCKS5"
+        ProxyType.SOCKS4 -> "SOCKS4"
+        ProxyType.HTTP -> "HTTP"
+        ProxyType.SHADOWSOCKS -> "Shadowsocks"
+        ProxyType.VLESS -> "VLESS"
+        ProxyType.TROJAN -> "Trojan"
+        ProxyType.HYSTERIA2 -> "Hysteria 2"
+    }
+
+// Royal Violet + Mint Aqua + Soft Alabaster / Velvet Studio Palette
+data class StudioPalette(
+    val isLight: Boolean,
+    val bgCanvas: Color,
+    val bgSecondary: Color,
+    val cardSurface: Color,
+    val cardTintedViolet: Color,
+    val cardTintedMint: Color,
+    val fieldBackground: Color,
+    val primaryViolet: Color,
+    val deepViolet: Color,
+    val softLavender: Color,
+    val mintAqua: Color,
+    val mintDeep: Color,
+    val rosePink: Color,
+    val sunnyAmber: Color,
+    val coralRed: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val textMuted: Color,
+    val borderSubtle: Color
+)
+
+private val LightStudioPalette = StudioPalette(
+    isLight = true,
+    bgCanvas = Color(0xFFF3F0FF),
+    bgSecondary = Color(0xFFE9E3FF),
+    cardSurface = Color(0xFFFFFFFF),
+    cardTintedViolet = Color(0xFFEDE7FF),
+    cardTintedMint = Color(0xFFDFFBF5),
+    fieldBackground = Color(0xFFF7F5FF),
+    primaryViolet = Color(0xFF6C47FF),
+    deepViolet = Color(0xFF532EE8),
+    softLavender = Color(0xFFA78BFA),
+    mintAqua = Color(0xFF2DD4BF),
+    mintDeep = Color(0xFF0D9488),
+    rosePink = Color(0xFFFF5E99),
+    sunnyAmber = Color(0xFFF59E0B),
+    coralRed = Color(0xFFF43F5E),
+    textPrimary = Color(0xFF1E1638),
+    textSecondary = Color(0xFF635985),
+    textMuted = Color(0xFF968CB5),
+    borderSubtle = Color(0xFFE2DAFF)
+)
+
+private val VelvetStudioPalette = StudioPalette(
+    isLight = false,
+    bgCanvas = Color(0xFF120D24),
+    bgSecondary = Color(0xFF1D1538),
+    cardSurface = Color(0xFF1E163B),
+    cardTintedViolet = Color(0xFF2B1F52),
+    cardTintedMint = Color(0xFF15383C),
+    fieldBackground = Color(0xFF16102C),
+    primaryViolet = Color(0xFF8B5CF6),
+    deepViolet = Color(0xFF6C47FF),
+    softLavender = Color(0xFFC4B5FD),
+    mintAqua = Color(0xFF2DD4BF),
+    mintDeep = Color(0xFF5EEAD4),
+    rosePink = Color(0xFFFF6B9E),
+    sunnyAmber = Color(0xFFFBBF24),
+    coralRed = Color(0xFFFB7185),
+    textPrimary = Color(0xFFF8F6FF),
+    textSecondary = Color(0xFFB8AEE0),
+    textMuted = Color(0xFF7D72A6),
+    borderSubtle = Color(0xFF332661)
+)
+
+val LocalStudioPalette = compositionLocalOf { VelvetStudioPalette }
 
 class MainActivity : ComponentActivity() {
 
@@ -99,7 +169,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
 
         refreshRootStatus()
         syncDaemonStatus()
@@ -120,56 +199,82 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = CyberCyan,
-                    secondary = CyberEmerald,
-                    background = BgObsidian,
-                    surface = CardSurface,
-                    error = CyberCrimson
+            var useLightStudio by remember {
+                mutableStateOf(globalPrefs.getBoolean("studio_light_theme", false))
+            }
+            val palette = if (useLightStudio) LightStudioPalette else VelvetStudioPalette
+
+            val colorScheme = if (useLightStudio) {
+                lightColorScheme(
+                    primary = palette.primaryViolet,
+                    secondary = palette.mintDeep,
+                    background = palette.bgCanvas,
+                    surface = palette.cardSurface,
+                    onPrimary = Color.White,
+                    onSurface = palette.textPrimary,
+                    error = palette.coralRed
                 )
-            ) {
-                MainScreen(
-                    rootState = rootState,
-                    rootLabel = rootLabel,
-                    isProxyActive = isProxyRunningState,
-                    isTransitioning = isTransitioningState,
-                    runningSlot = runningSlotState,
-                    activePid = activePidState,
-                    onRecheckRoot = { refreshRootStatus() },
-                    installedApps = installedApps,
-                    onSyncStatus = { syncDaemonStatus() },
-                    onStartProxy = { settings: ProxySettings, selectedUids: List<Int>?, onResult: (Boolean, String?) -> Unit ->
-                        if (isTransitioningState) return@MainScreen
-                        isTransitioningState = true
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
-                            val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
-                            val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
-                            withContext(Dispatchers.Main) {
-                                isProxyRunningState = rSlot != null
-                                runningSlotState = rSlot
-                                activePidState = pid
-                                isTransitioningState = false
-                                onResult(result.success, result.errorMessage)
+            } else {
+                darkColorScheme(
+                    primary = palette.primaryViolet,
+                    secondary = palette.mintAqua,
+                    background = palette.bgCanvas,
+                    surface = palette.cardSurface,
+                    onPrimary = Color.White,
+                    onSurface = palette.textPrimary,
+                    error = palette.coralRed
+                )
+            }
+
+            CompositionLocalProvider(LocalStudioPalette provides palette) {
+                MaterialTheme(colorScheme = colorScheme) {
+                    MainScreen(
+                        rootState = rootState,
+                        rootLabel = rootLabel,
+                        isProxyActive = isProxyRunningState,
+                        isTransitioning = isTransitioningState,
+                        runningSlot = runningSlotState,
+                        activePid = activePidState,
+                        useLightStudio = useLightStudio,
+                        onToggleTheme = {
+                            useLightStudio = !useLightStudio
+                            globalPrefs.edit().putBoolean("studio_light_theme", useLightStudio).apply()
+                        },
+                        onRecheckRoot = { refreshRootStatus() },
+                        installedApps = installedApps,
+                        onSyncStatus = { syncDaemonStatus() },
+                        onStartProxy = { settings: ProxySettings, selectedUids: List<Int>?, onResult: (Boolean, String?) -> Unit ->
+                            if (isTransitioningState) return@MainScreen
+                            isTransitioningState = true
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                val result = ProxyController.startProxy(this@MainActivity, settings, selectedUids)
+                                val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
+                                val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
+                                withContext(Dispatchers.Main) {
+                                    isProxyRunningState = rSlot != null
+                                    runningSlotState = rSlot
+                                    activePidState = pid
+                                    isTransitioningState = false
+                                    onResult(result.success, result.errorMessage)
+                                }
+                            }
+                        },
+                        onStopProxy = { onResult: (Boolean) -> Unit ->
+                            if (isTransitioningState) return@MainScreen
+                            isTransitioningState = true
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                val success = ProxyController.stopProxy(this@MainActivity)
+                                withContext(Dispatchers.Main) {
+                                    isProxyRunningState = false
+                                    runningSlotState = null
+                                    activePidState = null
+                                    isTransitioningState = false
+                                    onResult(success)
+                                }
                             }
                         }
-                    },
-                    onStopProxy = { onResult: (Boolean) -> Unit ->
-                        if (isTransitioningState) return@MainScreen
-                        isTransitioningState = true
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            val success = ProxyController.stopProxy(this@MainActivity)
-                            withContext(Dispatchers.Main) {
-                                isProxyRunningState = false
-                                runningSlotState = null
-                                activePidState = null
-                                isTransitioningState = false
-                                onResult(success)
-                            }
-                        }
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -228,12 +333,15 @@ fun MainScreen(
     isTransitioning: Boolean,
     runningSlot: Int?,
     activePid: String?,
+    useLightStudio: Boolean,
+    onToggleTheme: () -> Unit,
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
     onSyncStatus: () -> Unit,
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -245,10 +353,10 @@ fun MainScreen(
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedNavTab by remember { mutableIntStateOf(0) }
 
-    // Hoisted session timer & telemetry history so switching tabs never resets live data
+    // Hoisted live session telemetry so switching tabs never resets data
     var sessionStartMs by remember { mutableLongStateOf(0L) }
-    var rxHistory by remember { mutableStateOf(List(40) { 0L }) }
-    var txHistory by remember { mutableStateOf(List(40) { 0L }) }
+    var rxHistory by remember { mutableStateOf(List(32) { 0L }) }
+    var txHistory by remember { mutableStateOf(List(32) { 0L }) }
     var currentRxRate by remember { mutableLongStateOf(0L) }
     var currentTxRate by remember { mutableLongStateOf(0L) }
     var peakRxRate by remember { mutableLongStateOf(0L) }
@@ -294,8 +402,8 @@ fun MainScreen(
             peakRxRate = 0L
             totalRxBytes = 0L
             totalTxBytes = 0L
-            rxHistory = List(40) { 0L }
-            txHistory = List(40) { 0L }
+            rxHistory = List(32) { 0L }
+            txHistory = List(32) { 0L }
         }
     }
 
@@ -315,7 +423,6 @@ fun MainScreen(
     var routeWholeProfile by remember { mutableStateOf(true) }
     var selectedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    // Track configured state per slot for visual badges on P0..P4
     var configuredSlots by remember { mutableStateOf<Set<Int>>(emptySet()) }
     fun refreshConfiguredSlots() {
         val set = mutableSetOf<Int>()
@@ -477,7 +584,7 @@ fun MainScreen(
                 delay(600)
             }
             if (bootEnabledSnapshot && slot == bootSlotSnapshot) {
-                BootManager.syncBootState(context, true, settingsSnapshot, uidsSnapshot, slot)
+                BootManager.syncBootState(context, true, settingsSnapshot, uidsSnapshot)
             }
             if (settingsSnapshot.host.isNotEmpty()) {
                 PersistentStorage.saveBackup(
@@ -545,13 +652,19 @@ fun MainScreen(
         }
     }
 
+    val animatedBgCanvas by animateColorAsState(
+        targetValue = palette.bgCanvas,
+        animationSpec = tween(400),
+        label = "bgCanvasColor"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgObsidian)
+            .background(animatedBgCanvas)
     ) {
-        // 1. LIVE REACTIVE CYBER-GRID & QUANTUM AURORA BACKGROUND
-        CyberQuantumBackground(
+        // 1. LIVE ROYAL VIOLET + MINT AQUA STUDIO BACKGROUND CANVAS
+        StudioLivingBackground(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning || isTesting
         )
@@ -565,11 +678,13 @@ fun MainScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 2. TOP COMMAND HEADER
-            CyberHeader(
+            // 2. TOP STUDIO HEADER WITH THEME TOGGLE & ROOT PILL
+            StudioTopHeader(
                 activeSlot = activeSlot,
                 runningSlot = runningSlot,
                 isProxyActive = isProxyActive,
+                useLightStudio = useLightStudio,
+                onToggleTheme = onToggleTheme,
                 rootState = rootState,
                 rootLabel = rootLabel,
                 onRecheckRoot = onRecheckRoot
@@ -578,7 +693,7 @@ fun MainScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             // 3. INTERACTIVE NODE SLOT MATRIX (P0 - P4)
-            CyberSlotMatrix(
+            StudioSlotRibbon(
                 activeSlot = activeSlot,
                 runningSlot = runningSlot,
                 isProxyActive = isProxyActive,
@@ -590,8 +705,8 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 4. SMOOTH SPRING NAVIGATION DECK
-            CyberSegmentedTabs(
+            // 4. SEGMENTED STUDIO TABS
+            StudioPillTabs(
                 selectedTab = selectedNavTab,
                 onTabSelected = { selectedNavTab = it },
                 selectedAppsCount = if (routeWholeProfile) null else selectedPackages.size
@@ -599,7 +714,7 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 5. ANIMATED VIEWPORT WITH DIRECTIONAL TRANSITIONS
+            // 5. ANIMATED VIEWPORT WITH DIRECTIONAL SLIDE & SCALE TRANSITIONS
             Box(modifier = Modifier.weight(1f)) {
                 AnimatedContent(
                     targetState = selectedNavTab,
@@ -621,7 +736,7 @@ fun MainScreen(
                             ) + fadeOut(animationSpec = tween(160))
                         )
                     },
-                    label = "mainTabTransition"
+                    label = "studioTabTransition"
                 ) { tabIndex ->
                     when (tabIndex) {
                         0 -> {
@@ -840,7 +955,7 @@ fun MainScreen(
                             clipboard.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", currentLogs))
                             Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
                         }) {
-                            Text("Copy", color = CyberCyan, fontWeight = FontWeight.Bold)
+                            Text("Copy", color = palette.primaryViolet, fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = {
                             val targetSlot = runningSlot ?: activeSlot
@@ -849,7 +964,7 @@ fun MainScreen(
                                 ProxyController.clearLogs(ProfileManager.androidUserId, targetSlot)
                             }
                         }) {
-                            Text("Clear", color = CyberCrimson, fontWeight = FontWeight.Bold)
+                            Text("Clear", color = palette.coralRed, fontWeight = FontWeight.Bold)
                         }
                     }
                     Row {
@@ -862,29 +977,35 @@ fun MainScreen(
                                 }
                             }
                         }) {
-                            Text("Refresh", color = CyberEmerald, fontWeight = FontWeight.Bold)
+                            Text("Refresh", color = palette.mintDeep, fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = { showLogsDialog = false }) {
-                            Text("Close", color = TextSecondary)
+                            Text("Close", color = palette.textSecondary)
                         }
                     }
                 }
             },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(8.dp).background(CyberEmerald, CircleShape))
+                    Box(modifier = Modifier.size(8.dp).background(palette.mintAqua, CircleShape))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("KERNEL CORE TELEMETRY & LOGS", fontSize = 13.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, color = TextPrimary)
+                    Text(
+                        text = "KERNEL CORE TELEMETRY & LOGS",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp,
+                        color = palette.textPrimary
+                    )
                 }
             },
-            containerColor = Color(0xFF0A0F1D),
+            containerColor = palette.cardSurface,
             text = {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(380.dp)
-                        .background(Color(0xFF050811), RoundedCornerShape(14.dp))
-                        .border(1.dp, CyberCyan.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                        .background(palette.fieldBackground, RoundedCornerShape(14.dp))
+                        .border(1.dp, palette.borderSubtle, RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
                     Text(
@@ -892,7 +1013,7 @@ fun MainScreen(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
-                        color = Color(0xFFE2E8F0),
+                        color = palette.textPrimary,
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     )
                 }
@@ -902,20 +1023,21 @@ fun MainScreen(
 }
 
 // -------------------------------------------------------------
-// 1. LIVE REACTIVE CYBER-GRID & QUANTUM AURORA BACKGROUND
+// 1. LIVE STUDIO AURORA & PARTICLE CANVAS BACKGROUND
 // -------------------------------------------------------------
 
 @Composable
-fun CyberQuantumBackground(
+fun StudioLivingBackground(
     isProxyActive: Boolean,
     isTransitioning: Boolean
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "quantumBg")
+    val palette = LocalStudioPalette.current
+    val infiniteTransition = rememberInfiniteTransition(label = "studioBgEngine")
 
     val orbitAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(24000, easing = LinearEasing), RepeatMode.Restart),
         label = "orbitAngle"
     )
 
@@ -923,30 +1045,30 @@ fun CyberQuantumBackground(
         initialValue = 0f,
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(
-            tween(if (isProxyActive) 6500 else 16000, easing = LinearEasing),
+            tween(if (isProxyActive) 7000 else 16000, easing = LinearEasing),
             RepeatMode.Restart
         ),
         label = "streamOffset"
     )
 
-    val primaryOrbColor by animateColorAsState(
+    val orbPrimaryColor by animateColorAsState(
         targetValue = when {
-            isTransitioning -> CyberAmber.copy(alpha = 0.22f)
-            isProxyActive -> CyberEmerald.copy(alpha = 0.24f)
-            else -> CyberCyan.copy(alpha = 0.12f)
+            isTransitioning -> palette.sunnyAmber.copy(alpha = if (palette.isLight) 0.20f else 0.24f)
+            isProxyActive -> palette.mintAqua.copy(alpha = if (palette.isLight) 0.25f else 0.24f)
+            else -> palette.primaryViolet.copy(alpha = if (palette.isLight) 0.16f else 0.20f)
         },
-        animationSpec = tween(700),
-        label = "primaryOrbColor"
+        animationSpec = tween(600),
+        label = "orbPrimary"
     )
 
-    val secondaryOrbColor by animateColorAsState(
+    val orbSecondaryColor by animateColorAsState(
         targetValue = when {
-            isTransitioning -> CyberCrimson.copy(alpha = 0.16f)
-            isProxyActive -> CyberCyan.copy(alpha = 0.22f)
-            else -> CyberIndigo.copy(alpha = 0.10f)
+            isTransitioning -> palette.rosePink.copy(alpha = 0.18f)
+            isProxyActive -> palette.primaryViolet.copy(alpha = if (palette.isLight) 0.20f else 0.24f)
+            else -> palette.rosePink.copy(alpha = if (palette.isLight) 0.12f else 0.14f)
         },
-        animationSpec = tween(700),
-        label = "secondaryOrbColor"
+        animationSpec = tween(600),
+        label = "orbSecondary"
     )
 
     Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
@@ -954,10 +1076,10 @@ fun CyberQuantumBackground(
         val h = size.height
         val rad = Math.toRadians(orbitAngle.toDouble())
 
-        // Subtle Tactical Cyber Grid
-        val gridSpacing = 44.dp.toPx()
-        val gridAlpha = if (isProxyActive) 0.045f else 0.022f
-        val gridColor = if (isProxyActive) CyberEmerald else CyberCyan
+        // Subtle Studio Dot / Grid Matrix
+        val gridSpacing = 46.dp.toPx()
+        val gridAlpha = if (palette.isLight) 0.06f else 0.045f
+        val gridColor = palette.primaryViolet
 
         var gx = 0f
         while (gx < w) {
@@ -981,16 +1103,16 @@ fun CyberQuantumBackground(
             gy += gridSpacing
         }
 
-        // Dynamic Aurora Plasma Orbs
-        val orb1X = (w * 0.72f) - (sin(rad) * w * 0.18f).toFloat()
-        val orb1Y = (h * 0.28f) + (cos(rad) * h * 0.10f).toFloat()
+        // Soft Drifting Studio Spheres
+        val orb1X = (w * 0.75f) - (sin(rad) * w * 0.18f).toFloat()
+        val orb1Y = (h * 0.25f) + (cos(rad) * h * 0.10f).toFloat()
 
-        val orb2X = (w * 0.25f) + (cos(rad * 1.2) * w * 0.16f).toFloat()
+        val orb2X = (w * 0.24f) + (cos(rad * 1.2) * w * 0.16f).toFloat()
         val orb2Y = (h * 0.68f) + (sin(rad * 1.2) * h * 0.12f).toFloat()
 
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(primaryOrbColor, Color.Transparent),
+                colors = listOf(orbPrimaryColor, Color.Transparent),
                 center = Offset(orb1X, orb1Y),
                 radius = w * 0.85f
             ),
@@ -1000,7 +1122,7 @@ fun CyberQuantumBackground(
 
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(secondaryOrbColor, Color.Transparent),
+                colors = listOf(orbSecondaryColor, Color.Transparent),
                 center = Offset(orb2X, orb2Y),
                 radius = w * 0.80f
             ),
@@ -1008,58 +1130,56 @@ fun CyberQuantumBackground(
             radius = w * 0.80f
         )
 
-        // Rising Quantum Data Particles
-        val particleCount = 26
+        // Floating Studio Data Motes
+        val particleCount = 24
         for (i in 0 until particleCount) {
-            val px = (w * ((i * 41 + 7) % 100) / 100f)
-            val baseY = (h * ((i * 59 + 13) % 100) / 100f)
-            val speedFactor = 0.45f + (i % 4) * 0.22f
-            val py = (baseY - (streamOffset * speedFactor)) % h
+            val px = (w * ((i * 41 + 9) % 100) / 100f)
+            val baseY = (h * ((i * 59 + 15) % 100) / 100f)
+            val speed = 0.45f + (i % 4) * 0.2f
+            val py = (baseY - (streamOffset * speed)) % h
             val actualY = if (py < 0) py + h else py
-            val dotRadius = (1.3f + (i % 3) * 1.0f).dp.toPx()
+            val radius = (1.4f + (i % 3) * 1.1f).dp.toPx()
 
             val pColor = when {
-                isTransitioning -> CyberAmber
-                isProxyActive -> if (i % 2 == 0) CyberEmerald else CyberCyan
-                else -> CyberCyan
+                isProxyActive -> if (i % 2 == 0) palette.mintAqua else palette.primaryViolet
+                else -> if (i % 2 == 0) palette.primaryViolet else palette.rosePink
             }
 
             drawCircle(
                 color = pColor,
-                radius = dotRadius,
+                radius = radius,
                 center = Offset(px, actualY),
-                alpha = if (isProxyActive) 0.42f else 0.14f
+                alpha = if (isProxyActive) 0.40f else 0.18f
             )
         }
     }
 }
 
 // -------------------------------------------------------------
-// 2. TOP COMMAND HEADER
+// 2. TOP STUDIO HEADER WITH THEME TOGGLE & ROOT STATUS
 // -------------------------------------------------------------
 
 @Composable
-fun CyberHeader(
+fun StudioTopHeader(
     activeSlot: Int,
     runningSlot: Int?,
     isProxyActive: Boolean,
+    useLightStudio: Boolean,
+    onToggleTheme: () -> Unit,
     rootState: RootState,
     rootLabel: String,
     onRecheckRoot: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val infiniteTransition = rememberInfiniteTransition(label = "headerPulse")
-    val statusPulse by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
+    val badgePulse by infiniteTransition.animateFloat(
+        initialValue = 0.45f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "statusPulse"
+        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "badgePulse"
     )
 
-    val accentColor by animateColorAsState(
-        targetValue = if (isProxyActive) CyberEmerald else CyberCyan,
-        animationSpec = tween(400),
-        label = "headerAccent"
-    )
+    val statusColor = if (isProxyActive) palette.mintDeep else palette.primaryViolet
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1070,33 +1190,33 @@ fun CyberHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "NAMELESS",
-                    fontSize = 23.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Black,
-                    color = TextPrimary,
-                    letterSpacing = 2.8.sp
+                    color = palette.textPrimary,
+                    letterSpacing = 2.2.sp
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = accentColor.copy(alpha = 0.16f),
-                    border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.6f))
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isProxyActive) palette.cardTintedMint else palette.cardTintedViolet,
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
-                                .graphicsLayer { alpha = if (isProxyActive) statusPulse else 1f }
-                                .background(accentColor, CircleShape)
+                                .graphicsLayer { alpha = if (isProxyActive) badgePulse else 1f }
+                                .background(statusColor, CircleShape)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isProxyActive) "P${runningSlot ?: activeSlot} LIVE" else "IDLE",
+                            text = if (isProxyActive) "P${runningSlot ?: activeSlot} LIVE" else "STUDIO",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Black,
-                            color = accentColor,
+                            color = statusColor,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -1104,58 +1224,83 @@ fun CyberHeader(
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "KERNEL TPROXY • USER ${ProfileManager.androidUserId} • PORT ${ProfileManager.localInboundPort}",
+                text = "USER ${ProfileManager.androidUserId} • SLOT P$activeSlot • PORT ${ProfileManager.localInboundPort}",
                 fontSize = 10.sp,
-                color = TextSecondary,
+                color = palette.textSecondary,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
-                letterSpacing = 0.8.sp
+                letterSpacing = 0.6.sp
             )
         }
 
-        val rootColor = when (rootState) {
-            RootState.GRANTED -> CyberEmerald
-            RootState.DENIED -> CyberCrimson
-            RootState.CHECKING -> CyberAmber
-        }
-
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = rootColor.copy(alpha = 0.10f),
-            border = BorderStroke(1.dp, rootColor.copy(alpha = 0.55f)),
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { onRecheckRoot() }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
+            // Light / Velvet Theme Switcher Pill
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = palette.cardSurface,
+                border = BorderStroke(1.dp, palette.borderSubtle),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onToggleTheme() }
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .background(rootColor, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = rootLabel,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black,
-                    color = TextPrimary,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.6.sp
+                    text = if (useLightStudio) "☀️" else "🌙",
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                 )
+            }
+
+            // Root Verification Pill
+            val rootColor = when (rootState) {
+                RootState.GRANTED -> palette.mintDeep
+                RootState.DENIED -> palette.coralRed
+                RootState.CHECKING -> palette.sunnyAmber
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = palette.cardSurface,
+                border = BorderStroke(1.2.dp, rootColor.copy(alpha = 0.65f)),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onRecheckRoot() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(rootColor, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = when (rootState) {
+                            RootState.GRANTED -> "ROOT ON"
+                            RootState.DENIED -> "NO ROOT"
+                            RootState.CHECKING -> "WAIT..."
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        color = palette.textPrimary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
         }
     }
 }
 
 // -------------------------------------------------------------
-// 3. INTERACTIVE NODE SLOT MATRIX (P0 - P4)
+// 3. INTERACTIVE NODE SLOT RIBBON (P0 - P4)
 // -------------------------------------------------------------
 
 @Composable
-fun CyberSlotMatrix(
+fun StudioSlotRibbon(
     activeSlot: Int,
     runningSlot: Int?,
     isProxyActive: Boolean,
@@ -1164,6 +1309,8 @@ fun CyberSlotMatrix(
     configuredSlots: Set<Int>,
     onSelectSlot: (Int) -> Unit
 ) {
+    val palette = LocalStudioPalette.current
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1175,31 +1322,46 @@ fun CyberSlotMatrix(
             val isConfigured = configuredSlots.contains(slotIdx)
 
             val scale by animateFloatAsState(
-                targetValue = if (isSelected) 1.03f else 1f,
+                targetValue = if (isSelected) 1.04f else 1f,
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
                 label = "slotScale"
             )
 
-            val borderColor by animateColorAsState(
+            val bg by animateColorAsState(
                 targetValue = when {
-                    isRunning -> CyberEmerald
-                    isSelected -> CyberCyan
-                    isConfigured -> Color(0x33FFFFFF)
-                    else -> Color(0x16FFFFFF)
+                    isRunning -> palette.cardTintedMint
+                    isSelected -> palette.primaryViolet
+                    else -> palette.cardSurface
                 },
-                animationSpec = tween(250),
+                animationSpec = tween(240),
+                label = "slotBg"
+            )
+
+            val borderCol by animateColorAsState(
+                targetValue = when {
+                    isRunning -> palette.mintAqua
+                    isSelected -> palette.deepViolet
+                    isConfigured -> palette.softLavender.copy(alpha = 0.55f)
+                    else -> palette.borderSubtle
+                },
+                animationSpec = tween(240),
                 label = "slotBorder"
             )
 
-            val containerColor by animateColorAsState(
-                targetValue = when {
-                    isRunning -> CyberEmerald.copy(alpha = 0.18f)
-                    isSelected -> CyberCyan.copy(alpha = 0.16f)
-                    else -> CardSurface
-                },
-                animationSpec = tween(250),
-                label = "slotContainer"
-            )
+            val titleCol = when {
+                isRunning -> palette.mintDeep
+                isSelected -> Color.White
+                isConfigured -> palette.textPrimary
+                else -> palette.textMuted
+            }
+
+            val subCol = when {
+                isRunning -> palette.mintDeep
+                isSelected -> Color.White.copy(alpha = 0.9f)
+                isBootTarget -> palette.sunnyAmber
+                isConfigured -> palette.primaryViolet
+                else -> palette.textMuted
+            }
 
             Box(
                 modifier = Modifier
@@ -1208,9 +1370,10 @@ fun CyberSlotMatrix(
                         scaleX = scale
                         scaleY = scale
                     }
+                    .shadow(if (isSelected || isRunning) 4.dp else 1.dp, RoundedCornerShape(14.dp))
                     .clip(RoundedCornerShape(14.dp))
-                    .background(containerColor)
-                    .border(if (isSelected || isRunning) 1.4.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
+                    .background(bg)
+                    .border(1.2.dp, borderCol, RoundedCornerShape(14.dp))
                     .clickable { onSelectSlot(slotIdx) }
                     .padding(vertical = 8.dp, horizontal = 4.dp),
                 contentAlignment = Alignment.Center
@@ -1221,12 +1384,7 @@ fun CyberSlotMatrix(
                             text = "P$slotIdx",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Black,
-                            color = when {
-                                isRunning -> CyberEmerald
-                                isSelected -> CyberCyan
-                                isConfigured -> TextPrimary
-                                else -> TextMuted
-                            },
+                            color = titleCol,
                             fontFamily = FontFamily.Monospace
                         )
                         if (isConfigured && !isRunning) {
@@ -1234,28 +1392,22 @@ fun CyberSlotMatrix(
                             Box(
                                 modifier = Modifier
                                     .size(4.5.dp)
-                                    .background(if (isSelected) CyberCyan else TextSecondary, CircleShape)
+                                    .background(if (isSelected) Color.White else palette.primaryViolet, CircleShape)
                             )
                         }
                     }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = when {
-                            isRunning -> "ACTIVE"
+                            isRunning -> "LIVE"
                             isBootTarget -> "BOOT"
-                            isSelected -> "SELECTED"
+                            isSelected -> "ACTIVE"
                             isConfigured -> "READY"
                             else -> "EMPTY"
                         },
                         fontSize = 7.5.sp,
                         fontWeight = FontWeight.Black,
-                        color = when {
-                            isRunning -> CyberEmerald
-                            isBootTarget -> CyberAmber
-                            isSelected -> CyberCyan
-                            isConfigured -> TextSecondary
-                            else -> TextMuted
-                        },
+                        color = subCol,
                         letterSpacing = 0.5.sp
                     )
                 }
@@ -1265,25 +1417,26 @@ fun CyberSlotMatrix(
 }
 
 // -------------------------------------------------------------
-// 4. SEGMENTED NAVIGATION TABS
+// 4. SEGMENTED STUDIO PILL TABS
 // -------------------------------------------------------------
 
 @Composable
-fun CyberSegmentedTabs(
+fun StudioPillTabs(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
     selectedAppsCount: Int?
 ) {
+    val palette = LocalStudioPalette.current
     val tabs = listOf(
         "Command HUD",
-        "Node Config",
-        if (selectedAppsCount == null) "Routing & Boot" else "Routing ($selectedAppsCount)"
+        "Config Deck",
+        if (selectedAppsCount == null) "App Routing" else "Routing ($selectedAppsCount)"
     )
 
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = CardSurface,
-        border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+        color = palette.cardSurface,
+        border = BorderStroke(1.dp, palette.borderSubtle),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -1294,17 +1447,12 @@ fun CyberSegmentedTabs(
                 val isSelected = selectedTab == index
 
                 val bg by animateColorAsState(
-                    targetValue = if (isSelected) CyberCyan.copy(alpha = 0.18f) else Color.Transparent,
+                    targetValue = if (isSelected) palette.primaryViolet else Color.Transparent,
                     animationSpec = tween(220),
                     label = "tabBg"
                 )
-                val borderCol by animateColorAsState(
-                    targetValue = if (isSelected) CyberCyan.copy(alpha = 0.65f) else Color.Transparent,
-                    animationSpec = tween(220),
-                    label = "tabBorder"
-                )
                 val textCol by animateColorAsState(
-                    targetValue = if (isSelected) TextPrimary else TextSecondary,
+                    targetValue = if (isSelected) Color.White else palette.textSecondary,
                     animationSpec = tween(220),
                     label = "tabText"
                 )
@@ -1314,7 +1462,6 @@ fun CyberSegmentedTabs(
                         .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(bg)
-                        .border(1.dp, borderCol, RoundedCornerShape(12.dp))
                         .clickable { onTabSelected(index) }
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
@@ -1322,7 +1469,7 @@ fun CyberSegmentedTabs(
                     Text(
                         text = title,
                         fontSize = 11.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
                         color = textCol,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1371,6 +1518,7 @@ fun ConsoleHudView(
     onTestUpstream: () -> Unit,
     onViewLogs: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val isCurrentSlotRunning = isProxyActive && (runningSlot == activeSlot)
 
     Column(
@@ -1379,8 +1527,8 @@ fun ConsoleHudView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. INTERACTIVE QUANTUM REACTOR CORE CARD
-        QuantumReactorCard(
+        // 1. INTERACTIVE STUDIO REACTOR HERO CARD
+        StudioReactorHeroCard(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning,
             runningSlot = runningSlot,
@@ -1397,8 +1545,8 @@ fun ConsoleHudView(
             onToggleProxy = onToggleProxy
         )
 
-        // 2. REAL-TIME HISTORICAL BEZIER TELEMETRY OSCILLOSCOPE
-        LiveTelemetryOscilloscope(
+        // 2. REAL-TIME 32-SAMPLE BEZIER TELEMETRY OSCILLOSCOPE
+        StudioTelemetryOscilloscope(
             isProxyActive = isProxyActive,
             currentRxRate = currentRxRate,
             currentTxRate = currentTxRate,
@@ -1409,51 +1557,55 @@ fun ConsoleHudView(
             txHistory = txHistory
         )
 
-        // 3. LIVE PIPELINE TAGS
+        // 3. ACTIVE PIPELINE CHIPS
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            CyberBadge(label = proxyType.label, color = CyberCyan)
-            CyberBadge(
+            StudioStatusBadge(label = proxyType.displayName, color = palette.primaryViolet)
+            StudioStatusBadge(
                 label = if (transportMode == TransportMode.TCP_AND_UDP) "TCP + UDP (TPROXY)" else "TCP ONLY (QUIC BLOCK)",
-                color = if (transportMode == TransportMode.TCP_AND_UDP) CyberEmerald else CyberAmber
+                color = if (transportMode == TransportMode.TCP_AND_UDP) palette.mintDeep else palette.sunnyAmber
             )
-            CyberBadge(
+            StudioStatusBadge(
                 label = when (ipMode) {
                     IpMode.IPV4_ONLY -> "IPv4 ONLY"
                     IpMode.DUAL_STACK -> "DUAL-STACK"
                     IpMode.IPV6_ONLY -> "IPv6 ONLY"
                 },
-                color = CyberCyan
+                color = palette.primaryViolet
             )
-            CyberBadge(
+            StudioStatusBadge(
                 label = if (routeWholeProfile) "GLOBAL PROFILE" else "$selectedAppsCount APPS TUNNELED",
-                color = CyberIndigo
+                color = palette.rosePink
             )
             if (routeHotspot) {
-                CyberBadge(label = "HOTSPOT BRIDGE", color = CyberEmerald)
+                StudioStatusBadge(label = "HOTSPOT BRIDGE", color = palette.mintDeep)
             }
         }
 
-        // 4. DIAGNOSTICS & LOGS BAR
+        // 4. QUICK DIAGNOSTICS & LOGS BAR
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Button(
                 onClick = onTestUpstream,
-                modifier = Modifier.weight(1f).height(46.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CyberCyan.copy(alpha = 0.14f)),
-                border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.6f)),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.cardTintedViolet,
+                    contentColor = palette.primaryViolet
+                ),
+                border = BorderStroke(1.dp, palette.primaryViolet.copy(alpha = 0.45f)),
                 enabled = !isTesting && !isTransitioning
             ) {
                 Text(
                     text = if (isTesting) "Probing Node..." else "⚡ Ping Node P$activeSlot",
-                    color = CyberCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -1461,10 +1613,15 @@ fun ConsoleHudView(
 
             OutlinedButton(
                 onClick = onViewLogs,
-                modifier = Modifier.weight(1f).height(46.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp),
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Color(0x28FFFFFF)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+                border = BorderStroke(1.dp, palette.borderSubtle),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = palette.cardSurface,
+                    contentColor = palette.textPrimary
+                )
             ) {
                 Text("Kernel Telemetry", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
@@ -1477,9 +1634,9 @@ fun ConsoleHudView(
         ) {
             val isOk = testLatencyMs != null
             val statusColor = when {
-                isTesting -> CyberAmber
-                isOk -> CyberEmerald
-                else -> CyberCrimson
+                isTesting -> palette.sunnyAmber
+                isOk -> palette.mintDeep
+                else -> palette.coralRed
             }
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -1498,13 +1655,13 @@ fun ConsoleHudView(
             }
         }
 
-        // 5. MASTER IGNITION BUTTON WITH SPRING PRESS FEEDBACK
+        // 5. MASTER TUNNEL LAUNCH BUTTON WITH SPRING PRESS FEEDBACK
         val interactionSource = remember { MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
         val btnScale by animateFloatAsState(
             targetValue = if (isPressed) 0.97f else 1f,
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "masterBtnScale"
+            label = "launchBtnScale"
         )
 
         val buttonText = when {
@@ -1515,9 +1672,9 @@ fun ConsoleHudView(
         }
 
         val buttonBrush = when {
-            isTransitioning -> Brush.horizontalGradient(listOf(CyberAmber.copy(alpha = 0.8f), CyberCyan.copy(alpha = 0.8f)))
-            isCurrentSlotRunning -> Brush.horizontalGradient(listOf(CyberCrimson, Color(0xFFBE123C)))
-            else -> Brush.horizontalGradient(listOf(CyberEmerald, CyberCyan))
+            isTransitioning -> Brush.horizontalGradient(listOf(palette.sunnyAmber, palette.primaryViolet))
+            isCurrentSlotRunning -> Brush.horizontalGradient(listOf(palette.coralRed, palette.rosePink))
+            else -> Brush.horizontalGradient(listOf(palette.primaryViolet, palette.deepViolet, palette.mintDeep))
         }
 
         Box(
@@ -1528,6 +1685,7 @@ fun ConsoleHudView(
                     scaleX = btnScale
                     scaleY = btnScale
                 }
+                .shadow(6.dp, RoundedCornerShape(16.dp))
                 .clip(RoundedCornerShape(16.dp))
                 .background(buttonBrush)
                 .clickable(
@@ -1541,7 +1699,7 @@ fun ConsoleHudView(
                 text = buttonText,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Black,
-                color = if (isCurrentSlotRunning) Color.White else BgObsidian,
+                color = Color.White,
                 letterSpacing = 1.sp
             )
         }
@@ -1551,11 +1709,11 @@ fun ConsoleHudView(
 }
 
 // -------------------------------------------------------------
-// INTERACTIVE QUANTUM REACTOR CORE CARD
+// INTERACTIVE STUDIO REACTOR HERO CARD
 // -------------------------------------------------------------
 
 @Composable
-fun QuantumReactorCard(
+fun StudioReactorHeroCard(
     isProxyActive: Boolean,
     isTransitioning: Boolean,
     runningSlot: Int?,
@@ -1571,8 +1729,9 @@ fun QuantumReactorCard(
     onRefreshIp: () -> Unit,
     onToggleProxy: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val context = LocalContext.current
-    val infiniteTransition = rememberInfiniteTransition(label = "reactorCore")
+    val infiniteTransition = rememberInfiniteTransition(label = "studioReactor")
 
     val outerRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -1608,34 +1767,38 @@ fun QuantumReactorCard(
         label = "innerRot"
     )
 
-    val coreBreath by infiniteTransition.animateFloat(
+    val corePulse by infiniteTransition.animateFloat(
         initialValue = 0.88f,
-        targetValue = 1.16f,
+        targetValue = 1.15f,
         animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "coreBreath"
+        label = "corePulse"
     )
 
-    val stateColor by animateColorAsState(
+    val activeAccent by animateColorAsState(
         targetValue = when {
-            isTransitioning -> CyberAmber
-            isProxyActive -> CyberEmerald
-            else -> CyberCyan
+            isTransitioning -> palette.sunnyAmber
+            isProxyActive -> palette.mintAqua
+            else -> palette.primaryViolet
         },
-        animationSpec = tween(450),
-        label = "reactorStateColor"
+        animationSpec = tween(400),
+        label = "reactorAccent"
     )
 
     Surface(
         shape = RoundedCornerShape(22.dp),
-        color = CardSurface,
-        border = BorderStroke(1.2.dp, stateColor.copy(alpha = if (isProxyActive) 0.65f else 0.25f)),
-        modifier = Modifier.fillMaxWidth()
+        color = palette.cardSurface,
+        border = BorderStroke(
+            width = 1.4.dp,
+            color = if (isProxyActive) palette.mintAqua.copy(alpha = 0.7f) else palette.borderSubtle
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(if (palette.isLight) 6.dp else 2.dp, RoundedCornerShape(22.dp))
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Top Status Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1645,18 +1808,18 @@ fun QuantumReactorCard(
                     Box(
                         modifier = Modifier
                             .size(8.dp)
-                            .background(stateColor, CircleShape)
+                            .background(activeAccent, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when {
                             isTransitioning -> "SYNCHRONIZING TUNNEL..."
-                            isProxyActive -> "TUNNEL ENGAGED • NODE P$runningSlot"
+                            isProxyActive -> "TUNNEL LIVE • NODE P$runningSlot"
                             else -> "STANDBY • NODE P$activeSlot"
                         },
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = stateColor,
+                        color = if (isProxyActive) palette.mintDeep else palette.primaryViolet,
                         letterSpacing = 0.8.sp
                     )
                     if (isProxyActive && activePid != null) {
@@ -1664,7 +1827,7 @@ fun QuantumReactorCard(
                         Text(
                             text = "PID $activePid",
                             fontSize = 10.sp,
-                            color = TextMuted,
+                            color = palette.textMuted,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
@@ -1672,21 +1835,21 @@ fun QuantumReactorCard(
                 }
 
                 if (isProxyActive && sessionStartMs > 0L) {
-                    LiveUptimeCounter(sessionStartMs = sessionStartMs)
+                    StudioUptimeCounter(sessionStartMs = sessionStartMs)
                 } else {
                     Text(
-                        text = if (host.isNotBlank()) "${proxyType.name} • :$port" else "UNCONFIGURED",
+                        text = if (host.isNotBlank()) "${proxyType.displayName} • :$port" else "UNCONFIGURED",
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = TextMuted
+                        color = palette.textMuted
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Interactive Central Reactor Core (Tap to Toggle Tunnel)
+            // Interactive Orbital Reactor Core (Tap to Start/Stop)
             Box(
                 modifier = Modifier
                     .size(116.dp)
@@ -1698,30 +1861,30 @@ fun QuantumReactorCard(
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val radius = size.width / 2f
 
-                    // Ambient Halo
+                    // Soft Radial Halo
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                stateColor.copy(alpha = if (isProxyActive) 0.30f else 0.10f),
+                                activeAccent.copy(alpha = if (isProxyActive) 0.28f else 0.14f),
                                 Color.Transparent
                             ),
                             center = center,
-                            radius = radius * coreBreath
+                            radius = radius * corePulse
                         ),
                         radius = radius,
                         center = center
                     )
 
-                    // Outer Segmented Telemetry Ring
+                    // Outer Rotating Ring
                     rotate(degrees = outerRotation, pivot = center) {
                         drawArc(
                             brush = Brush.sweepGradient(
-                                listOf(stateColor, CyberCyan, Color.Transparent, stateColor)
+                                listOf(activeAccent, palette.primaryViolet, Color.Transparent, activeAccent)
                             ),
                             startAngle = 0f,
                             sweepAngle = 270f,
                             useCenter = false,
-                            style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
+                            style = Stroke(width = 3.4.dp.toPx(), cap = StrokeCap.Round)
                         )
                     }
 
@@ -1729,13 +1892,13 @@ fun QuantumReactorCard(
                     rotate(degrees = innerRotation, pivot = center) {
                         drawArc(
                             brush = Brush.sweepGradient(
-                                listOf(CyberCyan, CyberIndigo, Color.Transparent, CyberCyan)
+                                listOf(palette.rosePink, palette.primaryViolet, Color.Transparent, palette.rosePink)
                             ),
                             startAngle = 30f,
                             sweepAngle = 220f,
                             useCenter = false,
                             topLeft = Offset(radius * 0.22f, radius * 0.22f),
-                            size = androidx.compose.ui.geometry.Size(radius * 1.56f, radius * 1.56f),
+                            size = Size(radius * 1.56f, radius * 1.56f),
                             style = Stroke(
                                 width = 2.dp.toPx(),
                                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
@@ -1743,17 +1906,17 @@ fun QuantumReactorCard(
                         )
                     }
 
-                    // Inner Core Sphere
+                    // Core Sphere
                     drawCircle(
-                        color = stateColor.copy(alpha = if (isProxyActive) 0.24f else 0.10f),
-                        radius = (radius * 0.48f) * if (isProxyActive) coreBreath else 1f,
+                        color = activeAccent.copy(alpha = if (isProxyActive) 0.22f else 0.12f),
+                        radius = (radius * 0.48f) * if (isProxyActive) corePulse else 1f,
                         center = center
                     )
                     drawCircle(
-                        color = stateColor,
+                        color = activeAccent,
                         radius = radius * 0.30f,
                         center = center,
-                        style = Stroke(width = 1.6.dp.toPx())
+                        style = Stroke(width = 1.8.dp.toPx())
                     )
                 }
 
@@ -1766,7 +1929,7 @@ fun QuantumReactorCard(
                         },
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = TextPrimary,
+                        color = palette.textPrimary,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 1.sp
                     )
@@ -1774,7 +1937,7 @@ fun QuantumReactorCard(
                         text = "P${if (isProxyActive) (runningSlot ?: activeSlot) else activeSlot}",
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        color = stateColor,
+                        color = if (isProxyActive) palette.mintDeep else palette.primaryViolet,
                         fontFamily = FontFamily.Monospace
                     )
                 }
@@ -1785,8 +1948,8 @@ fun QuantumReactorCard(
             // Exit Node GeoIP Telemetry Bar
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = CardSurfaceElevated,
-                border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+                color = if (isProxyActive) palette.cardTintedMint else palette.fieldBackground,
+                border = BorderStroke(1.dp, if (isProxyActive) palette.mintAqua.copy(alpha = 0.5f) else palette.borderSubtle),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
@@ -1828,7 +1991,7 @@ fun QuantumReactorCard(
                                 },
                                 fontSize = 14.5.sp,
                                 fontWeight = FontWeight.Black,
-                                color = TextPrimary,
+                                color = palette.textPrimary,
                                 fontFamily = FontFamily.Monospace,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1837,16 +2000,17 @@ fun QuantumReactorCard(
                                 text = if (isProxyActive) {
                                     when {
                                         isFetchingIp -> "Routing through local SOCKS5 telemetry port..."
-                                        publicIpInfo != null -> buildString {
-                                            append(publicIpInfo.country)
-                                            if (publicIpInfo.isp.isNotBlank()) append(" • ${publicIpInfo.isp}")
-                                        }
-                                        ipFetchFailed -> "Tap Refresh to re-verify exit node"
+                                        publicIpInfo != null -> "${publicIpInfo.country} • Tap to copy"
+                                        ipFetchFailed -> "Tap Verify to re-check exit node"
                                         else -> "Synchronizing..."
                                     }
-                                } else "Direct Kernel Interface • Tap Core to Engage",
+                                } else "Direct Kernel Interface • Tap Reactor Core to Engage",
                                 fontSize = 10.5.sp,
-                                color = if (ipFetchFailed && isProxyActive) CyberCrimson else stateColor,
+                                color = when {
+                                    ipFetchFailed && isProxyActive -> palette.coralRed
+                                    isProxyActive -> palette.mintDeep
+                                    else -> palette.textSecondary
+                                },
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1857,8 +2021,8 @@ fun QuantumReactorCard(
                     if (isProxyActive) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = CyberCyan.copy(alpha = 0.16f),
-                            border = BorderStroke(0.8.dp, CyberCyan.copy(alpha = 0.5f)),
+                            color = palette.cardSurface,
+                            border = BorderStroke(1.dp, palette.mintDeep.copy(alpha = 0.5f)),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable { onRefreshIp() }
@@ -1866,7 +2030,7 @@ fun QuantumReactorCard(
                             Text(
                                 text = if (isFetchingIp) "..." else "Verify",
                                 fontSize = 10.5.sp,
-                                color = CyberCyan,
+                                color = palette.mintDeep,
                                 fontWeight = FontWeight.Black,
                                 modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                             )
@@ -1879,11 +2043,11 @@ fun QuantumReactorCard(
 }
 
 // -------------------------------------------------------------
-// REAL-TIME HISTORICAL BEZIER TELEMETRY OSCILLOSCOPE
+// REAL-TIME 32-SAMPLE BEZIER TELEMETRY OSCILLOSCOPE
 // -------------------------------------------------------------
 
 @Composable
-fun LiveTelemetryOscilloscope(
+fun StudioTelemetryOscilloscope(
     isProxyActive: Boolean,
     currentRxRate: Long,
     currentTxRate: Long,
@@ -1893,6 +2057,7 @@ fun LiveTelemetryOscilloscope(
     rxHistory: List<Long>,
     txHistory: List<Long>
 ) {
+    val palette = LocalStudioPalette.current
     val infiniteTransition = rememberInfiniteTransition(label = "carrierWave")
     val carrierPhase by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -1906,9 +2071,11 @@ fun LiveTelemetryOscilloscope(
 
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = CardSurface,
-        border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
-        modifier = Modifier.fillMaxWidth()
+        color = palette.cardSurface,
+        border = BorderStroke(1.dp, palette.borderSubtle),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(if (palette.isLight) 4.dp else 1.dp, RoundedCornerShape(18.dp))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1918,8 +2085,8 @@ fun LiveTelemetryOscilloscope(
                 // DOWNLOAD METRIC CARD
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = CyberEmerald.copy(alpha = 0.10f),
-                    border = BorderStroke(1.dp, CyberEmerald.copy(alpha = 0.30f)),
+                    color = palette.cardTintedMint,
+                    border = BorderStroke(1.dp, palette.mintAqua.copy(alpha = 0.45f)),
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
@@ -1927,8 +2094,8 @@ fun LiveTelemetryOscilloscope(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("DOWNLINK (RX)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = CyberEmerald, letterSpacing = 0.8.sp)
-                            Text("Peak ${formatCompactRate(peakRxRate)}", fontSize = 8.5.sp, color = TextSecondary, fontFamily = FontFamily.Monospace)
+                            Text("DOWNLINK (RX)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = palette.mintDeep, letterSpacing = 0.8.sp)
+                            Text("Peak ${formatCompactRate(peakRxRate)}", fontSize = 8.5.sp, color = palette.textSecondary, fontFamily = FontFamily.Monospace)
                         }
                         Spacer(modifier = Modifier.height(3.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
@@ -1936,7 +2103,7 @@ fun LiveTelemetryOscilloscope(
                                 text = splitSpeedValue(currentRxRate),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
-                                color = TextPrimary,
+                                color = palette.textPrimary,
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1944,14 +2111,14 @@ fun LiveTelemetryOscilloscope(
                                 text = splitSpeedUnit(currentRxRate),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = CyberEmerald,
+                                color = palette.mintDeep,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
                         Text(
                             text = "Session: ${formatBytes(totalRxBytes)}",
                             fontSize = 9.5.sp,
-                            color = TextSecondary,
+                            color = palette.textSecondary,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -1960,19 +2127,19 @@ fun LiveTelemetryOscilloscope(
                 // UPLOAD METRIC CARD
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = CyberCyan.copy(alpha = 0.10f),
-                    border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.30f)),
+                    color = palette.cardTintedViolet,
+                    border = BorderStroke(1.dp, palette.primaryViolet.copy(alpha = 0.35f)),
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        Text("UPLINK (TX)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = CyberCyan, letterSpacing = 0.8.sp)
+                        Text("UPLINK (TX)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = palette.primaryViolet, letterSpacing = 0.8.sp)
                         Spacer(modifier = Modifier.height(3.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
                                 text = splitSpeedValue(currentTxRate),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
-                                color = TextPrimary,
+                                color = palette.textPrimary,
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1980,14 +2147,14 @@ fun LiveTelemetryOscilloscope(
                                 text = splitSpeedUnit(currentTxRate),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = CyberCyan,
+                                color = palette.primaryViolet,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
                         Text(
                             text = "Session: ${formatBytes(totalTxBytes)}",
                             fontSize = 9.5.sp,
-                            color = TextSecondary,
+                            color = palette.textSecondary,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -1996,21 +2163,21 @@ fun LiveTelemetryOscilloscope(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 40-Point Real-Time Bezier Graph Canvas
+            // 32-Point Real-Time Bezier Graph Canvas
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(68.dp)
+                    .height(66.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF060A14))
-                    .border(1.dp, Color(0x16FFFFFF), RoundedCornerShape(12.dp))
+                    .background(palette.fieldBackground)
+                    .border(1.dp, palette.borderSubtle, RoundedCornerShape(12.dp))
             ) {
                 Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
                     val w = size.width
                     val h = size.height
                     val maxSample = (rxHistory.maxOrNull() ?: 0L)
                         .coerceAtLeast(txHistory.maxOrNull() ?: 0L)
-                        .coerceAtLeast(64 * 1024L) // minimum 64 KB/s scale floor
+                        .coerceAtLeast(64 * 1024L)
 
                     val count = rxHistory.size.coerceAtLeast(2)
                     val stepX = w / (count - 1).toFloat()
@@ -2026,7 +2193,6 @@ fun LiveTelemetryOscilloscope(
                         val normalizedRx = (rxHistory[i].toFloat() / maxSample.toFloat()).coerceIn(0f, 1f)
                         val normalizedTx = (txHistory[i].toFloat() / maxSample.toFloat()).coerceIn(0f, 1f)
 
-                        // Blend subtle carrier wave so the oscilloscope stays alive at low/idle bitrates
                         val carrier = (sin((i * 0.35f) + carrierPhase) * if (isProxyActive) 3.5f else 1.8f)
                         val ry = (h * 0.84f) - (normalizedRx * (h * 0.68f)) + carrier
                         val ty = (h * 0.86f) - (normalizedTx * (h * 0.65f)) - (carrier * 0.7f)
@@ -2051,24 +2217,24 @@ fun LiveTelemetryOscilloscope(
                         drawPath(
                             path = rxFill,
                             brush = Brush.verticalGradient(
-                                listOf(CyberEmerald.copy(alpha = 0.26f), Color.Transparent)
+                                listOf(palette.mintAqua.copy(alpha = 0.28f), Color.Transparent)
                             )
                         )
                     }
 
                     drawPath(
                         path = txPath,
-                        color = if (isProxyActive) CyberCyan.copy(alpha = 0.75f) else Color(0x33475569),
-                        style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                        color = if (isProxyActive) palette.primaryViolet.copy(alpha = 0.80f) else palette.textMuted.copy(alpha = 0.35f),
+                        style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
                     )
 
                     drawPath(
                         path = rxPath,
                         brush = Brush.horizontalGradient(
-                            if (isProxyActive) listOf(CyberEmerald, CyberCyan)
-                            else listOf(Color(0x44475569), Color(0x44475569))
+                            if (isProxyActive) listOf(palette.mintDeep, palette.primaryViolet)
+                            else listOf(palette.textMuted.copy(alpha = 0.45f), palette.textMuted.copy(alpha = 0.45f))
                         ),
-                        style = Stroke(width = if (isProxyActive) 2.2.dp.toPx() else 1.2.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = if (isProxyActive) 2.3.dp.toPx() else 1.2.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
             }
@@ -2077,7 +2243,7 @@ fun LiveTelemetryOscilloscope(
 }
 
 // -------------------------------------------------------------
-// VIEW 2: NODE CONFIG DECK (WITH 1-TAP URI IMPORTER)
+// VIEW 2: NODE CONFIG DECK (WITH 1-TAP CLIPBOARD URI IMPORTER)
 // -------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2111,6 +2277,7 @@ fun ServerConfigView(
     onResetSlot: () -> Unit,
     getCurrentSettings: () -> ProxySettings
 ) {
+    val palette = LocalStudioPalette.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isCheckingAlive by remember { mutableStateOf(false) }
@@ -2125,8 +2292,8 @@ fun ServerConfigView(
         // 1. DIRECT SOCKET HEALTH PROBE & CLIPBOARD URI IMPORT CARD
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = CardSurface,
-            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+            color = palette.cardSurface,
+            border = BorderStroke(1.dp, palette.borderSubtle),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(15.dp)) {
@@ -2136,8 +2303,8 @@ fun ServerConfigView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Node Diagnostics & Quick Import", fontSize = 13.sp, fontWeight = FontWeight.Black, color = TextPrimary)
-                        Text("Probe TCP/QUIC socket or paste URI from clipboard", fontSize = 10.5.sp, color = TextSecondary)
+                        Text("Node Diagnostics & Quick Import", fontSize = 13.sp, fontWeight = FontWeight.Black, color = palette.textPrimary)
+                        Text("Probe TCP/QUIC socket or paste URI from clipboard", fontSize = 10.5.sp, color = palette.textSecondary)
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2148,16 +2315,16 @@ fun ServerConfigView(
                                 val parsed = parseProxyUri(rawClip)
                                 if (parsed != null) {
                                     onImportUri(parsed)
-                                    Toast.makeText(context, "Imported ${parsed.type.label} (${parsed.host}:${parsed.port})", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Imported ${parsed.type.displayName} (${parsed.host}:${parsed.port})", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, "No valid vless/trojan/ss/hy2/socks5/http URI in clipboard", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.6f))
+                            border = BorderStroke(1.dp, palette.primaryViolet.copy(alpha = 0.6f))
                         ) {
-                            Text("Import URI", fontSize = 11.sp, fontWeight = FontWeight.Black, color = CyberCyan)
+                            Text("Import URI", fontSize = 11.sp, fontWeight = FontWeight.Black, color = palette.primaryViolet)
                         }
 
                         Button(
@@ -2176,7 +2343,7 @@ fun ServerConfigView(
                             enabled = !isCheckingAlive,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberEmerald, contentColor = BgObsidian)
+                            colors = ButtonDefaults.buttonColors(containerColor = palette.primaryViolet, contentColor = Color.White)
                         ) {
                             Text(
                                 text = if (isCheckingAlive) "..." else "Probe",
@@ -2198,13 +2365,13 @@ fun ServerConfigView(
                             is TestResult.Success -> {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = CyberEmerald.copy(alpha = 0.14f),
-                                    border = BorderStroke(1.dp, CyberEmerald),
+                                    color = palette.cardTintedMint,
+                                    border = BorderStroke(1.dp, palette.mintDeep),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         text = "ONLINE • HANDSHAKE VERIFIED (${res.latencyMs} ms)",
-                                        color = CyberEmerald,
+                                        color = palette.mintDeep,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace,
@@ -2215,13 +2382,13 @@ fun ServerConfigView(
                             is TestResult.Failure -> {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = CyberCrimson.copy(alpha = 0.14f),
-                                    border = BorderStroke(1.dp, CyberCrimson),
+                                    color = palette.coralRed.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, palette.coralRed),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         text = "UNREACHABLE • ${res.error}",
-                                        color = CyberCrimson,
+                                        color = palette.coralRed,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace,
@@ -2239,8 +2406,8 @@ fun ServerConfigView(
         // 2. SLOT PARAMETERS CARD
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = CardSurface,
-            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+            color = palette.cardSurface,
+            border = BorderStroke(1.dp, palette.borderSubtle),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -2253,13 +2420,13 @@ fun ServerConfigView(
                         text = "NODE P$activeSlot CONFIGURATION",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
-                        color = CyberCyan,
+                        color = palette.primaryViolet,
                         letterSpacing = 1.sp
                     )
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = CyberCrimson.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, CyberCrimson.copy(alpha = 0.5f)),
+                        color = palette.coralRed.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, palette.coralRed.copy(alpha = 0.5f)),
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { onResetSlot() }
@@ -2268,7 +2435,7 @@ fun ServerConfigView(
                             text = "Clear P$activeSlot",
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Black,
-                            color = CyberCrimson,
+                            color = palette.coralRed,
                             modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                         )
                     }
@@ -2276,7 +2443,7 @@ fun ServerConfigView(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Text("TUNNEL PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextSecondary, letterSpacing = 0.8.sp)
+                Text("TUNNEL PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
@@ -2284,14 +2451,14 @@ fun ServerConfigView(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    ProxyType.entries.forEach { t ->
+                    ProxyType.values().forEach { t ->
                         FilterChip(
                             selected = proxyType == t,
                             onClick = { onProxyTypeChange(t); onConfigChanged() },
-                            label = { Text(t.label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text(t.displayName, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = CyberCyan,
-                                selectedLabelColor = BgObsidian
+                                selectedContainerColor = palette.primaryViolet,
+                                selectedLabelColor = Color.White
                             )
                         )
                     }
@@ -2299,7 +2466,7 @@ fun ServerConfigView(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text("TRANSPORT & WEBRTC MODE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextSecondary, letterSpacing = 0.8.sp)
+                Text("TRANSPORT & WEBRTC MODE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -2307,8 +2474,8 @@ fun ServerConfigView(
                         onClick = { onTransportModeChange(TransportMode.TCP_AND_UDP); onConfigChanged() },
                         label = { Text("TCP + UDP (Full TProxy)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CyberEmerald,
-                            selectedLabelColor = BgObsidian
+                            selectedContainerColor = palette.mintDeep,
+                            selectedLabelColor = Color.White
                         )
                     )
                     FilterChip(
@@ -2316,15 +2483,15 @@ fun ServerConfigView(
                         onClick = { onTransportModeChange(TransportMode.TCP_ONLY); onConfigChanged() },
                         label = { Text("TCP Only (Block QUIC)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CyberCyan,
-                            selectedLabelColor = BgObsidian
+                            selectedContainerColor = palette.primaryViolet,
+                            selectedLabelColor = Color.White
                         )
                     )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text("IP STACK STRATEGY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextSecondary, letterSpacing = 0.8.sp)
+                Text("IP STACK STRATEGY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val ipModes = listOf(
@@ -2338,8 +2505,8 @@ fun ServerConfigView(
                             onClick = { onIpModeChange(mode); onConfigChanged() },
                             label = { Text(lbl, fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = CyberCyan,
-                                selectedLabelColor = BgObsidian
+                                selectedContainerColor = palette.primaryViolet,
+                                selectedLabelColor = Color.White
                             )
                         )
                     }
@@ -2404,7 +2571,7 @@ fun ServerConfigView(
                                             Text(
                                                 text = if (passVisible) "Hide" else "Show",
                                                 fontSize = 11.sp,
-                                                color = CyberCyan,
+                                                color = palette.primaryViolet,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier
                                                     .clickable { passVisible = !passVisible }
@@ -2439,7 +2606,7 @@ fun ServerConfigView(
                                         Text(
                                             text = if (passVisible) "Hide" else "Show",
                                             fontSize = 11.sp,
-                                            color = CyberCyan,
+                                            color = palette.primaryViolet,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .clickable { passVisible = !passVisible }
@@ -2500,13 +2667,13 @@ fun ServerConfigView(
                                 OutlinedTextField(
                                     value = password,
                                     onValueChange = { onPasswordChange(it); onConfigChanged() },
-                                    label = { Text("${targetProtocol.label} Auth Password") },
+                                    label = { Text("${targetProtocol.displayName} Auth Password") },
                                     visualTransformation = if (passVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                     trailingIcon = {
                                         Text(
                                             text = if (passVisible) "Hide" else "Show",
                                             fontSize = 11.sp,
-                                            color = CyberCyan,
+                                            color = palette.primaryViolet,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .clickable { passVisible = !passVisible }
@@ -2562,18 +2729,20 @@ fun AppsMasterView(
     onSelectAll: () -> Unit,
     onClearAll: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = CardSurface,
-            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+            color = palette.cardSurface,
+            border = BorderStroke(1.dp, palette.borderSubtle),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("KERNEL AUTOMATION & TETHERING", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = CyberCyan, letterSpacing = 1.sp)
+                Text("KERNEL AUTOMATION & TETHERING", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = palette.primaryViolet, letterSpacing = 1.sp)
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
@@ -2582,19 +2751,19 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Engage on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Auto-Engage on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
                         Text(
                             text = if (startOnBoot) "Service script active (/data/adb/service.d) • Node P$bootSlot" else "Disabled — manual launch only",
                             fontSize = 11.sp,
-                            color = if (startOnBoot) CyberEmerald else TextSecondary
+                            color = if (startOnBoot) palette.mintDeep else palette.textSecondary
                         )
                     }
                     Switch(
                         checked = startOnBoot,
                         onCheckedChange = onStartOnBootChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = BgObsidian,
-                            checkedTrackColor = CyberEmerald
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = palette.mintDeep
                         )
                     )
                 }
@@ -2606,7 +2775,7 @@ fun AppsMasterView(
                 ) {
                     Column {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text("DESIGNATED BOOT NODE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextSecondary, letterSpacing = 0.8.sp)
+                        Text("DESIGNATED BOOT NODE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -2618,8 +2787,8 @@ fun AppsMasterView(
                                     onClick = { onBootSlotChange(s) },
                                     label = { Text("P$s", fontSize = 11.sp, fontWeight = FontWeight.Black) },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = CyberAmber,
-                                        selectedLabelColor = BgObsidian
+                                        selectedContainerColor = palette.primaryViolet,
+                                        selectedLabelColor = Color.White
                                     )
                                 )
                             }
@@ -2627,7 +2796,7 @@ fun AppsMasterView(
                     }
                 }
 
-                HorizontalDivider(color = Color(0x16FFFFFF), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
+                HorizontalDivider(color = palette.borderSubtle, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2635,19 +2804,19 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Hotspot & USB Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Hotspot & USB Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
                         Text(
                             text = "Tunnel Wi-Fi Hotspot (wlan+/ap+) & RNDIS/USB clients",
                             fontSize = 11.sp,
-                            color = if (routeHotspot) CyberCyan else TextSecondary
+                            color = if (routeHotspot) palette.primaryViolet else palette.textSecondary
                         )
                     }
                     Switch(
                         checked = routeHotspot,
                         onCheckedChange = onRouteHotspotChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = BgObsidian,
-                            checkedTrackColor = CyberCyan
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = palette.primaryViolet
                         )
                     )
                 }
@@ -2656,8 +2825,8 @@ fun AppsMasterView(
 
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = CardSurface,
-            border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+            color = palette.cardSurface,
+            border = BorderStroke(1.dp, palette.borderSubtle),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -2669,19 +2838,19 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Route Entire Android User Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Route Entire Android User Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
                         Text(
                             text = if (routeWholeProfile) "All apps in User ${ProfileManager.androidUserId} tunneled" else "Per-UID Split Tunnel (${selectedPackages.size} apps selected)",
                             fontSize = 11.sp,
-                            color = if (routeWholeProfile) CyberCyan else CyberEmerald
+                            color = if (routeWholeProfile) palette.primaryViolet else palette.mintDeep
                         )
                     }
                     Switch(
                         checked = routeWholeProfile,
                         onCheckedChange = onRouteWholeProfileChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = BgObsidian,
-                            checkedTrackColor = CyberCyan
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = palette.primaryViolet
                         )
                     )
                 }
@@ -2721,15 +2890,15 @@ fun AppsMasterView(
                             Text(
                                 text = "${selectedPackages.size} / ${installedApps.size} selected",
                                 fontSize = 11.sp,
-                                color = TextSecondary,
+                                color = palette.textSecondary,
                                 fontFamily = FontFamily.Monospace
                             )
                             Row {
                                 TextButton(onClick = onSelectAll) {
-                                    Text("Select All", color = CyberCyan, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("Select All", color = palette.primaryViolet, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                                 TextButton(onClick = onClearAll) {
-                                    Text("Clear", color = CyberCrimson, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("Clear", color = palette.coralRed, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -2741,26 +2910,26 @@ fun AppsMasterView(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isChecked) CyberCyan.copy(alpha = 0.08f) else Color.Transparent)
+                                        .background(if (isChecked) palette.cardTintedViolet else Color.Transparent)
                                         .clickable { onToggleAppSelection(app.packageName) }
                                         .padding(vertical = 7.dp, horizontal = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(app.name, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                        Text("${app.packageName} • UID ${app.uid}", color = TextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                        Text(app.name, color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text("${app.packageName} • UID ${app.uid}", color = palette.textSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                                     }
                                     Checkbox(
                                         checked = isChecked,
                                         onCheckedChange = { onToggleAppSelection(app.packageName) },
                                         colors = CheckboxDefaults.colors(
-                                            checkedColor = CyberCyan,
-                                            checkmarkColor = BgObsidian
+                                            checkedColor = palette.primaryViolet,
+                                            checkmarkColor = Color.White
                                         )
                                     )
                                 }
-                                HorizontalDivider(color = Color(0x0FFFFFFF), thickness = 0.5.dp)
+                                HorizontalDivider(color = palette.borderSubtle.copy(alpha = 0.5f), thickness = 0.5.dp)
                             }
                         }
                     }
@@ -2773,15 +2942,15 @@ fun AppsMasterView(
 }
 
 // -------------------------------------------------------------
-// REUSABLE BADGES, UPTIME COUNTER & URI PARSER
+// REUSABLE STUDIO BADGES, UPTIME COUNTER & URI PARSER
 // -------------------------------------------------------------
 
 @Composable
-fun CyberBadge(label: String, color: Color) {
+fun StudioStatusBadge(label: String, color: Color) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = color.copy(alpha = 0.12f),
-        border = BorderStroke(0.8.dp, color.copy(alpha = 0.45f))
+        border = BorderStroke(1.dp, color.copy(alpha = 0.40f))
     ) {
         Text(
             text = label,
@@ -2796,7 +2965,8 @@ fun CyberBadge(label: String, color: Color) {
 }
 
 @Composable
-fun LiveUptimeCounter(sessionStartMs: Long) {
+fun StudioUptimeCounter(sessionStartMs: Long) {
+    val palette = LocalStudioPalette.current
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(sessionStartMs) {
         while (isActive) {
@@ -2812,14 +2982,14 @@ fun LiveUptimeCounter(sessionStartMs: Long) {
 
     Surface(
         shape = RoundedCornerShape(6.dp),
-        color = CyberEmerald.copy(alpha = 0.14f),
-        border = BorderStroke(0.8.dp, CyberEmerald.copy(alpha = 0.5f))
+        color = palette.cardTintedMint,
+        border = BorderStroke(0.8.dp, palette.mintDeep.copy(alpha = 0.5f))
     ) {
         Text(
             text = "⏱ $timeStr",
             fontFamily = FontFamily.Monospace,
             fontSize = 10.5.sp,
-            color = CyberEmerald,
+            color = palette.mintDeep,
             fontWeight = FontWeight.Black,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
         )
