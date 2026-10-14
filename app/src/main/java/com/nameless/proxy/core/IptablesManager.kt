@@ -70,22 +70,19 @@ object IptablesManager {
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 4. PHONE OUTBOUND MANGLE (UDP & STUN TPROXY)
+        // 4. PHONE OUTBOUND MANGLE (100% UDP 53 DNS + App UDP TPROXY)
         commands.add("iptables -t mangle -N $chainOutMangle")
         if (hostIsIpv4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
 
-        // Intercept UDP port 53 (DNS) for netd (UID 1051) and target apps
-        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner 1051 -j MARK --set-mark $markHex")
-        if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
-            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
-        } else {
-            for (uid in selectedUids) {
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
-            }
+        // CRITICAL FIX: Mark ALL outbound UDP port 53 (including UID 0 netd & UID 1051)
+        // BEFORE UID 0-9999 RETURN so system DNS never leaks to local ISP!
+        // (When host is a domain name, exempt 8.8.8.8 bootstrap DNS so sing-box can resolve host)
+        if (!hostIsIpv4) {
+            commands.add("iptables -t mangle -A $chainOutMangle -p udp -d 8.8.8.8 --dport 53 -m owner --uid-owner 0 -j RETURN")
         }
+        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
 
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
 
@@ -105,10 +102,15 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE WEBRTC SHIELD (Allows TPROXY-marked STUN 19302 so WebRTC matches Proxy IP; drops any unmarked UDP leak)
+        // 5. PHONE WEBRTC & QUIC-DNS SHIELD
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
+        // Block UDP 443 (DoH3 / QUIC DNS) to public resolvers so Chrome/netd use tunneled TCP
+        commands.add("iptables -A $chainFilter -p udp -d 8.8.8.8 --dport 443 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp -d 8.8.4.4 --dport 443 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp -d 1.1.1.1 --dport 443 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp -d 1.0.0.1 --dport 443 -j DROP")
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 3478 -j DROP")
 
@@ -191,15 +193,12 @@ object IptablesManager {
         // 8. HOTSPOT / TETHERING ROUTING (Owner User 0)
         if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null")
-
             val tetherIfs = listOf("wlan0", "wlan1", "wlan2", "ap0", "ap1", "rndis0", "usb0", "softap0", "swlan0")
             for (tif in tetherIfs) {
                 commands.add("echo 0 > /proc/sys/net/ipv4/conf/$tif/rp_filter 2>/dev/null")
             }
-
             commands.add("ip rule add fwmark $hsMarkHex table $hsTableId pref 500")
             commands.add("ip route add local 0.0.0.0/0 dev lo table $hsTableId")
-
             commands.add("iptables -I FORWARD 1 -j ACCEPT 2>/dev/null")
             commands.add("iptables -t nat -I POSTROUTING 1 -s 192.168.0.0/16 -j MASQUERADE 2>/dev/null")
             commands.add("iptables -t nat -I POSTROUTING 1 -s 172.16.0.0/12 -j MASQUERADE 2>/dev/null")
@@ -254,7 +253,13 @@ object IptablesManager {
             commands.add("iptables -I FORWARD 1 -j $chainHotspotFwd")
         }
 
+        // 9. Destroy pre-existing un-tunneled DoT (853) & DNS (53) sockets and flush DNS cache
+        commands.add("ss -K dport = :853 2>/dev/null || true")
+        commands.add("ss -K dport = :53 2>/dev/null || true")
         commands.add("conntrack -F 2>/dev/null || true")
+        commands.add("ndc resolver clearnetdns wlan0 2>/dev/null || true")
+        commands.add("ndc resolver clearnetdns rmnet_data0 2>/dev/null || true")
+        commands.add("ndc resolver flushdefaultif 2>/dev/null || true")
 
         return commands
     }
