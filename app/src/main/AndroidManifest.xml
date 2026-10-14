@@ -8,8 +8,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:icon="@drawable/gojo_icon"
+        android:roundIcon="@drawable/gojo_icon"
         android:label="Nameless Proxy"
         android:supportsRtl="true"
         android:hardwareAccelerated="true"
