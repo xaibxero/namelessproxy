@@ -11,9 +11,11 @@ data class StartResult(
 object ProxyController {
 
     private const val ADB_DIR = "/data/adb/nameless_proxy"
-    private const val ACTIVE_SLOT_FILE = "$ADB_DIR/running_slot"
 
     fun getBinaryPath() = "$ADB_DIR/sing-box"
+
+    fun getActiveSlotFile(user: Int) =
+        "$ADB_DIR/running_slot_u$user"
 
     fun getConfigPath(user: Int, slot: Int) =
         "$ADB_DIR/config_u${user}_s${slot}.json"
@@ -59,8 +61,9 @@ object ProxyController {
     }
 
     fun getRunningSlot(user: Int = ProfileManager.androidUserId): Int? {
+        val slotFile = getActiveSlotFile(user)
         val out = executeSuWithOutput(listOf(
-            "if [ -f $ACTIVE_SLOT_FILE ]; then cat $ACTIVE_SLOT_FILE; fi"
+            "if [ -f $slotFile ]; then cat $slotFile; elif [ $user -eq 0 ] && [ -f $ADB_DIR/running_slot ]; then cat $ADB_DIR/running_slot; fi"
         )).lineSequence().lastOrNull()?.trim() ?: ""
         val s = out.toIntOrNull()
         return if (s != null && isRunning(user, s)) s else null
@@ -150,6 +153,7 @@ object ProxyController {
         val configPath = getConfigPath(user, slot)
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
+        val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
 
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
@@ -166,12 +170,12 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
+        // Only stop instances belonging to THIS Android User Profile
         stopProxy(context, user)
 
-        val runCmd = "$binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
+        val runCmd = "$binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile && echo $slot > $slotFile"
         executeSu(listOf(runCmd))
 
-        // Fast adaptive readiness check + stability verification
         var alive = false
         for (attempt in 1..6) {
             Thread.sleep(150)
@@ -206,15 +210,18 @@ object ProxyController {
     ): Boolean {
         val commands = mutableListOf<String>()
 
+        // Flush iptables rules and terminate only this Android User Profile's sing-box daemon
         for (s in 0 until ProfileManager.MAX_SLOTS) {
             commands.addAll(IptablesManager.generateDisableCommands(user, s))
             val pFile = getPidFile(user, s)
             commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
-        commands.add("rm -f $ACTIVE_SLOT_FILE")
-        commands.add("killall -9 sing-box 2>/dev/null")
-        commands.add("pkill -9 -f sing-box 2>/dev/null")
+        commands.add("rm -f ${getActiveSlotFile(user)}")
+        if (user == 0) {
+            commands.add("rm -f $ADB_DIR/running_slot")
+        }
+        commands.add("pkill -9 -f 'config_u${user}_' 2>/dev/null")
 
         return executeSu(commands)
     }
