@@ -23,9 +23,6 @@ object ProxyController {
     fun getPidFile(user: Int, slot: Int) =
         "$ADB_DIR/singbox_u${user}_s${slot}.pid"
 
-    fun getWatchdogPidFile(user: Int) =
-        "$ADB_DIR/watchdog_u${user}.pid"
-
     fun getLogFile(user: Int, slot: Int) =
         "$ADB_DIR/singbox_u${user}_s${slot}.log"
 
@@ -130,19 +127,13 @@ object ProxyController {
 
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
-        val wdFile = getWatchdogPidFile(user)
         val logFile = getLogFile(user, slot)
         val raw = executeSuWithOutput(listOf(
             "echo '=== DAEMON STATUS (USER $user • SLOT P$slot) ==='",
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then",
-            "  echo 'Core State: ACTIVE (PID: '\$(cat $pidFile)')'",
+            "  echo 'State: ACTIVE (PID: '\$(cat $pidFile)')'",
             "else",
-            "  echo 'Core State: STOPPED / NOT RUNNING'",
-            "fi",
-            "if [ -f $wdFile ] && kill -0 \$(cat $wdFile) 2>/dev/null; then",
-            "  echo 'Auto-Heal Watchdog: ARMED (PID: '\$(cat $wdFile)')'",
-            "else",
-            "  echo 'Auto-Heal Watchdog: INACTIVE'",
+            "  echo 'State: STOPPED / NOT RUNNING'",
             "fi",
             "echo ''",
             "echo '=== RECENT LOG ENTRIES ==='",
@@ -151,27 +142,16 @@ object ProxyController {
         return raw.replace(Regex("\u001B\\[[;\\d]*m"), "")
     }
 
-    // Live Per-App Connection Sniffer (Reads active kernel sockets via ss -tupn)
-    fun getLiveConnections(user: Int = ProfileManager.androidUserId): String {
-        val raw = executeSuWithOutput(listOf(
-            "echo '=== ACTIVE KERNEL SOCKETS (ss -tupn) ==='",
-            "ss -tupn state established 2>/dev/null | head -n 90 || netstat -tupn 2>/dev/null | head -n 90"
-        ))
-        return raw.ifEmpty { "No active sockets found." }
-    }
-
     fun startProxy(
         context: Context,
         settings: ProxySettings,
-        selectedUids: List<Int>? = null,
-        relaySettings: ProxySettings? = null
+        selectedUids: List<Int>? = null
     ): StartResult {
         val user = ProfileManager.androidUserId
         val slot = ProfileManager.activeSlot
         val binaryPath = getBinaryPath()
         val configPath = getConfigPath(user, slot)
         val pidFile = getPidFile(user, slot)
-        val wdFile = getWatchdogPidFile(user)
         val logFile = getLogFile(user, slot)
         val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
@@ -184,7 +164,7 @@ object ProxyController {
             }
         }
 
-        val configContent = ConfigGenerator.generateJson(settings, port, relaySettings)
+        val configContent = ConfigGenerator.generateJson(settings, port)
         val configWritten = writeConfigDirectly(configContent, configPath)
         if (!configWritten) {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
@@ -212,22 +192,15 @@ object ProxyController {
             )
         }
 
-        val relayHost = relaySettings?.host?.trim() ?: ""
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, relayHost)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
-        if (!ipSuccess) {
+        return if (ipSuccess) {
+            StartResult(success = true)
+        } else {
             stopProxy(context, user)
-            return StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
+            StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
         }
-
-        // Launch Auto-Heal Kernel Watchdog Daemon if enabled
-        if (settings.enableWatchdog) {
-            val watchdogCmd = "(while [ -f $slotFile ]; do sleep 3; if [ -f $pidFile ] && ! kill -0 \$(cat $pidFile) 2>/dev/null; then $binaryPath run -c $configPath >> $logFile 2>&1 < /dev/null & echo \$! > $pidFile; fi; done) >/dev/null 2>&1 < /dev/null & echo \$! > $wdFile"
-            executeSu(listOf(watchdogCmd))
-        }
-
-        return StartResult(success = true)
     }
 
     fun stopProxy(
@@ -235,22 +208,17 @@ object ProxyController {
         user: Int = ProfileManager.androidUserId
     ): Boolean {
         val commands = mutableListOf<String>()
-        val wdFile = getWatchdogPidFile(user)
 
-        // 1. Disarm Auto-Heal Watchdog first so it doesn't respawn sing-box during stop
-        commands.add("rm -f ${getActiveSlotFile(user)}")
-        if (user == 0) {
-            commands.add("rm -f $ADB_DIR/running_slot")
-        }
-        commands.add("if [ -f $wdFile ]; then kill -9 \$(cat $wdFile) 2>/dev/null; rm -f $wdFile; fi")
-
-        // 2. Flush iptables rules and terminate this user profile's sing-box daemon
         for (s in 0 until ProfileManager.MAX_SLOTS) {
             commands.addAll(IptablesManager.generateDisableCommands(user, s))
             val pFile = getPidFile(user, s)
             commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
+        commands.add("rm -f ${getActiveSlotFile(user)}")
+        if (user == 0) {
+            commands.add("rm -f $ADB_DIR/running_slot")
+        }
         commands.add("pkill -9 -f 'config_u${user}_' 2>/dev/null")
 
         return executeSu(commands)
