@@ -75,8 +75,6 @@ import androidx.lifecycle.lifecycleScope
 import com.nameless.proxy.core.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -105,10 +103,6 @@ private val ProxyType.displayTitle: String
     }
 
 private val SlotPlanetNames = listOf("Mercury", "Venus", "Earth", "Mars", "Saturn")
-
-// -------------------------------------------------------------
-// CELESTIAL OBSIDIAN & ALABASTER PALETTES
-// -------------------------------------------------------------
 
 data class CosmicPalette(
     val isDark: Boolean,
@@ -339,11 +333,11 @@ class MainActivity : ComponentActivity() {
                         onRecheckRoot = { refreshRootStatus() },
                         installedApps = installedApps,
                         onSyncStatus = { syncDaemonStatus() },
-                        onStartProxy = { settings, uids, relaySettings, onResult ->
+                        onStartProxy = { settings, uids, onResult ->
                             if (isTransitioningState) return@MainScreen
                             isTransitioningState = true
                             lifecycleScope.launch(Dispatchers.IO) {
-                                val res = ProxyController.startProxy(this@MainActivity, settings, uids, relaySettings)
+                                val res = ProxyController.startProxy(this@MainActivity, settings, uids)
                                 val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
                                 val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
                                 withContext(Dispatchers.Main) {
@@ -468,7 +462,7 @@ fun MainScreen(
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
     onSyncStatus: () -> Unit,
-    onStartProxy: (ProxySettings, List<Int>?, ProxySettings?, (Boolean, String?) -> Unit) -> Unit,
+    onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
     val palette = LocalCosmicPalette.current
@@ -479,11 +473,7 @@ fun MainScreen(
     var startOnBoot by remember { mutableStateOf(globalPrefs.getBoolean("start_on_boot", false)) }
     var bootSlot by remember { mutableIntStateOf(globalPrefs.getInt("boot_slot", 0)) }
     var routeHotspot by remember { mutableStateOf(globalPrefs.getBoolean("route_hotspot", true)) }
-    var enableKillSwitch by remember { mutableStateOf(globalPrefs.getBoolean("enable_kill_switch", false)) }
-    var enableBbrAndTfo by remember { mutableStateOf(globalPrefs.getBoolean("enable_bbr_tfo", true)) }
-    var enableTlsFragment by remember { mutableStateOf(globalPrefs.getBoolean("enable_tls_fragment", false)) }
-    var hideHotspotTtl by remember { mutableStateOf(globalPrefs.getBoolean("hide_hotspot_ttl", true)) }
-    var enableWatchdog by remember { mutableStateOf(globalPrefs.getBoolean("enable_watchdog", true)) }
+    var enableKillSwitch by remember { mutableStateOf(globalPrefs.getBoolean("enable_kill_switch", true)) }
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -572,13 +562,9 @@ fun MainScreen(
     var ssMethod by remember { mutableStateOf("2022-blake3-aes-128-gcm") }
     var realityPublicKey by remember { mutableStateOf("") }
     var realityShortId by remember { mutableStateOf("") }
-    var relaySlot by remember { mutableIntStateOf(-1) }
     var routeWholeProfile by remember { mutableStateOf(true) }
     var selectedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
     var configuredSlots by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    // Live per-slot latency map from 1-Tap "Ping All P0-P4" benchmark
-    var slotLatencies by remember { mutableStateOf<Map<Int, Long?>>(emptyMap()) }
-    var isPingingAll by remember { mutableStateOf(false) }
 
     fun refreshConfiguredSlots() {
         val set = mutableSetOf<Int>()
@@ -588,38 +574,11 @@ fun MainScreen(
         configuredSlots = set
     }
 
-    fun loadSettingsForAnySlot(slot: Int): ProxySettings? {
-        if (slot !in 0 until ProfileManager.MAX_SLOTS) return null
-        val sp = getSlotPrefs(slot)
-        val h = sp.getString("host", "")?.trim() ?: ""
-        if (h.isEmpty()) return null
-        return ProxySettings(
-            type = runCatching { ProxyType.valueOf(sp.getString("proxy_type", "SOCKS5")!!) }.getOrDefault(ProxyType.SOCKS5),
-            transportMode = runCatching { TransportMode.valueOf(sp.getString("transport_mode", "TCP_AND_UDP")!!) }.getOrDefault(TransportMode.TCP_AND_UDP),
-            ipMode = runCatching { IpMode.valueOf(sp.getString("ip_mode", "IPV4_ONLY")!!) }.getOrDefault(IpMode.IPV4_ONLY),
-            host = h,
-            port = sp.getString("port", "1080")?.toIntOrNull()?.coerceIn(1, 65535) ?: 1080,
-            username = sp.getString("username", "") ?: "",
-            password = sp.getString("password", "") ?: "",
-            routeHotspot = routeHotspot,
-            sni = sp.getString("sni", "") ?: "",
-            ssMethod = sp.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm",
-            realityPublicKey = sp.getString("reality_pk", "") ?: "",
-            realityShortId = sp.getString("reality_sid", "") ?: "",
-            enableKillSwitch = enableKillSwitch,
-            enableBbrAndTfo = enableBbrAndTfo,
-            enableTlsFragment = enableTlsFragment,
-            hideHotspotTtl = hideHotspotTtl,
-            enableWatchdog = enableWatchdog,
-            relaySlot = sp.getInt("relay_slot", -1)
-        )
-    }
-
     fun applySettingsToState(
         pHost: String, pPort: String, pUser: String, pPass: String,
         pSni: String, pSsMethod: String, pRpk: String, pRsid: String,
         pType: ProxyType, pTransport: TransportMode, pIpMode: IpMode,
-        pRelaySlot: Int, pRouteWhole: Boolean, pPkgs: Set<String>
+        pRouteWhole: Boolean, pPkgs: Set<String>
     ) {
         host = pHost
         port = pPort
@@ -632,7 +591,6 @@ fun MainScreen(
         proxyType = pType
         transportMode = pTransport
         ipMode = pIpMode
-        relaySlot = pRelaySlot
         routeWholeProfile = pRouteWhole
         selectedPackages = pPkgs
     }
@@ -653,7 +611,6 @@ fun MainScreen(
                 pType = runCatching { ProxyType.valueOf(sp.getString("proxy_type", "SOCKS5")!!) }.getOrDefault(ProxyType.SOCKS5),
                 pTransport = runCatching { TransportMode.valueOf(sp.getString("transport_mode", "TCP_AND_UDP")!!) }.getOrDefault(TransportMode.TCP_AND_UDP),
                 pIpMode = runCatching { IpMode.valueOf(sp.getString("ip_mode", "IPV4_ONLY")!!) }.getOrDefault(IpMode.IPV4_ONLY),
-                pRelaySlot = sp.getInt("relay_slot", -1),
                 pRouteWhole = sp.getBoolean("route_whole_profile", true),
                 pPkgs = (sp.getStringSet("selected_packages", emptySet()) ?: emptySet()).toSet()
             )
@@ -680,14 +637,13 @@ fun MainScreen(
                             pType = runCatching { ProxyType.valueOf(b.optString("proxy_type", "SOCKS5")) }.getOrDefault(ProxyType.SOCKS5),
                             pTransport = runCatching { TransportMode.valueOf(b.optString("transport_mode", "TCP_AND_UDP")) }.getOrDefault(TransportMode.TCP_AND_UDP),
                             pIpMode = runCatching { IpMode.valueOf(b.optString("ip_mode", "IPV4_ONLY")) }.getOrDefault(IpMode.IPV4_ONLY),
-                            pRelaySlot = b.optInt("relay_slot", -1),
                             pRouteWhole = b.optBoolean("route_whole_profile", true),
                             pPkgs = bPkgs
                         )
                     } else {
                         applySettingsToState(
                             "", "1080", "", "", "", "2022-blake3-aes-128-gcm", "", "",
-                            ProxyType.SOCKS5, TransportMode.TCP_AND_UDP, IpMode.IPV4_ONLY, -1, true, emptySet()
+                            ProxyType.SOCKS5, TransportMode.TCP_AND_UDP, IpMode.IPV4_ONLY, true, emptySet()
                         )
                     }
                     refreshConfiguredSlots()
@@ -711,12 +667,7 @@ fun MainScreen(
         ssMethod = ssMethod.trim(),
         realityPublicKey = realityPublicKey.trim(),
         realityShortId = realityShortId.trim(),
-        enableKillSwitch = enableKillSwitch,
-        enableBbrAndTfo = enableBbrAndTfo,
-        enableTlsFragment = enableTlsFragment,
-        hideHotspotTtl = hideHotspotTtl,
-        enableWatchdog = enableWatchdog,
-        relaySlot = relaySlot
+        enableKillSwitch = enableKillSwitch
     )
 
     var saveJob by remember { mutableStateOf<Job?>(null) }
@@ -733,7 +684,6 @@ fun MainScreen(
             .putString("ss_method", ssMethod.trim())
             .putString("reality_pk", realityPublicKey.trim())
             .putString("reality_sid", realityShortId.trim())
-            .putInt("relay_slot", relaySlot)
             .putBoolean("route_whole_profile", routeWholeProfile)
             .putStringSet("selected_packages", selectedPackages.toSet())
             .apply()
@@ -742,10 +692,6 @@ fun MainScreen(
             .putInt("boot_slot", bootSlot)
             .putBoolean("route_hotspot", routeHotspot)
             .putBoolean("enable_kill_switch", enableKillSwitch)
-            .putBoolean("enable_bbr_tfo", enableBbrAndTfo)
-            .putBoolean("enable_tls_fragment", enableTlsFragment)
-            .putBoolean("hide_hotspot_ttl", hideHotspotTtl)
-            .putBoolean("enable_watchdog", enableWatchdog)
             .apply()
         refreshConfiguredSlots()
 
@@ -761,31 +707,6 @@ fun MainScreen(
                     context, slot, snap, startOnBoot && slot == bootSlot,
                     routeWholeProfile, pkgs, ProfileManager.androidUserId
                 )
-            }
-        }
-    }
-
-    // 1-Tap Benchmark all configured slots P0..P4 concurrently
-    fun benchmarkAllSlots() {
-        if (isPingingAll) return
-        saveConfigForSlot(activeSlot, true)
-        isPingingAll = true
-        scope.launch(Dispatchers.IO) {
-            val deferreds = (0 until ProfileManager.MAX_SLOTS).map { s ->
-                async {
-                    val cfg = loadSettingsForAnySlot(s)
-                    if (cfg != null) {
-                        val res = ProxyTester.testProxy(cfg, timeoutMs = 3500)
-                        s to (res as? TestResult.Success)?.latencyMs
-                    } else {
-                        s to null
-                    }
-                }
-            }
-            val results = deferreds.awaitAll().toMap()
-            withContext(Dispatchers.Main) {
-                slotLatencies = results
-                isPingingAll = false
             }
         }
     }
@@ -827,16 +748,13 @@ fun MainScreen(
     var testStatus by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
     var currentLogs by remember { mutableStateOf("Tap Refresh to inspect kernel logs...") }
-    var currentSockets by remember { mutableStateOf("Tap Refresh to inspect live kernel sockets...") }
 
     LaunchedEffect(selectedTab, runningSlot, activeSlot) {
         if (selectedTab == 4) {
             withContext(Dispatchers.IO) {
                 val l = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, runningSlot ?: activeSlot)
-                val s = ProxyController.getLiveConnections(ProfileManager.androidUserId)
                 withContext(Dispatchers.Main) {
                     currentLogs = l.ifEmpty { "No logs recorded." }
-                    currentSockets = s
                 }
             }
         }
@@ -882,7 +800,6 @@ fun MainScreen(
                     startOnBoot = startOnBoot,
                     bootSlot = bootSlot,
                     configuredSlots = configuredSlots,
-                    slotLatencies = slotLatencies,
                     onSelectSlot = { newSlot ->
                         if (newSlot != activeSlot) {
                             saveConfigForSlot(activeSlot, true)
@@ -927,7 +844,6 @@ fun MainScreen(
                             isTransitioning = isTransitioning,
                             runningSlot = runningSlot,
                             activeSlot = activeSlot,
-                            relaySlot = relaySlot,
                             sessionStartMs = sessionStartMs,
                             activePid = activePid,
                             publicIpInfo = publicIpInfo,
@@ -951,10 +867,7 @@ fun MainScreen(
                                     }
                                     saveConfigForSlot(activeSlot, true)
                                     val targets = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
-                                    val relayCfg = if (relaySlot in 0 until ProfileManager.MAX_SLOTS && relaySlot != activeSlot) {
-                                        loadSettingsForAnySlot(relaySlot)
-                                    } else null
-                                    onStartProxy(getCurrentSettings(), targets, relayCfg) { ok, err ->
+                                    onStartProxy(getCurrentSettings(), targets) { ok, err ->
                                         testStatus = if (!ok) "Error: ${err?.lines()?.lastOrNull()}" else null
                                     }
                                 }
@@ -972,10 +885,7 @@ fun MainScreen(
                                 scope.launch {
                                     val res = ProxyTester.testProxy(getCurrentSettings())
                                     testStatus = when (res) {
-                                        is TestResult.Success -> {
-                                            slotLatencies = slotLatencies + (activeSlot to res.latencyMs)
-                                            "ONLINE • ${res.latencyMs} ms"
-                                        }
+                                        is TestResult.Success -> "ONLINE • ${res.latencyMs} ms"
                                         is TestResult.Failure -> "FAILED • ${res.error}"
                                     }
                                     isTesting = false
@@ -1002,9 +912,6 @@ fun MainScreen(
                             proxyType = proxyType,
                             transportMode = transportMode,
                             ipMode = ipMode,
-                            relaySlot = relaySlot,
-                            isPingingAll = isPingingAll,
-                            onPingAllSlots = { benchmarkAllSlots() },
                             onConfigChanged = { saveConfigForSlot(activeSlot) },
                             onHostChange = { host = it },
                             onPortChange = { port = it },
@@ -1017,7 +924,6 @@ fun MainScreen(
                             onProxyTypeChange = { proxyType = it },
                             onTransportModeChange = { transportMode = it },
                             onIpModeChange = { ipMode = it },
-                            onRelaySlotChange = { relaySlot = it },
                             onImportUri = { imported ->
                                 proxyType = imported.type
                                 host = imported.host
@@ -1045,11 +951,7 @@ fun MainScreen(
                             startOnBoot = startOnBoot,
                             bootSlot = bootSlot,
                             routeHotspot = routeHotspot,
-                            hideHotspotTtl = hideHotspotTtl,
                             enableKillSwitch = enableKillSwitch,
-                            enableBbrAndTfo = enableBbrAndTfo,
-                            enableTlsFragment = enableTlsFragment,
-                            enableWatchdog = enableWatchdog,
                             routeWholeProfile = routeWholeProfile,
                             selectedPackages = selectedPackages,
                             installedApps = installedApps,
@@ -1070,24 +972,8 @@ fun MainScreen(
                                 routeHotspot = it
                                 saveConfigForSlot(activeSlot, true)
                             },
-                            onHideHotspotTtlChange = {
-                                hideHotspotTtl = it
-                                saveConfigForSlot(activeSlot, true)
-                            },
                             onKillSwitchChange = {
                                 enableKillSwitch = it
-                                saveConfigForSlot(activeSlot, true)
-                            },
-                            onBbrTfoChange = {
-                                enableBbrAndTfo = it
-                                saveConfigForSlot(activeSlot, true)
-                            },
-                            onTlsFragmentChange = {
-                                enableTlsFragment = it
-                                saveConfigForSlot(activeSlot, true)
-                            },
-                            onWatchdogChange = {
-                                enableWatchdog = it
                                 saveConfigForSlot(activeSlot, true)
                             },
                             onExportBackup = {
@@ -1138,15 +1024,11 @@ fun MainScreen(
                             activeSlot = activeSlot,
                             runningSlot = runningSlot,
                             logs = currentLogs,
-                            sockets = currentSockets,
-                            installedApps = installedApps,
                             onRefresh = {
                                 scope.launch(Dispatchers.IO) {
                                     val l = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, runningSlot ?: activeSlot)
-                                    val s = ProxyController.getLiveConnections(ProfileManager.androidUserId)
                                     withContext(Dispatchers.Main) {
                                         currentLogs = l.ifEmpty { "No logs." }
-                                        currentSockets = s
                                     }
                                 }
                             },
@@ -1168,10 +1050,6 @@ fun MainScreen(
         }
     }
 }
-
-// -------------------------------------------------------------
-// 1. CLEAN DEEP-SPACE STARFIELD BACKDROP
-// -------------------------------------------------------------
 
 @Composable
 fun CleanStarfieldBackdrop(
@@ -1221,10 +1099,6 @@ fun CleanStarfieldBackdrop(
         }
     }
 }
-
-// -------------------------------------------------------------
-// 2. LIVE 3D 8-PLANET SOLAR SYSTEM STAGE
-// -------------------------------------------------------------
 
 private data class OrbitPlanetSpec(
     val name: String,
@@ -1458,10 +1332,6 @@ fun Interactive3DSolarSystemStage(
     }
 }
 
-// -------------------------------------------------------------
-// 3. HEADER & ANIMATED PLANET SLOT BAR (WITH PING BADGES)
-// -------------------------------------------------------------
-
 @Composable
 fun SolarHeaderBar(
     isProxyActive: Boolean,
@@ -1557,7 +1427,6 @@ fun PlanetSlotBar(
     startOnBoot: Boolean,
     bootSlot: Int,
     configuredSlots: Set<Int>,
-    slotLatencies: Map<Int, Long?>,
     onSelectSlot: (Int) -> Unit
 ) {
     val palette = LocalCosmicPalette.current
@@ -1577,7 +1446,6 @@ fun PlanetSlotBar(
             val sel = idx == activeSlot
             val run = isProxyActive && runningSlot == idx
             val isBoot = startOnBoot && bootSlot == idx
-            val pingMs = slotLatencies[idx]
 
             val scale by animateFloatAsState(
                 targetValue = if (sel) 1.05f else 1f,
@@ -1637,7 +1505,6 @@ fun PlanetSlotBar(
                 Text(
                     text = when {
                         run -> "LIVE"
-                        pingMs != null -> "${pingMs}ms"
                         isBoot -> "BOOT"
                         configuredSlots.contains(idx) -> SlotPlanetNames[idx]
                         else -> "Empty"
@@ -1646,7 +1513,7 @@ fun PlanetSlotBar(
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.4.sp,
                     color = when {
-                        run || pingMs != null -> palette.emeraldLive
+                        run -> palette.emeraldLive
                         isBoot -> palette.sunGold
                         sel -> palette.earthCyan
                         else -> palette.textMuted
@@ -1658,10 +1525,6 @@ fun PlanetSlotBar(
     }
 }
 
-// -------------------------------------------------------------
-// 4. TAB 0: SOLAR COCKPIT + FLUID TURBINE SPEEDOMETER
-// -------------------------------------------------------------
-
 @Composable
 fun SolarCockpitTab(
     continuousTimeSec: Float,
@@ -1669,7 +1532,6 @@ fun SolarCockpitTab(
     isTransitioning: Boolean,
     runningSlot: Int?,
     activeSlot: Int,
-    relaySlot: Int,
     sessionStartMs: Long,
     activePid: String?,
     publicIpInfo: GeoIpResult?,
@@ -1769,14 +1631,11 @@ fun SolarCockpitTab(
                             }
                         )
                         Spacer(modifier = Modifier.height(2.dp))
-                        val hopSuffix = if (relaySlot in 0 until ProfileManager.MAX_SLOTS && relaySlot != activeSlot) {
-                            "  •  Hop via P$relaySlot"
-                        } else ""
                         Text(
                             text = when {
-                                isProxyActive && publicIpInfo != null -> "${publicIpInfo.country}  •  PID ${activePid ?: "OK"}$hopSuffix"
-                                isProxyActive -> "Verifying location...  •  Tap to refresh$hopSuffix"
-                                else -> "${SlotPlanetNames[activeSlot]} Node (P$activeSlot)  •  ${proxyType.displayTitle}$hopSuffix"
+                                isProxyActive && publicIpInfo != null -> "${publicIpInfo.country}  •  PID ${activePid ?: "OK"}"
+                                isProxyActive -> "Verifying location...  •  Tap to refresh"
+                                else -> "${SlotPlanetNames[activeSlot]} Node (P$activeSlot)  •  ${proxyType.displayTitle}"
                             },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1903,10 +1762,6 @@ fun SolarCockpitTab(
         }
     }
 }
-
-// -------------------------------------------------------------
-// 5. FLUID TWIN-TURBINE SPEEDOMETER (NO GRAPH LINE, NO ON/OFF FLICKER)
-// -------------------------------------------------------------
 
 private fun realisticSpeedFraction(bytesPerSec: Long): Float {
     if (bytesPerSec <= 0L) return 0f
@@ -2098,10 +1953,6 @@ private fun TurbineGaugeCard(
         }
     }
 }
-
-// -------------------------------------------------------------
-// 6. TAB 1: LIVE EMBEDDED IPFIGHTER.COM
-// -------------------------------------------------------------
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -2313,10 +2164,6 @@ fun EmbeddedIpFighterWebViewScreen(
     }
 }
 
-// -------------------------------------------------------------
-// 7. TAB 2: NODE CONFIG (WITH PING ALL P0-P4 & MULTI-HOP RELAY)
-// -------------------------------------------------------------
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SolarNodeConfigTab(
@@ -2332,9 +2179,6 @@ fun SolarNodeConfigTab(
     proxyType: ProxyType,
     transportMode: TransportMode,
     ipMode: IpMode,
-    relaySlot: Int,
-    isPingingAll: Boolean,
-    onPingAllSlots: () -> Unit,
     onConfigChanged: () -> Unit,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
@@ -2347,7 +2191,6 @@ fun SolarNodeConfigTab(
     onProxyTypeChange: (ProxyType) -> Unit,
     onTransportModeChange: (TransportMode) -> Unit,
     onIpModeChange: (IpMode) -> Unit,
-    onRelaySlotChange: (Int) -> Unit,
     onImportUri: (ProxySettings) -> Unit,
     onResetSlot: () -> Unit,
     getCurrentSettings: () -> ProxySettings
@@ -2366,7 +2209,7 @@ fun SolarNodeConfigTab(
     ) {
         CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "QUICK URI IMPORT & MULTI-NODE BENCHMARK",
+                text = "QUICK URI IMPORT & SOCKET PROBE",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 0.8.sp,
@@ -2374,7 +2217,7 @@ fun SolarNodeConfigTab(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Paste vless://, trojan://, ss://, hy2://, socks5:// or ping all P0–P4",
+                text = "Paste vless://, trojan://, ss://, hy2://, socks5:// or test reachability",
                 fontSize = 10.5.sp,
                 color = palette.textSecondary
             )
@@ -2383,7 +2226,7 @@ fun SolarNodeConfigTab(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedButton(
                     onClick = {
@@ -2401,7 +2244,7 @@ fun SolarNodeConfigTab(
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, palette.earthCyan)
                 ) {
-                    Text("Paste URI", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = palette.earthCyan, maxLines = 1)
+                    Text("Paste URI", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = palette.earthCyan)
                 }
 
                 Button(
@@ -2423,25 +2266,9 @@ fun SolarNodeConfigTab(
                     colors = ButtonDefaults.buttonColors(containerColor = palette.cosmicViolet, contentColor = Color.White)
                 ) {
                     Text(
-                        text = if (isCheckingAlive) "Wait..." else "Probe P$activeSlot",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1
-                    )
-                }
-
-                Button(
-                    onClick = onPingAllSlots,
-                    enabled = !isPingingAll,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.emeraldLive, contentColor = Color(0xFF04050C))
-                ) {
-                    Text(
-                        text = if (isPingingAll) "..." else "Ping P0-P4",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1
+                        text = if (isCheckingAlive) "Probing..." else "Probe Socket",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
@@ -2506,29 +2333,6 @@ fun SolarNodeConfigTab(
                         selected = proxyType == t,
                         onClick = { onProxyTypeChange(t); onConfigChanged() },
                         label = { Text(t.displayTitle, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-            Text("MULTI-HOP RELAY CHAIN (FIRST-HOP DETOUR)", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp, color = palette.textSecondary)
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = relaySlot == -1,
-                    onClick = { onRelaySlotChange(-1); onConfigChanged() },
-                    label = { Text("Direct (No Relay)", fontSize = 11.sp) }
-                )
-                (0 until ProfileManager.MAX_SLOTS).filter { it != activeSlot }.forEach { rSlot ->
-                    FilterChip(
-                        selected = relaySlot == rSlot,
-                        onClick = { onRelaySlotChange(rSlot); onConfigChanged() },
-                        label = { Text("Via P$rSlot (${SlotPlanetNames[rSlot]})", fontSize = 11.sp) }
                     )
                 }
             }
@@ -2739,32 +2543,20 @@ fun SolarNodeConfigTab(
     }
 }
 
-// -------------------------------------------------------------
-// 8. TAB 3: KERNEL ARSENAL, ROUTING & 5-SLOT BACKUP
-// -------------------------------------------------------------
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SolarRoutingTab(
     startOnBoot: Boolean,
     bootSlot: Int,
     routeHotspot: Boolean,
-    hideHotspotTtl: Boolean,
     enableKillSwitch: Boolean,
-    enableBbrAndTfo: Boolean,
-    enableTlsFragment: Boolean,
-    enableWatchdog: Boolean,
     routeWholeProfile: Boolean,
     selectedPackages: Set<String>,
     installedApps: List<AppItem>,
     onStartOnBootChange: (Boolean) -> Unit,
     onBootSlotChange: (Int) -> Unit,
     onRouteHotspotChange: (Boolean) -> Unit,
-    onHideHotspotTtlChange: (Boolean) -> Unit,
     onKillSwitchChange: (Boolean) -> Unit,
-    onBbrTfoChange: (Boolean) -> Unit,
-    onTlsFragmentChange: (Boolean) -> Unit,
-    onWatchdogChange: (Boolean) -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onRouteWholeProfileChange: (Boolean) -> Unit,
@@ -2780,10 +2572,9 @@ fun SolarRoutingTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Kernel Arsenal & Netfilter Enhancements
         CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "KERNEL NETFILTER & DPI ARSENAL",
+                text = "KERNEL ROUTING & SECURITY",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 0.8.sp,
@@ -2797,10 +2588,11 @@ fun SolarRoutingTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Auto-Start on System Boot", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    Text("Auto-Start on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = if (startOnBoot) "Armed for P$bootSlot (/data/adb/service.d)" else "Manual launch only",
-                        fontSize = 10.5.sp,
+                        fontSize = 11.sp,
                         color = palette.textSecondary
                     )
                 }
@@ -2828,7 +2620,7 @@ fun SolarRoutingTab(
                 }
             }
 
-            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 9.dp))
+            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2836,13 +2628,14 @@ fun SolarRoutingTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Strict Kernel Kill-Switch", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
-                    Text("Block all non-tunneled traffic if proxy drops", fontSize = 10.5.sp, color = palette.textSecondary)
+                    Text("Strict Kernel Kill-Switch", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Zero-leak lock: blocks all non-tunneled traffic", fontSize = 11.sp, color = palette.textSecondary)
                 }
                 AnimatedCosmicSwitch(checked = enableKillSwitch, onCheckedChange = onKillSwitchChange)
             }
 
-            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 9.dp))
+            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2850,50 +2643,9 @@ fun SolarRoutingTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Auto-Heal Kernel Watchdog", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
-                    Text("Respawn sing-box in <3s if killed by Android LMK", fontSize = 10.5.sp, color = palette.textSecondary)
-                }
-                AnimatedCosmicSwitch(checked = enableWatchdog, onCheckedChange = onWatchdogChange)
-            }
-
-            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 9.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Kernel TCP BBR & FastOpen Turbo", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
-                    Text("Enable BBR congestion control & TFO=3", fontSize = 10.5.sp, color = palette.textSecondary)
-                }
-                AnimatedCosmicSwitch(checked = enableBbrAndTfo, onCheckedChange = onBbrTfoChange)
-            }
-
-            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 9.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("DPI TLS ClientHello Fragmentation", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
-                    Text("Fragment TLS records to bypass ISP SNI inspection", fontSize = 10.5.sp, color = palette.textSecondary)
-                }
-                AnimatedCosmicSwitch(checked = enableTlsFragment, onCheckedChange = onTlsFragmentChange)
-            }
-
-            HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 9.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Hotspot & Tethering Bridge", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
-                    Text("Share tunnel with Wi-Fi / USB clients", fontSize = 10.5.sp, color = palette.textSecondary)
+                    Text("Hotspot & Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Share tunnel with Wi-Fi / USB clients", fontSize = 11.sp, color = palette.textSecondary)
                 }
                 AnimatedCosmicSwitch(
                     checked = routeHotspot && uid == 0,
@@ -2901,24 +2653,9 @@ fun SolarRoutingTab(
                     onCheckedChange = onRouteHotspotChange
                 )
             }
-
-            if (routeHotspot && uid == 0) {
-                HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 9.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Carrier Tethering Hide (TTL = 64)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
-                        Text("Rewrite hotspot packet TTL to 64 to prevent carrier throttling", fontSize = 10.5.sp, color = palette.textSecondary)
-                    }
-                    AnimatedCosmicSwitch(checked = hideHotspotTtl, onCheckedChange = onHideHotspotTtlChange)
-                }
-            }
         }
 
-        // 2. Full 5-Slot Backup Export & Import Card
+        // Full 5-Slot Backup Export & Import Card
         CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = "FULL 5-SLOT CONFIG BACKUP (/SDCARD/DOWNLOAD)",
@@ -2951,7 +2688,7 @@ fun SolarRoutingTab(
             }
         }
 
-        // 3. Per-App Split Tunneling Card
+        // Per-App Split Tunneling Card
         CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3036,35 +2773,16 @@ fun SolarRoutingTab(
     }
 }
 
-// -------------------------------------------------------------
-// 9. TAB 4: KERNEL LOGS + LIVE SOCKET SNIFFER (ss -tupn)
-// -------------------------------------------------------------
-
 @Composable
 fun SolarLogsTab(
     activeSlot: Int,
     runningSlot: Int?,
     logs: String,
-    sockets: String,
-    installedApps: List<AppItem>,
     onRefresh: () -> Unit,
     onClear: () -> Unit
 ) {
     val palette = LocalCosmicPalette.current
     val context = LocalContext.current
-    var viewMode by remember { mutableIntStateOf(0) } // 0 = Kernel Logs, 1 = Live Socket Sniffer
-
-    // Map UID numbers in ss -tupn output to human-readable app names
-    val enrichedSockets = remember(sockets, installedApps) {
-        val uidMap = installedApps.associate { it.uid.toString() to it.name }
-        sockets.replace(Regex("uid:(\\d+)")) { matchResult ->
-            val uidStr = matchResult.groupValues[1]
-            val appName = uidMap[uidStr]
-            if (appName != null) "uid:$uidStr ($appName)" else matchResult.value
-        }
-    }
-
-    val displayedText = if (viewMode == 0) logs else enrichedSockets
 
     CrystalGlassCard(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -3072,28 +2790,21 @@ fun SolarLogsTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = viewMode == 0,
-                    onClick = { viewMode = 0 },
-                    label = { Text("Kernel Logs", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                )
-                FilterChip(
-                    selected = viewMode == 1,
-                    onClick = { viewMode = 1; onRefresh() },
-                    label = { Text("Live Sockets", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                )
-            }
+            Text(
+                text = "KERNEL LOGS (P${runningSlot ?: activeSlot})",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 0.8.sp,
+                color = palette.sunGold
+            )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = {
                     val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cb.setPrimaryClip(ClipData.newPlainText("NamelessTelemetry", displayedText))
-                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    cb.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", logs))
+                    Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
                 }) { Text("Copy", color = palette.sunGold, fontWeight = FontWeight.Bold) }
-                if (viewMode == 0) {
-                    TextButton(onClick = onClear) { Text("Clear", color = palette.marsCoral, fontWeight = FontWeight.Bold) }
-                }
+                TextButton(onClick = onClear) { Text("Clear", color = palette.marsCoral, fontWeight = FontWeight.Bold) }
                 TextButton(onClick = onRefresh) { Text("Refresh", color = palette.earthCyan, fontWeight = FontWeight.Bold) }
             }
         }
@@ -3106,7 +2817,7 @@ fun SolarLogsTab(
                 .padding(12.dp)
         ) {
             Text(
-                text = displayedText,
+                text = logs,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
