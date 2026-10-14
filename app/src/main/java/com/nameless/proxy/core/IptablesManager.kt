@@ -27,12 +27,10 @@ object IptablesManager {
         val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val appStart = user * 100000 + 10000
-        val appEnd = user * 100000 + 19999
-        val isolatedStart = user * 100000 + 90000
-        val isolatedEnd = user * 100000 + 99999
+        // Full contiguous user app + Android 15 SDK Sandbox + isolated process UID range (10000..99999)
+        val profileAppStart = user * 100000 + 10000
+        val profileAppEnd = user * 100000 + 99999
 
-        // Unique per-user AND per-slot routing table & fwmark so Multi-User profiles never collide
         val tableId = 2080 + (user * 10) + slot
         val markHex = "0x" + Integer.toHexString(0x1080 + (user * 0x10) + slot)
         val hsTableId = 2000 + slot
@@ -71,24 +69,12 @@ object IptablesManager {
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 4. PHONE OUTBOUND MANGLE (UDP & DNS TPROXY)
+        // 4. PHONE OUTBOUND MANGLE (Routes App UDP & WebRTC STUN through sing-box TPROXY)
         commands.add("iptables -t mangle -N $chainOutMangle")
+        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
         if (hostIsIpv4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
-
-        // Hijack UDP port 53 (DNS) for netd (UID 1051) and target apps before local subnet exemptions
-        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner 1051 -j MARK --set-mark $markHex")
-        if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
-            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
-        } else {
-            for (uid in selectedUids) {
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
-            }
-        }
-
-        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
 
         for (range in reservedV4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d $range -j RETURN")
@@ -96,8 +82,7 @@ object IptablesManager {
 
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $profileAppStart-$profileAppEnd -j MARK --set-mark $markHex")
             } else {
                 for (uid in selectedUids) {
                     commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $uid -j MARK --set-mark $markHex")
@@ -106,32 +91,35 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE WEBRTC & STUN LEAK SHIELD (Blocks UDP STUN 3478, 5349, 19300-19309 so WebRTC uses TCP proxy)
+        // 5. PHONE WEBRTC & LEAK SHIELD
+        // Allows marked UDP STUN (19302) to go through TPROXY (returning proxy IP 48.45.153.215!)
+        // while dropping any unmarked UDP or local router UPnP/NAT-PMP WAN-IP discovery!
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
-
-        // Block all standard & Google Chrome STUN UDP ports for this user profile so WebRTC never leaks real IP
-        if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 19300:19309 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
-        } else {
-            for (uid in selectedUids) {
-                commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $uid -j DROP")
-                commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $uid -j DROP")
-                commands.add("iptables -A $chainFilter -p udp --dport 19300:19309 -m owner --uid-owner $uid -j DROP")
-            }
-        }
+        commands.add("iptables -A $chainFilter -p udp --dport 3478 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp --dport 1900 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp --dport 5351 -j DROP")
 
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $appStart-$appEnd -j DROP")
-                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j DROP")
+                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $profileAppStart-$profileAppEnd -j DROP")
             } else {
                 for (uid in selectedUids) {
                     commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
+                }
+            }
+        } else {
+            // In TCP_AND_UDP mode, drop any app UDP packet to a public IP that failed to get marked for TPROXY
+            for (range in reservedV4) {
+                commands.add("iptables -A $chainFilter -d $range -j RETURN")
+            }
+            if (selectedUids.isNullOrEmpty()) {
+                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $profileAppStart-$profileAppEnd -m mark ! --mark $markHex -j DROP")
+            } else {
+                for (uid in selectedUids) {
+                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -m mark ! --mark $markHex -j DROP")
                 }
             }
         }
@@ -151,8 +139,7 @@ object IptablesManager {
         }
 
         if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
-            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $isolatedStart-$isolatedEnd -j REDIRECT --to-ports $inboundPort")
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $profileAppStart-$profileAppEnd -j REDIRECT --to-ports $inboundPort")
         } else {
             for (uid in selectedUids) {
                 commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
@@ -169,8 +156,7 @@ object IptablesManager {
             commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP")
             commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner 0-9999 -j RETURN")
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $appStart-$appEnd -j DROP")
-                commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $isolatedStart-$isolatedEnd -j DROP")
+                commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $profileAppStart-$profileAppEnd -j DROP")
             } else {
                 for (uid in selectedUids) {
                     commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $uid -j DROP")
@@ -186,8 +172,7 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
 
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
-                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $isolatedStart-$isolatedEnd -j REDIRECT --to-ports $inboundPort")
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $profileAppStart-$profileAppEnd -j REDIRECT --to-ports $inboundPort")
             } else {
                 for (uid in selectedUids) {
                     commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $uid -j REDIRECT --to-ports $inboundPort")
@@ -255,17 +240,12 @@ object IptablesManager {
             commands.add("iptables -N $chainHotspotFwd 2>/dev/null")
             for (iface in tetherInterfaces) {
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 3478 -j DROP")
-                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 5349 -j DROP")
-                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 19300:19309 -j DROP")
                 if (settings.transportMode == TransportMode.TCP_ONLY) {
                     commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 443 -j DROP")
                 }
             }
             commands.add("iptables -I FORWARD 1 -j $chainHotspotFwd")
         }
-
-        // Flush stale UDP conntrack entries so Chrome WebRTC immediately uses the tunnel
-        commands.add("conntrack -F 2>/dev/null || true")
 
         return commands
     }
