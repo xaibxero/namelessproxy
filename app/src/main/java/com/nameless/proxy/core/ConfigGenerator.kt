@@ -74,7 +74,11 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: TCP Redirect (inboundPort) + TCP/UDP TProxy (inboundPort + 8) + Local SOCKS5 (inboundPort + 1)
+        // 3. Inbounds:
+        // - redirect-in (inboundPort): TCP NAT REDIRECT
+        // - internal-socks-in (inboundPort + 1): Local SOCKS5 for GeoIP check
+        // - dns-in (inboundPort + 2): Dedicated UDP/TCP NAT REDIRECT DNS listener (Works on all Cellular/Hotspot kernels)
+        // - tproxy-in (inboundPort + 8): UDP/TCP TPROXY for WebRTC STUN & general UDP
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK, IpMode.IPV6_ONLY -> "::"
@@ -90,6 +94,26 @@ object ConfigGenerator {
         })
 
         inbounds.put(JSONObject().apply {
+            put("type", "socks")
+            put("tag", "internal-socks-in")
+            put("listen", "127.0.0.1")
+            put("listen_port", inboundPort + 1)
+        })
+
+        inbounds.put(JSONObject().apply {
+            put("type", "direct")
+            put("tag", "dns-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort + 2)
+            put("network", JSONArray().apply {
+                put("tcp")
+                put("udp")
+            })
+            put("override_address", "1.1.1.1")
+            put("override_port", 53)
+        })
+
+        inbounds.put(JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
             put("listen", listenAddress)
@@ -98,13 +122,6 @@ object ConfigGenerator {
                 put("tcp")
                 put("udp")
             })
-        })
-
-        inbounds.put(JSONObject().apply {
-            put("type", "socks")
-            put("tag", "internal-socks-in")
-            put("listen", "127.0.0.1")
-            put("listen_port", inboundPort + 1)
         })
 
         root.put("inbounds", inbounds)
@@ -213,6 +230,11 @@ object ConfigGenerator {
 
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
+        })
+
+        routeRules.put(JSONObject().apply {
+            put("inbound", JSONArray().apply { put("dns-in") })
+            put("action", "hijack-dns")
         })
 
         routeRules.put(JSONObject().apply {
