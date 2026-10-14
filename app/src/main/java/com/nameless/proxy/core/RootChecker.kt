@@ -2,8 +2,6 @@ package com.nameless.proxy.core
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 
 enum class RootState {
     CHECKING,
@@ -14,18 +12,19 @@ enum class RootState {
 object RootChecker {
     suspend fun verifyRoot(): Pair<RootState, String> = withContext(Dispatchers.IO) {
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val output = reader.readLine() ?: ""
+            val process = ProcessBuilder("su", "-c", "id")
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
             process.waitFor()
 
             if (output.contains("uid=0")) {
-                Pair(RootState.GRANTED, "Root: Granted (UID 0)")
+                Pair(RootState.GRANTED, "ROOT UID 0")
             } else {
-                Pair(RootState.DENIED, "Root: Denied or Non-Root")
+                Pair(RootState.DENIED, "NO ROOT")
             }
         } catch (e: Exception) {
-            Pair(RootState.DENIED, "Root: Not Available")
+            Pair(RootState.DENIED, "NO ROOT")
         }
     }
 }
