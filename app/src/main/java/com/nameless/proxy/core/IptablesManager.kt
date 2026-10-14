@@ -2,6 +2,10 @@ package com.nameless.proxy.core
 
 object IptablesManager {
 
+    private val IPV4_REGEX = Regex("^((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3})(/\\d{1,2})?$")
+
+    private fun isValidIpv4(host: String): Boolean = IPV4_REGEX.matches(host.trim())
+
     fun generateEnableCommands(
         inboundPort: Int,
         settings: ProxySettings,
@@ -20,6 +24,7 @@ object IptablesManager {
         val chainV6Filter = "NAMELESS_V6_FILTER_$key"
         val chainHotspotNat = "NAMELESS_HS_NAT_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
+        val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
         val appStart = user * 100000 + 10000
@@ -27,10 +32,10 @@ object IptablesManager {
         val isolatedStart = user * 100000 + 90000
         val isolatedEnd = user * 100000 + 99999
 
-        val tableId = 2080 + slot
-        val markHex = "0x" + Integer.toHexString(0x1080 + slot)
-        val hsTableId = 2000 + slot
-        val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
+        val tableId = ProfileManager.getTableId(user, slot)
+        val markHex = ProfileManager.getMarkHex(user, slot)
+        val hsTableId = ProfileManager.getHotspotTableId(slot)
+        val hsMarkHex = ProfileManager.getHotspotMarkHex(slot)
 
         val tetherInterfaces = listOf("wlan+", "ap+", "rndis+", "usb+", "softap+", "swlan+", "wigig+")
 
@@ -39,9 +44,10 @@ object IptablesManager {
             "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
         )
 
+        val hostIsIpv4 = isValidIpv4(settings.host)
         val commands = mutableListOf<String>()
 
-        // 1. Flush existing rules
+        // 1. Flush existing rules cleanly
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Safe Loopback Settings
@@ -64,15 +70,25 @@ object IptablesManager {
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 4. PHONE OUTBOUND MANGLE (Cellular 4G stability preserved)
+        // 4. PHONE OUTBOUND MANGLE
         commands.add("iptables -t mangle -N $chainOutMangle")
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
+
+        // Always intercept app UDP port 53 (DNS) via TPROXY even in TCP_ONLY mode
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
+            commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
+        } else {
+            for (uid in selectedUids) {
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
+            }
+        }
 
         for (range in reservedV4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d $range -j RETURN")
         }
-        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-            commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host} -j RETURN")
+        if (hostIsIpv4) {
+            commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
 
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
@@ -87,7 +103,7 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE WEBRTC SHIELD (WebRTC security preserved)
+        // 5. PHONE WEBRTC & UDP SHIELD
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
@@ -105,7 +121,7 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 6. PHONE LOCAL TCP & DNS REDIRECTION (DNS security preserved)
+        // 6. PHONE LOCAL TCP & DNS REDIRECTION
         commands.add("iptables -t nat -N $chainNatV4")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
@@ -113,8 +129,8 @@ object IptablesManager {
         for (range in reservedV4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
         }
-        if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-            commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host} -j RETURN")
+        if (hostIsIpv4) {
+            commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host.trim()} -j RETURN")
         }
 
         if (selectedUids.isNullOrEmpty()) {
@@ -158,72 +174,56 @@ object IptablesManager {
             commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6")
         }
 
-        // 8. FIXED HOTSPOT ROUTING: Solves Laptop Internet Access
+        // 8. HOTSPOT / TETHERING ROUTING
         if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null")
 
-            // Disable rp_filter strictly on tether interfaces (avoids cellular rmnet interfaces)
             val tetherIfs = listOf("wlan0", "wlan1", "wlan2", "ap0", "ap1", "rndis0", "usb0", "softap0", "swlan0")
             for (tif in tetherIfs) {
                 commands.add("echo 0 > /proc/sys/net/ipv4/conf/$tif/rp_filter 2>/dev/null")
             }
 
-            // Policy routing for tethered UDP TPROXY
             commands.add("ip rule add fwmark $hsMarkHex table $hsTableId pref 500")
             commands.add("ip route add local 0.0.0.0/0 dev lo table $hsTableId")
 
-            // Unblock forwarding and provide fallback NAT
             commands.add("iptables -I FORWARD 1 -j ACCEPT 2>/dev/null")
             commands.add("iptables -t nat -I POSTROUTING 1 -s 192.168.0.0/16 -j MASQUERADE 2>/dev/null")
             commands.add("iptables -t nat -I POSTROUTING 1 -s 172.16.0.0/12 -j MASQUERADE 2>/dev/null")
 
-            // Block IPv6 leakage on hotspot interfaces
             commands.add("ip6tables -N $chainHotspotV6Block 2>/dev/null")
             for (iface in tetherInterfaces) {
                 commands.add("ip6tables -A $chainHotspotV6Block -i $iface -j DROP")
             }
             commands.add("ip6tables -I FORWARD 1 -j $chainHotspotV6Block")
 
-            // --- A. HOTSPOT NAT PREROUTING: Reliable TCP & DNS Proxying ---
+            // A. Hotspot NAT PREROUTING
             commands.add("iptables -t nat -N $chainHotspotNat")
-
-            if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-                commands.add("iptables -t nat -A $chainHotspotNat -d ${settings.host} -j RETURN")
+            if (hostIsIpv4) {
+                commands.add("iptables -t nat -A $chainHotspotNat -d ${settings.host.trim()} -j RETURN")
             }
-
-            // Redirect laptop DNS queries (TCP 53) to sing-box
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
             }
-
-            // Exclude local router subnet communication
             for (range in reservedV4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
             }
-
-            // Redirect all laptop TCP traffic to sing-box
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp -j REDIRECT --to-ports $inboundPort")
             }
             commands.add("iptables -t nat -I PREROUTING 1 -j $chainHotspotNat")
 
-            // --- B. HOTSPOT MANGLE PREROUTING: UDP & DNS TPROXY ---
+            // B. Hotspot Mangle PREROUTING (UDP & DNS TPROXY)
             commands.add("iptables -t mangle -N $chainHotspotMangle")
             commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
-
-            // Intercept laptop UDP port 53 DNS queries to sing-box
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp --dport 53 -j TPROXY --on-port $tproxyPort --tproxy-mark $hsMarkHex")
             }
-
             for (range in reservedV4) {
                 commands.add("iptables -t mangle -A $chainHotspotMangle -d $range -j RETURN")
             }
-            if (settings.host.isNotEmpty() && !settings.host.contains(":")) {
-                commands.add("iptables -t mangle -A $chainHotspotMangle -d ${settings.host} -j RETURN")
+            if (hostIsIpv4) {
+                commands.add("iptables -t mangle -A $chainHotspotMangle -d ${settings.host.trim()} -j RETURN")
             }
-
-            // Route laptop UDP through TPROXY if TCP+UDP mode is active
             if (settings.transportMode == TransportMode.TCP_AND_UDP) {
                 for (iface in tetherInterfaces) {
                     commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp -j TPROXY --on-port $tproxyPort --tproxy-mark $hsMarkHex")
@@ -231,15 +231,15 @@ object IptablesManager {
             }
             commands.add("iptables -t mangle -I PREROUTING 1 -j $chainHotspotMangle")
 
-            // --- C. WEBRTC & QUIC LEAK PREVENTION FOR LAPTOP ---
+            // C. Isolated Hotspot FORWARD Filter Chain (Cleanly removable on stop)
+            commands.add("iptables -N $chainHotspotFwd 2>/dev/null")
             for (iface in tetherInterfaces) {
-                commands.add("iptables -I FORWARD 1 -i $iface -p udp --dport 3478 -j DROP")
-            }
-            if (settings.transportMode == TransportMode.TCP_ONLY) {
-                for (iface in tetherInterfaces) {
-                    commands.add("iptables -I FORWARD 1 -i $iface -p udp --dport 443 -j DROP")
+                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 3478 -j DROP")
+                if (settings.transportMode == TransportMode.TCP_ONLY) {
+                    commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 443 -j DROP")
                 }
             }
+            commands.add("iptables -I FORWARD 1 -j $chainHotspotFwd")
         }
 
         return commands
@@ -258,14 +258,19 @@ object IptablesManager {
         val chainV6Filter = "NAMELESS_V6_FILTER_$key"
         val chainHotspotNat = "NAMELESS_HS_NAT_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
+        val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val tableId = 2080 + slot
-        val markHex = "0x" + Integer.toHexString(0x1080 + slot)
-        val hsTableId = 2000 + slot
-        val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
+        val tableId = ProfileManager.getTableId(user, slot)
+        val markHex = ProfileManager.getMarkHex(user, slot)
+        val hsTableId = ProfileManager.getHotspotTableId(slot)
+        val hsMarkHex = ProfileManager.getHotspotMarkHex(slot)
 
         return listOf(
+            "iptables -D FORWARD -j $chainHotspotFwd 2>/dev/null",
+            "iptables -F $chainHotspotFwd 2>/dev/null",
+            "iptables -X $chainHotspotFwd 2>/dev/null",
+
             "iptables -D FORWARD -j ACCEPT 2>/dev/null",
             "iptables -t nat -D POSTROUTING -s 192.168.0.0/16 -j MASQUERADE 2>/dev/null",
             "iptables -t nat -D POSTROUTING -s 172.16.0.0/12 -j MASQUERADE 2>/dev/null",
