@@ -26,11 +26,15 @@ import android.util.Base64
 
 import android.view.ViewGroup
 
+import android.webkit.CookieManager
+
 import android.webkit.PermissionRequest
 
 import android.webkit.WebChromeClient
 
 import android.webkit.WebSettings
+
+import android.webkit.WebStorage
 
 import android.webkit.WebView
 
@@ -108,8 +112,6 @@ import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.graphics.Path
 
-import androidx.compose.ui.graphics.PathEffect
-
 import androidx.compose.ui.graphics.StrokeCap
 
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -166,6 +168,8 @@ import kotlinx.coroutines.launch
 
 import kotlinx.coroutines.withContext
 
+import java.io.DataOutputStream
+
 import java.io.File
 
 import kotlin.math.PI
@@ -175,8 +179,6 @@ import kotlin.math.atan2
 import kotlin.math.cos
 
 import kotlin.math.sin
-
-import kotlin.math.sqrt
 
 
 
@@ -268,27 +270,27 @@ data class CosmicPalette(
 
 
 
-// Dark Mode: Deep Space Observatory with Ultra-Clear 14% Crystal Glass
+// Dark Mode: Deep Space Observatory with Ultra-Clear 15% Crystal Glass
 
 private val DarkCosmicPalette = CosmicPalette(
 
     isDark = true,
 
-    skyTop = Color(0xFF03050C),
+    skyTop = Color(0xFF02040A),
 
-    skyMiddle = Color(0xFF070D1F),
+    skyMiddle = Color(0xFF060C1E),
 
-    skyBottom = Color(0xFF0B1530),
+    skyBottom = Color(0xFF0A1432),
 
-    glassSurface = Color(0x24111C38), // 14% alpha true crystal transparency
+    glassSurface = Color(0x26101B38), // 15% alpha true crystal glass
 
-    glassPod = Color(0x33162447),     // 20% alpha inner pod transparency
+    glassPod = Color(0x36162447),     // 21% alpha inner pod
 
-    glassRimTop = Color(0x557DD3FC),
+    glassRimTop = Color(0x667DD3FC),
 
-    glassRimBottom = Color(0x22FFFFFF),
+    glassRimBottom = Color(0x24FFFFFF),
 
-    orbitTrack = Color(0x4094A3B8),
+    orbitTrack = Color(0x4594A3B8),
 
     sunCore = Color(0xFFFFD166),
 
@@ -312,27 +314,27 @@ private val DarkCosmicPalette = CosmicPalette(
 
 
 
-// Light Mode: Celestial Star-Chart Daylight with True 24% Frosted Glass (No Solid White)
+// Light Mode: Celestial Star-Chart Daylight with True 25% Frosted Glass (No Solid White)
 
 private val LightCosmicPalette = CosmicPalette(
 
     isDark = false,
 
-    skyTop = Color(0xFFE2ECFF),
+    skyTop = Color(0xFFDCE8FF),
 
-    skyMiddle = Color(0xFFD0E1FD),
+    skyMiddle = Color(0xFFC8DCFD),
 
-    skyBottom = Color(0xFFBDD5FA),
+    skyBottom = Color(0xFFB4CFFA),
 
-    glassSurface = Color(0x3DFFFFFF), // 24% alpha true translucent glass
+    glassSurface = Color(0x40FFFFFF), // 25% alpha true translucent glass
 
-    glassPod = Color(0x4DFFFFFF),     // 30% alpha inner pod
+    glassPod = Color(0x52FFFFFF),     // 32% alpha inner pod
 
-    glassRimTop = Color(0x88FFFFFF),
+    glassRimTop = Color(0x99FFFFFF),
 
-    glassRimBottom = Color(0x440284C7),
+    glassRimBottom = Color(0x480284C7),
 
-    orbitTrack = Color(0x481E3A8A),
+    orbitTrack = Color(0x4D1E3A8A),
 
     sunCore = Color(0xFFF59E0B),
 
@@ -694,8 +696,6 @@ private fun readPhysicalNetworkBytes(): Pair<Long, Long> {
 
                     val iface = trimmed.substringBefore(":").trim()
 
-                    // Exclude loopback (lo), dummy, and virtual tunnel interfaces to prevent double-counting
-
                     val isPhysical = iface.startsWith("wlan") ||
 
                         iface.startsWith("rmnet") ||
@@ -752,8 +752,6 @@ private fun readPhysicalNetworkBytes(): Pair<Long, Long> {
 
 // Piecewise-Linear Realistic Speed Scale (0.0 .. 1.0)
 
-// Ensures idle bytes (e.g. 400 B/s) stay at ~1% instead of jumping to 40%!
-
 private fun realisticSpeedFraction(bytesPerSec: Long): Float {
 
     if (bytesPerSec <= 128L) return 0f
@@ -764,19 +762,53 @@ private fun realisticSpeedFraction(bytesPerSec: Long): Float {
 
     return when {
 
-        kb < 50.0 -> ((kb / 50.0) * 0.12).toFloat()                        // 0..50 KB/s -> 0%..12%
+        kb < 50.0 -> ((kb / 50.0) * 0.12).toFloat()
 
-        kb < 250.0 -> (0.12 + ((kb - 50.0) / 200.0) * 0.18).toFloat()      // 50..250 KB/s -> 12%..30%
+        kb < 250.0 -> (0.12 + ((kb - 50.0) / 200.0) * 0.18).toFloat()
 
-        mb < 1.0 -> (0.30 + ((kb - 250.0) / 774.0) * 0.20).toFloat()       // 250 KB/s..1 MB/s -> 30%..50%
+        mb < 1.0 -> (0.30 + ((kb - 250.0) / 774.0) * 0.20).toFloat()
 
-        mb < 5.0 -> (0.50 + ((mb - 1.0) / 4.0) * 0.22).toFloat()           // 1..5 MB/s -> 50%..72%
+        mb < 5.0 -> (0.50 + ((mb - 1.0) / 4.0) * 0.22).toFloat()
 
-        mb < 20.0 -> (0.72 + ((mb - 5.0) / 15.0) * 0.18).toFloat()         // 5..20 MB/s -> 72%..90%
+        mb < 20.0 -> (0.72 + ((mb - 5.0) / 15.0) * 0.18).toFloat()
 
-        else -> (0.90 + ((mb - 20.0) / 30.0).coerceIn(0.0, 1.0) * 0.10).toFloat() // 20..50+ MB/s -> 90%..100%
+        else -> (0.90 + ((mb - 20.0) / 30.0).coerceIn(0.0, 1.0) * 0.10).toFloat()
 
     }.coerceIn(0f, 1f)
+
+}
+
+
+
+// Helper to flush stale DNS & DoT sockets in kernel before reloading IPFighter
+
+private fun flushKernelDnsSockets() {
+
+    try {
+
+        val process = ProcessBuilder("su").redirectErrorStream(true).start()
+
+        DataOutputStream(process.outputStream).use { os ->
+
+            os.writeBytes("ss -K dport = :853 2>/dev/null || true\n")
+
+            os.writeBytes("ss -K dport = :53 2>/dev/null || true\n")
+
+            os.writeBytes("conntrack -F 2>/dev/null || true\n")
+
+            os.writeBytes("ndc resolver clearnetdns wlan0 2>/dev/null || true\n")
+
+            os.writeBytes("ndc resolver flushdefaultif 2>/dev/null || true\n")
+
+            os.writeBytes("exit\n")
+
+            os.flush()
+
+        }
+
+        process.waitFor()
+
+    } catch (_: Exception) {}
 
 }
 
@@ -832,7 +864,7 @@ fun MainScreen(
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
 
-    // 5 Tabs: 0 = Cockpit, 1 = IPFighter (Embedded WebView), 2 = Nodes, 3 = Routing, 4 = Logs
+    // 5 Tabs: 0 = Cockpit, 1 = IPFighter (Restyled In-App WebView + Telemetry), 2 = Nodes, 3 = Routing, 4 = Logs
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -941,8 +973,6 @@ fun MainScreen(
                 val instantTx = ((currTx - prevTx) / dt).toLong().coerceAtLeast(0L)
 
 
-
-                // Smooth EMA filter so speeds don't spike falsely on single-packet bursts
 
                 val smoothedRx = if (currentRxRate == 0L) instantRx else ((instantRx * 0.65) + (currentRxRate * 0.35)).toLong()
 
@@ -1418,11 +1448,13 @@ fun MainScreen(
 
     ) {
 
-        // 1. AMBIENT DEEP-SPACE STARFIELD & NEBULA BACKDROP
+        // 1. VOLUMETRIC SOLAR GOD-RAYS, AURORA RIBBONS & STARFIELD BACKDROP
 
-        AmbientStarfieldCanvas(
+        CosmicDeepBackdrop(
 
             isProxyActive = isProxyActive,
+
+            isTransitioning = isTransitioning || isTesting,
 
             tapPos = tapPos,
 
@@ -1696,7 +1728,11 @@ fun MainScreen(
 
                             isProxyActive = isProxyActive,
 
-                            activeSlot = runningSlot ?: activeSlot
+                            activeSlot = runningSlot ?: activeSlot,
+
+                            publicIpInfo = publicIpInfo,
+
+                            onRefreshNativeGeoIp = { refreshExitGeoIp() }
 
                         )
 
@@ -2024,7 +2060,7 @@ fun CrystalGlassCard(
 
 // -------------------------------------------------------------
 
-// AMBIENT STARFIELD & TAP GRAVITATIONAL RIPPLE BACKDROP
+// VOLUMETRIC SOLAR GOD-RAYS, AURORA RIBBONS & STARFIELD BACKDROP
 
 // -------------------------------------------------------------
 
@@ -2032,9 +2068,11 @@ fun CrystalGlassCard(
 
 @Composable
 
-fun AmbientStarfieldCanvas(
+fun CosmicDeepBackdrop(
 
     isProxyActive: Boolean,
+
+    isTransitioning: Boolean,
 
     tapPos: Offset,
 
@@ -2044,17 +2082,97 @@ fun AmbientStarfieldCanvas(
 
     val palette = LocalCosmicPalette.current
 
-    val inf = rememberInfiniteTransition(label = "ambientStars")
+    val inf = rememberInfiniteTransition(label = "cosmicBackdrop")
 
-    val phase by inf.animateFloat(
+
+
+    val rayRotation by inf.animateFloat(
 
         initialValue = 0f,
 
         targetValue = 360f,
 
-        animationSpec = infiniteRepeatable(tween(28000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(
 
-        label = "starPhase"
+            tween(if (isProxyActive) 22000 else 45000, easing = LinearEasing),
+
+            RepeatMode.Restart
+
+        ),
+
+        label = "rayRotation"
+
+    )
+
+
+
+    val auroraWave by inf.animateFloat(
+
+        initialValue = 0f,
+
+        targetValue = (2 * PI).toFloat(),
+
+        animationSpec = infiniteRepeatable(
+
+            tween(if (isProxyActive) 4500 else 9500, easing = LinearEasing),
+
+            RepeatMode.Restart
+
+        ),
+
+        label = "auroraWave"
+
+    )
+
+
+
+    val nebulaBreath by inf.animateFloat(
+
+        initialValue = 0.80f,
+
+        targetValue = 1.22f,
+
+        animationSpec = infiniteRepeatable(
+
+            tween(2800, easing = FastOutSlowInEasing),
+
+            RepeatMode.Reverse
+
+        ),
+
+        label = "nebulaBreath"
+
+    )
+
+
+
+    val primaryGlow by animateColorAsState(
+
+        targetValue = when {
+
+            isTransitioning -> palette.sunCorona
+
+            isProxyActive -> palette.emeraldLive
+
+            else -> palette.sunCore
+
+        },
+
+        animationSpec = tween(700),
+
+        label = "primaryGlow"
+
+    )
+
+
+
+    val secondaryGlow by animateColorAsState(
+
+        targetValue = if (isProxyActive) palette.cyanAccent else palette.violetAccent,
+
+        animationSpec = tween(700),
+
+        label = "secondaryGlow"
 
     )
 
@@ -2066,31 +2184,87 @@ fun AmbientStarfieldCanvas(
 
         val h = size.height
 
+        val lightOrigin = Offset(w * 0.50f, h * 0.23f)
+
+        val baseAlpha = if (palette.isDark) 0.20f else 0.14f
 
 
-        // Subtle Cosmic Nebula Glows
 
-        drawCircle(
+        // 1. Volumetric Rotating Solar God-Rays across the entire background
 
-            brush = Brush.radialGradient(
+        val rayCount = 8
 
-                colors = listOf(
+        for (r in 0 until rayCount) {
 
-                    palette.cyanAccent.copy(alpha = if (palette.isDark) 0.14f else 0.10f),
+            val angleDeg = rayRotation + (r * (360f / rayCount))
 
-                    Color.Transparent
+            rotate(degrees = angleDeg, pivot = lightOrigin) {
 
-                ),
+                val beamPath = Path().apply {
 
-                center = Offset(w * 0.20f, h * 0.18f),
+                    moveTo(lightOrigin.x, lightOrigin.y)
 
-                radius = w * 0.70f
+                    lineTo(lightOrigin.x - w * 0.16f, lightOrigin.y + h * 1.1f)
 
-            ),
+                    lineTo(lightOrigin.x + w * 0.16f, lightOrigin.y + h * 1.1f)
 
-            radius = w * 0.70f,
+                    close()
 
-            center = Offset(w * 0.20f, h * 0.18f)
+                }
+
+                drawPath(
+
+                    path = beamPath,
+
+                    brush = Brush.verticalGradient(
+
+                        colors = listOf(
+
+                            primaryGlow.copy(alpha = baseAlpha * 0.42f),
+
+                            secondaryGlow.copy(alpha = baseAlpha * 0.16f),
+
+                            Color.Transparent
+
+                        ),
+
+                        startY = lightOrigin.y,
+
+                        endY = lightOrigin.y + h * 0.95f
+
+                    )
+
+                )
+
+            }
+
+        }
+
+
+
+        // 2. Dynamic Drifting Nebula Light Clouds (Top, Mid, Bottom)
+
+        val orb1 = Offset(
+
+            w * 0.24f + (sin(auroraWave) * w * 0.14f).toFloat(),
+
+            h * 0.20f + (cos(auroraWave) * h * 0.06f).toFloat()
+
+        )
+
+        val orb2 = Offset(
+
+            w * 0.78f - (cos(auroraWave * 0.8f) * w * 0.15f).toFloat(),
+
+            h * 0.58f + (sin(auroraWave * 0.8f) * h * 0.08f).toFloat()
+
+        )
+
+        val orb3 = Offset(
+
+            w * 0.45f + (sin(auroraWave * 1.2f) * w * 0.16f).toFloat(),
+
+            h * 0.86f - (cos(auroraWave * 1.2f) * h * 0.05f).toFloat()
 
         )
 
@@ -2100,55 +2274,99 @@ fun AmbientStarfieldCanvas(
 
             brush = Brush.radialGradient(
 
-                colors = listOf(
+                colors = listOf(primaryGlow.copy(alpha = baseAlpha * 1.1f), Color.Transparent),
 
-                    palette.violetAccent.copy(alpha = if (palette.isDark) 0.14f else 0.08f),
+                center = orb1,
 
-                    Color.Transparent
-
-                ),
-
-                center = Offset(w * 0.82f, h * 0.75f),
-
-                radius = w * 0.75f
+                radius = w * 0.75f * nebulaBreath
 
             ),
 
-            radius = w * 0.75f,
+            radius = w * 0.75f * nebulaBreath,
 
-            center = Offset(w * 0.82f, h * 0.75f)
+            center = orb1
+
+        )
+
+        drawCircle(
+
+            brush = Brush.radialGradient(
+
+                colors = listOf(palette.cyanAccent.copy(alpha = baseAlpha), Color.Transparent),
+
+                center = orb2,
+
+                radius = w * 0.72f
+
+            ),
+
+            radius = w * 0.72f,
+
+            center = orb2
+
+        )
+
+        drawCircle(
+
+            brush = Brush.radialGradient(
+
+                colors = listOf(palette.violetAccent.copy(alpha = baseAlpha * 0.8f), Color.Transparent),
+
+                center = orb3,
+
+                radius = w * 0.68f
+
+            ),
+
+            radius = w * 0.68f,
+
+            center = orb3
 
         )
 
 
 
-        // Twinkling Stars
+        // 3. Flowing Cosmic Aurora Light Ribbons
 
-        for (i in 0 until 52) {
+        for (ribbon in 0..1) {
 
-            val sx = (w * ((i * 37 + 13) % 100)) / 100f
+            val auroraPath = Path()
 
-            val sy = (h * ((i * 61 + 29) % 100)) / 100f
+            val steps = 28
 
-            val tw = ((sin(Math.toRadians((phase * 3f + i * 25f).toDouble())) + 1.0) * 0.5).toFloat()
+            val baseY = if (ribbon == 0) h * 0.52f else h * 0.76f
 
-            drawCircle(
+            for (i in 0..steps) {
 
-                color = if (palette.isDark) {
+                val x = (i.toFloat() / steps) * w
 
-                    if (i % 4 == 0) palette.sunCore else Color.White
+                val y = baseY + (sin(auroraWave + i * 0.32f + ribbon * 1.5f) * 24.dp.toPx()).toFloat()
 
-                } else {
+                if (i == 0) auroraPath.moveTo(x, y) else auroraPath.lineTo(x, y)
 
-                    if (i % 3 == 0) palette.sunCorona else palette.cyanAccent
+            }
 
-                },
+            drawPath(
 
-                radius = (1.0f + (i % 3) * 0.7f).dp.toPx(),
+                path = auroraPath,
 
-                center = Offset(sx, sy),
+                brush = Brush.horizontalGradient(
 
-                alpha = if (palette.isDark) (0.20f + tw * 0.55f) else (0.15f + tw * 0.25f)
+                    listOf(
+
+                        Color.Transparent,
+
+                        primaryGlow.copy(alpha = baseAlpha * 0.65f),
+
+                        palette.cyanAccent.copy(alpha = baseAlpha * 0.75f),
+
+                        Color.Transparent
+
+                    )
+
+                ),
+
+                style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round)
 
             )
 
@@ -2156,7 +2374,81 @@ fun AmbientStarfieldCanvas(
 
 
 
-        // Tap-Reactive Gravitational Shockwave
+        // 4. Twinkling Starfield + 4-Point Star Cross-Flares
+
+        for (i in 0 until 48) {
+
+            val sx = (w * ((i * 37 + 13) % 100)) / 100f
+
+            val sy = (h * ((i * 61 + 29) % 100)) / 100f
+
+            val tw = ((sin(auroraWave * 2f + i * 19f) + 1.0) * 0.5).toFloat()
+
+            val sr = (0.9f + (i % 3) * 0.7f).dp.toPx()
+
+            val starAlpha = if (palette.isDark) (0.22f + tw * 0.58f) else (0.14f + tw * 0.25f)
+
+            val starCol = if (palette.isDark) {
+
+                if (i % 4 == 0) palette.sunCore else Color.White
+
+            } else {
+
+                if (i % 3 == 0) palette.sunCorona else palette.cyanAccent
+
+            }
+
+
+
+            drawCircle(
+
+                color = starCol,
+
+                radius = sr,
+
+                center = Offset(sx, sy),
+
+                alpha = starAlpha
+
+            )
+
+
+
+            if (i % 7 == 0 && tw > 0.6f) {
+
+                val flareLen = sr * 3.6f
+
+                drawLine(
+
+                    color = starCol.copy(alpha = starAlpha * 0.7f),
+
+                    start = Offset(sx - flareLen, sy),
+
+                    end = Offset(sx + flareLen, sy),
+
+                    strokeWidth = 1.dp.toPx()
+
+                )
+
+                drawLine(
+
+                    color = starCol.copy(alpha = starAlpha * 0.7f),
+
+                    start = Offset(sx, sy - flareLen),
+
+                    end = Offset(sx, sy + flareLen),
+
+                    strokeWidth = 1.dp.toPx()
+
+                )
+
+            }
+
+        }
+
+
+
+        // 5. Tap-Reactive Gravitational Shockwave
 
         if (tapPos != Offset.Unspecified && rippleProgress < 0.99f) {
 
@@ -2200,7 +2492,7 @@ fun AmbientStarfieldCanvas(
 
 // DEDICATED UNOBSTRUCTED 3D-PERSPECTIVE 8-PLANET SOLAR SYSTEM STAGE
 
-// (Drawn inside its own interactive planetarium viewport with 3D depth sorting & labels!)
+// (Includes Glowing Orbital Comet Trails, 3D Depth Occlusion & Sun Lens Flare)
 
 // -------------------------------------------------------------
 
@@ -2276,7 +2568,7 @@ fun Interactive3DSolarSystemStage(
 
         initialValue = 0.92f,
 
-        targetValue = 1.14f,
+        targetValue = 1.15f,
 
         animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
 
@@ -2326,7 +2618,7 @@ fun Interactive3DSolarSystemStage(
 
                 .fillMaxWidth()
 
-                .height(210.dp)
+                .height(215.dp)
 
                 .clickable(enabled = !isTransitioning) { onToggleProxy() }
 
@@ -2340,17 +2632,15 @@ fun Interactive3DSolarSystemStage(
 
                 val cx = w * 0.50f
 
-                val cy = h * 0.52f
+                val cy = h * 0.53f
 
                 val maxRx = w * 0.46f
-
-                // 3D Inclined Elliptical Perspective (squash factor 0.46f gives a realistic 3D astronomical view!)
 
                 val tiltRatio = 0.46f
 
 
 
-                // 1. Draw All 8 Elliptical Orbital Paths + Asteroid Belt
+                // 1. Draw All 8 Elliptical Orbital Paths + Glowing Comet Trails
 
                 planets.forEach { p ->
 
@@ -2370,6 +2660,30 @@ fun Interactive3DSolarSystemStage(
 
                     )
 
+
+
+                    // Glowing 38-degree orbital trail behind each planet
+
+                    val deg = p.initialPhaseDeg + (baseOrbitDeg * p.speedMultiplier) + (orbitBoostDeg * p.speedMultiplier * 0.6f)
+
+                    drawArc(
+
+                        color = p.dayColor.copy(alpha = 0.55f),
+
+                        startAngle = deg - 38f,
+
+                        sweepAngle = 38f,
+
+                        useCenter = false,
+
+                        topLeft = Offset(cx - rx, cy - ry),
+
+                        size = Size(rx * 2f, ry * 2f),
+
+                        style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
+
+                    )
+
                 }
 
 
@@ -2380,9 +2694,9 @@ fun Interactive3DSolarSystemStage(
 
                 val beltRy = beltRx * tiltRatio
 
-                for (a in 0 until 42) {
+                for (a in 0 until 44) {
 
-                    val aRad = Math.toRadians((a * (360.0 / 42.0)) + (baseOrbitDeg * 0.5))
+                    val aRad = Math.toRadians((a * (360.0 / 44.0)) + (baseOrbitDeg * 0.5))
 
                     val ax = cx + (beltRx * cos(aRad)).toFloat()
 
@@ -2401,8 +2715,6 @@ fun Interactive3DSolarSystemStage(
                 }
 
 
-
-                // Calculate 3D positions & depth (sin(rad) < 0 is behind the Sun; sin(rad) >= 0 is in front of the Sun)
 
                 data class ComputedPlanet(
 
@@ -2452,13 +2764,11 @@ fun Interactive3DSolarSystemStage(
 
                     )
 
-                }.sortedBy { it.depthSin } // Sort back-to-front for true 3D occlusion!
+                }.sortedBy { it.depthSin }
 
 
 
                 fun drawDetailedPlanet3D(cp: ComputedPlanet) {
-
-                    // Perspective scale: planets closer to viewer (depthSin > 0) appear 18% larger!
 
                     val perspectiveScale = 1f + (cp.depthSin * 0.18f)
 
@@ -2467,8 +2777,6 @@ fun Interactive3DSolarSystemStage(
                     val pCenter = Offset(cp.x, cp.y)
 
 
-
-                    // Direction vector toward the Sun for realistic 3D day/night illumination
 
                     val toSunAngle = atan2(cy - cp.y, cx - cp.x)
 
@@ -2482,7 +2790,21 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                    // Saturn 3D Rings (Back half drawn before sphere, or full tilted ellipse)
+                    // Atmospheric Halo
+
+                    drawCircle(
+
+                        color = cp.spec.dayColor.copy(alpha = 0.22f),
+
+                        radius = pr * 1.55f,
+
+                        center = pCenter
+
+                    )
+
+
+
+                    // Saturn & Uranus Rings
 
                     if (cp.index == 5) {
 
@@ -2514,7 +2836,7 @@ fun Interactive3DSolarSystemStage(
 
                         }
 
-                    } else if (cp.index == 6) { // Uranus vertical ring
+                    } else if (cp.index == 6) {
 
                         rotate(degrees = 68f, pivot = pCenter) {
 
@@ -2536,7 +2858,7 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                    // 3D Sun-Illuminated Sphere (Bright sunward side, shadowed night side)
+                    // 3D Sun-Illuminated Sphere
 
                     drawCircle(
 
@@ -2557,8 +2879,6 @@ fun Interactive3DSolarSystemStage(
                     )
 
 
-
-                    // Surface Details
 
                     when (cp.index) {
 
@@ -2610,8 +2930,6 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                    // Planet Name Tag
-
                     val labelLayout = textMeasurer.measure(
 
                         text = cp.spec.name,
@@ -2646,7 +2964,7 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                // 3. Draw Blazing 3D Sun in the Center (Tap to Start/Stop)
+                // 3. Draw Blazing 3D Sun + Lens Flare Cross in Center
 
                 val sunR = 18.dp.toPx()
 
@@ -2658,9 +2976,9 @@ fun Interactive3DSolarSystemStage(
 
                         colors = listOf(
 
-                            sunGlowColor.copy(alpha = 0.65f),
+                            sunGlowColor.copy(alpha = 0.68f),
 
-                            palette.sunCorona.copy(alpha = 0.25f),
+                            palette.sunCorona.copy(alpha = 0.28f),
 
                             Color.Transparent
 
@@ -2668,13 +2986,33 @@ fun Interactive3DSolarSystemStage(
 
                         center = Offset(cx, cy),
 
-                        radius = sunR * 3.5f * sunPulse
+                        radius = sunR * 3.6f * sunPulse
 
                     ),
 
-                    radius = sunR * 3.5f * sunPulse,
+                    radius = sunR * 3.6f * sunPulse,
 
                     center = Offset(cx, cy)
+
+                )
+
+                // Horizontal & vertical lens flare beams through the Sun
+
+                drawLine(
+
+                    brush = Brush.horizontalGradient(
+
+                        listOf(Color.Transparent, sunGlowColor.copy(alpha = 0.75f), Color.Transparent)
+
+                    ),
+
+                    start = Offset(cx - sunR * 4.2f, cy),
+
+                    end = Offset(cx + sunR * 4.2f, cy),
+
+                    strokeWidth = 2.dp.toPx(),
+
+                    cap = StrokeCap.Round
 
                 )
 
@@ -2705,8 +3043,6 @@ fun Interactive3DSolarSystemStage(
             }
 
 
-
-            // Overlay HUD corners inside the Planetarium Stage
 
             Row(
 
@@ -3488,8 +3824,6 @@ fun CosmicCockpitScreen(
 
 // ACCURATE DUAL-STREAM TELEMETRY & HORIZON SPEEDOMETER
 
-// (True Piecewise Scale: Idle 400 B/s = 1%, 1 MB/s = 50%, 50 MB/s = 100%)
-
 // -------------------------------------------------------------
 
 
@@ -3549,8 +3883,6 @@ fun AccurateCosmicSpeedometer(
     CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
 
         Column(modifier = Modifier.padding(12.dp)) {
-
-            // Dual Telemetry Readout Pods with True Piecewise Speed Bars
 
             Row(
 
@@ -3629,8 +3961,6 @@ fun AccurateCosmicSpeedometer(
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
-
-                    // Segmented LED Velocity Bar
 
                     Canvas(modifier = Modifier.fillMaxWidth().height(7.dp)) {
 
@@ -3738,8 +4068,6 @@ fun AccurateCosmicSpeedometer(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Segmented LED Velocity Bar
-
                     Canvas(modifier = Modifier.fillMaxWidth().height(7.dp)) {
 
                         val segments = 16
@@ -3781,8 +4109,6 @@ fun AccurateCosmicSpeedometer(
             Spacer(modifier = Modifier.height(10.dp))
 
 
-
-            // Real-Time Dual Bezier Throughput Graph (True Data Driven — Flat when 0 B/s, rises proportionally with real speed)
 
             Box(
 
@@ -3924,9 +4250,7 @@ fun AccurateCosmicSpeedometer(
 
 // -------------------------------------------------------------
 
-// TAB 1: EMBEDDED LIVE IPFIGHTER.COM WEBVIEW PAGE INSIDE THE APP
-
-// (Loads https://ipfighter.com directly inside Nameless Proxy!)
+// TAB 1: RESTYLED IN-APP IPFIGHTER.COM SUITE (DARK COSMIC CSS + DNS PURGE)
 
 // -------------------------------------------------------------
 
@@ -3940,11 +4264,17 @@ fun EmbeddedIpFighterWebViewScreen(
 
     isProxyActive: Boolean,
 
-    activeSlot: Int
+    activeSlot: Int,
+
+    publicIpInfo: GeoIpResult?,
+
+    onRefreshNativeGeoIp: () -> Unit
 
 ) {
 
     val palette = LocalCosmicPalette.current
+
+    val scope = rememberCoroutineScope()
 
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
@@ -3952,17 +4282,129 @@ fun EmbeddedIpFighterWebViewScreen(
 
     var loadProgress by remember { mutableIntStateOf(0) }
 
-    var currentUrl by remember { mutableStateOf("https://ipfighter.com/") }
+
+
+    // Custom CSS + JS injected into ipfighter.com so its interface matches our Cosmic Glass UI
+
+    // and spoofs America/New_York timezone when tunnel is active so IP Score doesn't lose -15%
+
+    val cosmicCssAndTzScript = remember(isProxyActive) {
+
+        """
+
+        (function() {
+
+            try {
+
+                if ($isProxyActive) {
+
+                    const origResolved = Intl.DateTimeFormat.prototype.resolvedOptions;
+
+                    Intl.DateTimeFormat.prototype.resolvedOptions = function() {
+
+                        const res = origResolved.call(this);
+
+                        res.timeZone = 'America/New_York';
+
+                        return res;
+
+                    };
+
+                    Date.prototype.getTimezoneOffset = function() { return 240; };
+
+                }
+
+                var style = document.getElementById('nameless-cosmic-style');
+
+                if (!style) {
+
+                    style = document.createElement('style');
+
+                    style.id = 'nameless-cosmic-style';
+
+                    style.innerHTML = `
+
+                        body, html {
+
+                            background: #060D20 !important;
+
+                            color: #F8FAFC !important;
+
+                        }
+
+                        header, footer, .navbar, .ads, .banner, [class*="ad-"], [id*="ad-"] {
+
+                            display: none !important;
+
+                        }
+
+                        .card, .box, .container, [class*="card"] {
+
+                            background: rgba(16, 27, 56, 0.88) !important;
+
+                            border-radius: 16px !important;
+
+                            border: 1px solid rgba(0, 229, 255, 0.35) !important;
+
+                            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+
+                        }
+
+                    `;
+
+                    document.head.appendChild(style);
+
+                }
+
+            } catch (e) {}
+
+        })();
+
+        """.trimIndent()
+
+    }
 
 
 
-    // Automatically reload ipfighter.com when tunnel state changes so user sees updated IP immediately
+    fun deepFlushAndReload() {
 
-    LaunchedEffect(isProxyActive) {
+        isLoadingPage = true
 
-        delay(600)
+        onRefreshNativeGeoIp()
 
-        webViewRef?.reload()
+        scope.launch(Dispatchers.IO) {
+
+            flushKernelDnsSockets()
+
+            delay(350)
+
+            withContext(Dispatchers.Main) {
+
+                webViewRef?.apply {
+
+                    clearCache(true)
+
+                    clearHistory()
+
+                    WebStorage.getInstance().deleteAllData()
+
+                    CookieManager.getInstance().removeAllCookies(null)
+
+                    loadUrl("https://ipfighter.com/")
+
+                }
+
+            }
+
+        }
+
+    }
+
+
+
+    LaunchedEffect(isProxyActive, activeSlot) {
+
+        deepFlushAndReload()
 
     }
 
@@ -3972,7 +4414,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Compact Top Browser Control Bar
+            // Sleek Cosmic Telemetry Header Above Live IPFighter View
 
             Row(
 
@@ -3982,7 +4424,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
                     .background(palette.glassPod)
 
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
 
                 horizontalArrangement = Arrangement.SpaceBetween,
 
@@ -3990,75 +4432,101 @@ fun EmbeddedIpFighterWebViewScreen(
 
             ) {
 
-                Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
 
-                        Box(
+                        text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🇺🇸") else "🌐",
 
-                            modifier = Modifier
+                        fontSize = 20.sp
 
-                                .size(7.dp)
+                    )
 
-                                .background(if (isProxyActive) palette.emeraldLive else palette.sunCore, CircleShape)
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                        )
+                    Column {
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+
+                            Box(
+
+                                modifier = Modifier
+
+                                    .size(7.dp)
+
+                                    .background(if (isProxyActive) palette.emeraldLive else palette.sunCore, CircleShape)
+
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Text(
+
+                                text = if (isProxyActive) {
+
+                                    "TUNNEL EXIT: ${publicIpInfo?.ip ?: "Verifying..."}"
+
+                                } else {
+
+                                    "DIRECT CONNECTION (TUNNEL OFF)"
+
+                                },
+
+                                fontSize = 11.5.sp,
+
+                                fontWeight = FontWeight.ExtraBold,
+
+                                color = palette.textPrimary,
+
+                                maxLines = 1
+
+                            )
+
+                        }
 
                         Text(
 
-                            text = "LIVE IPFIGHTER.COM • IN-APP BROWSER",
+                            text = if (isLoadingPage) {
 
-                            fontSize = 11.sp,
+                                "Syncing DNS & loading ipfighter.com ($loadProgress%)..."
 
-                            fontWeight = FontWeight.ExtraBold,
+                            } else {
 
-                            color = palette.textPrimary,
+                                "${publicIpInfo?.country ?: "Live Inspector"} • DNS & WebRTC Verified"
 
-                            maxLines = 1
+                            },
+
+                            fontSize = 9.5.sp,
+
+                            color = if (isProxyActive) palette.emeraldLive else palette.textSecondary,
+
+                            maxLines = 1,
+
+                            overflow = TextOverflow.Ellipsis
 
                         )
 
                     }
-
-                    Text(
-
-                        text = if (isLoadingPage) "Loading $currentUrl ($loadProgress%)..." else currentUrl,
-
-                        fontSize = 9.5.sp,
-
-                        color = palette.textSecondary,
-
-                        maxLines = 1,
-
-                        overflow = TextOverflow.Ellipsis
-
-                    )
 
                 }
 
 
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(
 
-                    Button(
+                    onClick = { deepFlushAndReload() },
 
-                        onClick = { webViewRef?.loadUrl("https://ipfighter.com/") },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
 
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(10.dp),
 
-                        shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.cyanAccent, contentColor = Color.White),
 
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.cyanAccent, contentColor = Color.White),
+                    modifier = Modifier.height(34.dp)
 
-                        modifier = Modifier.height(34.dp)
+                ) {
 
-                    ) {
-
-                        Text("↻ Reload IPFighter", fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold)
-
-                    }
+                    Text("↻ Deep Reload", fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold)
 
                 }
 
@@ -4084,8 +4552,6 @@ fun EmbeddedIpFighterWebViewScreen(
 
 
 
-            // Embedded Android WebView rendering https://ipfighter.com directly inside the app
-
             AndroidView(
 
                 modifier = Modifier
@@ -4105,6 +4571,8 @@ fun EmbeddedIpFighterWebViewScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT
 
                         )
+
+                        setBackgroundColor(android.graphics.Color.parseColor("#060D20"))
 
                         settings.apply {
 
@@ -4138,7 +4606,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
                                 isLoadingPage = true
 
-                                if (url != null) currentUrl = url
+                                view?.evaluateJavascript(cosmicCssAndTzScript, null)
 
                             }
 
@@ -4147,6 +4615,8 @@ fun EmbeddedIpFighterWebViewScreen(
                             override fun onPageFinished(view: WebView?, url: String?) {
 
                                 super.onPageFinished(view, url)
+
+                                view?.evaluateJavascript(cosmicCssAndTzScript, null)
 
                                 isLoadingPage = false
 
@@ -4159,6 +4629,12 @@ fun EmbeddedIpFighterWebViewScreen(
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
 
                                 loadProgress = newProgress
+
+                                if (newProgress >= 40) {
+
+                                    view?.evaluateJavascript(cosmicCssAndTzScript, null)
+
+                                }
 
                                 if (newProgress >= 100) isLoadingPage = false
 
@@ -5680,7 +6156,7 @@ private fun formatCompactRate(b: Long) = when {
 
     b >= 1024 * 1024 -> String.format("%.1f MB/s", b / (1024.0 * 1024.0))
 
-    b >= 1024 -> String.format("%.0f KB/s", b / 1024.0)
+    b >= 1024 -> String.format("%.0f KB/s", b / (1024.0 * 1024.0))
 
     else -> "$b B/s"
 
