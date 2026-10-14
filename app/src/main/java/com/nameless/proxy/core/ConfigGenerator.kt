@@ -2,16 +2,9 @@ package com.nameless.proxy.core
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.InetAddress
 
-enum class ProxyType(val label: String) {
-    SOCKS5("SOCKS5"),
-    SOCKS4("SOCKS4"),
-    HTTP("HTTP"),
-    SHADOWSOCKS("Shadowsocks"),
-    VLESS("VLESS"),
-    TROJAN("Trojan"),
-    HYSTERIA2("Hysteria 2")
+enum class ProxyType {
+    SOCKS5, SOCKS4, HTTP, SHADOWSOCKS, VLESS, TROJAN, HYSTERIA2
 }
 
 enum class TransportMode {
@@ -42,19 +35,11 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    fun resolveHostToIpIfNeeded(host: String): String {
-        val clean = host.trim()
-        if (clean.isEmpty()) return clean
-        return try {
-            InetAddress.getByName(clean).hostAddress ?: clean
-        } catch (_: Exception) {
-            clean
-        }
-    }
+    // Dedicated kernel fwmark (0x1099 = 4249) so sing-box's own sockets never loop in iptables
+    const val SINGBOX_ROUTING_MARK = 4249
 
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
-        val serverIp = resolveHostToIpIfNeeded(settings.host)
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -62,7 +47,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. Pure Tunnel-Only DNS Engine (Zero direct local DNS servers)
+        // 2. DNS Engine (Remote DNS routed through proxy tunnel + Direct bootstrap)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -74,6 +59,14 @@ object ConfigGenerator {
             put("detour", "proxy-out")
         }
         dnsServers.put(remoteDns)
+
+        val directDns = JSONObject().apply {
+            put("tag", "dns-direct")
+            put("type", "udp")
+            put("server", "8.8.8.8")
+            put("server_port", 53)
+        }
+        dnsServers.put(directDns)
         dns.put("servers", dnsServers)
 
         when (settings.ipMode) {
@@ -85,7 +78,11 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Redirect (TCP) + TProxy (TCP/UDP) + Local SOCKS5
+        // 3. Inbounds:
+        //    - inboundPort (e.g. 10800): TCP Redirect (Apps + Private DNS Port 853 DoT)
+        //    - inboundPort + 1 (10801): Local SOCKS5 for GeoIP Telemetry
+        //    - inboundPort + 2 (10802): Dedicated UDP/TCP DNS Hijack Port (netd + Apps Port 53)
+        //    - inboundPort + 8 (10808): TPROXY TCP/UDP
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK, IpMode.IPV6_ONLY -> "::"
@@ -98,6 +95,17 @@ object ConfigGenerator {
             put("tag", "redirect-in")
             put("listen", listenAddress)
             put("listen_port", inboundPort)
+        })
+
+        inbounds.put(JSONObject().apply {
+            put("type", "direct")
+            put("tag", "dns-in")
+            put("listen", listenAddress)
+            put("listen_port", inboundPort + 2)
+            put("network", JSONArray().apply {
+                put("udp")
+                put("tcp")
+            })
         })
 
         inbounds.put(JSONObject().apply {
@@ -120,16 +128,18 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds
+        // 4. Outbounds (Stamped with SINGBOX_ROUTING_MARK = 4249 to prevent iptables loops)
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
+            put("routing_mark", SINGBOX_ROUTING_MARK)
+            put("domain_resolver", "dns-direct")
         }
 
         when (settings.type) {
             ProxyType.SOCKS5 -> {
                 proxyOutbound.put("type", "socks")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("version", "5")
                 if (settings.username.isNotEmpty()) {
@@ -139,13 +149,13 @@ object ConfigGenerator {
             }
             ProxyType.SOCKS4 -> {
                 proxyOutbound.put("type", "socks")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("version", "4")
             }
             ProxyType.HTTP -> {
                 proxyOutbound.put("type", "http")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 if (settings.username.isNotEmpty()) {
                     proxyOutbound.put("username", settings.username)
@@ -154,14 +164,14 @@ object ConfigGenerator {
             }
             ProxyType.SHADOWSOCKS -> {
                 proxyOutbound.put("type", "shadowsocks")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("method", settings.ssMethod.ifEmpty { "2022-blake3-aes-128-gcm" })
                 proxyOutbound.put("password", settings.password)
             }
             ProxyType.VLESS -> {
                 proxyOutbound.put("type", "vless")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
                 if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
@@ -186,7 +196,7 @@ object ConfigGenerator {
             }
             ProxyType.TROJAN -> {
                 proxyOutbound.put("type", "trojan")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
@@ -196,7 +206,7 @@ object ConfigGenerator {
             }
             ProxyType.HYSTERIA2 -> {
                 proxyOutbound.put("type", "hysteria2")
-                proxyOutbound.put("server", serverIp)
+                proxyOutbound.put("server", settings.host)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
@@ -210,29 +220,39 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
+            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (All DNS & Sniffed domains resolve strictly via dns-remote)
+        // 5. Routing Rules (Handles Private DNS port 853 + Port 53 DNS Hijack)
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-remote")
+            put("default_domain_resolver", "dns-direct")
+            put("default_mark", SINGBOX_ROUTING_MARK)
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
+
+        // Hijack anything entering dns-in or targeting port 53
         routeRules.put(JSONObject().apply {
-            put("action", "sniff")
+            put("inbound", JSONArray().apply { put("dns-in") })
+            put("action", "hijack-dns")
         })
+
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(53) })
             put("action", "hijack-dns")
         })
 
+        routeRules.put(JSONObject().apply {
+            put("action", "sniff")
+        })
+
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             routeRules.put(JSONObject().apply {
                 put("network", "udp")
-                put("port", JSONArray().apply { put(443); put(3478) })
+                put("port", JSONArray().apply { put(443); put(853); put(3478) })
                 put("action", "reject")
             })
         }
