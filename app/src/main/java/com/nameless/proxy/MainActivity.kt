@@ -104,6 +104,8 @@ import androidx.compose.ui.geometry.CornerRadius
 
 import androidx.compose.ui.geometry.Offset
 
+import androidx.compose.ui.geometry.Rect
+
 import androidx.compose.ui.geometry.Size
 
 import androidx.compose.ui.graphics.Brush
@@ -115,6 +117,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 
 import androidx.compose.ui.graphics.drawscope.Stroke
+
+import androidx.compose.ui.graphics.drawscope.clipPath
 
 import androidx.compose.ui.graphics.drawscope.rotate
 
@@ -270,35 +274,35 @@ data class CosmicPalette(
 
 
 
-// Dark Mode: Deep Space Observatory with Ultra-Clear 15% Crystal Glass
+// Dark Mode: Deep Space Observatory with 3D Rotating Earth & 16% Crystal Glass
 
 private val DarkCosmicPalette = CosmicPalette(
 
     isDark = true,
 
-    skyTop = Color(0xFF02040A),
+    skyTop = Color(0xFF02050E),
 
-    skyMiddle = Color(0xFF060C1E),
+    skyMiddle = Color(0xFF050B1C),
 
-    skyBottom = Color(0xFF0A1432),
+    skyBottom = Color(0xFF081229),
 
-    glassSurface = Color(0x26101B38), // 15% alpha true crystal glass
+    glassSurface = Color(0x290D1832),
 
-    glassPod = Color(0x36162447),     // 21% alpha inner pod
+    glassPod = Color(0x38132246),
 
-    glassRimTop = Color(0x667DD3FC),
+    glassRimTop = Color(0x6638BDF8),
 
-    glassRimBottom = Color(0x24FFFFFF),
+    glassRimBottom = Color(0x22FFFFFF),
 
-    orbitTrack = Color(0x4594A3B8),
+    orbitTrack = Color(0x4294A3B8),
 
     sunCore = Color(0xFFFFD166),
 
     sunCorona = Color(0xFFF77F00),
 
-    cyanAccent = Color(0xFF00E5FF),
+    cyanAccent = Color(0xFF38BDF8),
 
-    emeraldLive = Color(0xFF00F5A0),
+    emeraldLive = Color(0xFF10B981),
 
     crimsonAlert = Color(0xFFFF2A55),
 
@@ -314,27 +318,27 @@ private val DarkCosmicPalette = CosmicPalette(
 
 
 
-// Light Mode: Celestial Star-Chart Daylight with True 25% Frosted Glass (No Solid White)
+// Light Mode: Jovian Daylight Sky with 3D Rotating Jupiter & Frosted Crystal Glass
 
 private val LightCosmicPalette = CosmicPalette(
 
     isDark = false,
 
-    skyTop = Color(0xFFDCE8FF),
+    skyTop = Color(0xFFEFF6FF),
 
-    skyMiddle = Color(0xFFC8DCFD),
+    skyMiddle = Color(0xFFDBEAFE),
 
-    skyBottom = Color(0xFFB4CFFA),
+    skyBottom = Color(0xFFBFDBFE),
 
-    glassSurface = Color(0x40FFFFFF), // 25% alpha true translucent glass
+    glassSurface = Color(0x42FFFFFF),
 
-    glassPod = Color(0x52FFFFFF),     // 32% alpha inner pod
+    glassPod = Color(0x55FFFFFF),
 
     glassRimTop = Color(0x99FFFFFF),
 
-    glassRimBottom = Color(0x480284C7),
+    glassRimBottom = Color(0x450284C7),
 
-    orbitTrack = Color(0x4D1E3A8A),
+    orbitTrack = Color(0x451E3A8A),
 
     sunCore = Color(0xFFF59E0B),
 
@@ -750,8 +754,6 @@ private fun readPhysicalNetworkBytes(): Pair<Long, Long> {
 
 
 
-// Piecewise-Linear Realistic Speed Scale (0.0 .. 1.0)
-
 private fun realisticSpeedFraction(bytesPerSec: Long): Float {
 
     if (bytesPerSec <= 128L) return 0f
@@ -779,8 +781,6 @@ private fun realisticSpeedFraction(bytesPerSec: Long): Float {
 }
 
 
-
-// Helper to flush stale DNS & DoT sockets in kernel before reloading IPFighter
 
 private fun flushKernelDnsSockets() {
 
@@ -864,13 +864,11 @@ fun MainScreen(
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
 
-    // 5 Tabs: 0 = Cockpit, 1 = IPFighter (Restyled In-App WebView + Telemetry), 2 = Nodes, 3 = Routing, 4 = Logs
-
     var selectedTab by remember { mutableIntStateOf(0) }
 
 
 
-    // Interactive Tap-to-Warp Solar System State
+    // Interactive Tap-to-Boost Solar System State
 
     var tapPos by remember { mutableStateOf(Offset.Unspecified) }
 
@@ -1448,13 +1446,19 @@ fun MainScreen(
 
     ) {
 
-        // 1. VOLUMETRIC SOLAR GOD-RAYS, AURORA RIBBONS & STARFIELD BACKDROP
+        // 1. DYNAMIC 3D ROTATING PLANET BACKDROP:
 
-        CosmicDeepBackdrop(
+        //    - Dark Mode: Live Rotating 3D Planet Earth + Continents + Clouds + City Lights + Orbiting Moon
+
+        //    - Light Mode: Live Rotating 3D Planet Jupiter + Zonal Cloud Belts + Great Red Spot + Galilean Moons
+
+        CosmicPlanetaryBackdrop(
 
             isProxyActive = isProxyActive,
 
             isTransitioning = isTransitioning || isTesting,
+
+            orbitBoostDeg = orbitBoost.value,
 
             tapPos = tapPos,
 
@@ -1544,7 +1548,7 @@ fun MainScreen(
 
 
 
-            // 3. MAIN VIEWPORT
+            // 3. MAIN VIEWPORT WITH FLUID SPRING-PHYSICS TRANSITIONS
 
             Box(
 
@@ -1578,7 +1582,13 @@ fun MainScreen(
 
                             initialOffsetX = { fullW -> dir * (fullW / 3) }
 
-                        ) + fadeIn(tween(200))).togetherWith(
+                        ) + fadeIn(tween(220)) + scaleIn(
+
+                            initialScale = 0.95f,
+
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
+
+                        )).togetherWith(
 
                             slideOutHorizontally(
 
@@ -1586,7 +1596,7 @@ fun MainScreen(
 
                                 targetOffsetX = { fullW -> -dir * (fullW / 4) }
 
-                            ) + fadeOut(tween(140))
+                            ) + fadeOut(tween(140)) + scaleOut(targetScale = 0.96f)
 
                         )
 
@@ -2008,7 +2018,7 @@ fun MainScreen(
 
 // -------------------------------------------------------------
 
-// REUSABLE TRUE CRYSTAL-GLASS CARD CONTAINER
+// REUSABLE TRUE CRYSTAL-GLASS CARD CONTAINER WITH ANIMATED BORDER
 
 // -------------------------------------------------------------
 
@@ -2028,15 +2038,17 @@ fun CrystalGlassCard(
 
     val palette = LocalCosmicPalette.current
 
-    val rimBrush = if (highlightColor != null) {
+    val animatedTopRim by animateColorAsState(
 
-        Brush.linearGradient(listOf(highlightColor.copy(alpha = 0.85f), palette.glassRimBottom))
+        targetValue = highlightColor?.copy(alpha = 0.85f) ?: palette.glassRimTop,
 
-    } else {
+        animationSpec = tween(450),
 
-        Brush.linearGradient(listOf(palette.glassRimTop, palette.glassRimBottom))
+        label = "glassTopRim"
 
-    }
+    )
+
+    val rimBrush = Brush.linearGradient(listOf(animatedTopRim, palette.glassRimBottom))
 
 
 
@@ -2060,7 +2072,11 @@ fun CrystalGlassCard(
 
 // -------------------------------------------------------------
 
-// VOLUMETRIC SOLAR GOD-RAYS, AURORA RIBBONS & STARFIELD BACKDROP
+// LIVE 3D ROTATING PLANET BACKDROP:
+
+// - DARK MODE: 3D Rotating Planet Earth (Continents, Clouds, Terminator Shadow, City Lights & Orbiting Moon)
+
+// - LIGHT MODE: 3D Rotating Planet Jupiter (Zonal Cloud Bands, Swirling Storms, Great Red Spot & Galilean Moons)
 
 // -------------------------------------------------------------
 
@@ -2068,11 +2084,13 @@ fun CrystalGlassCard(
 
 @Composable
 
-fun CosmicDeepBackdrop(
+fun CosmicPlanetaryBackdrop(
 
     isProxyActive: Boolean,
 
     isTransitioning: Boolean,
+
+    orbitBoostDeg: Float,
 
     tapPos: Offset,
 
@@ -2082,97 +2100,67 @@ fun CosmicDeepBackdrop(
 
     val palette = LocalCosmicPalette.current
 
-    val inf = rememberInfiniteTransition(label = "cosmicBackdrop")
+    val inf = rememberInfiniteTransition(label = "planetaryBackdrop")
 
 
 
-    val rayRotation by inf.animateFloat(
+    // Continuous 0..1 rotation cycle for the background 3D globe
+
+    val globeSpin by inf.animateFloat(
 
         initialValue = 0f,
 
-        targetValue = 360f,
+        targetValue = 1f,
 
         animationSpec = infiniteRepeatable(
 
-            tween(if (isProxyActive) 22000 else 45000, easing = LinearEasing),
+            tween(durationMillis = if (isProxyActive) 18000 else 36000, easing = LinearEasing),
 
             RepeatMode.Restart
 
         ),
 
-        label = "rayRotation"
+        label = "globeSpin"
 
     )
 
 
 
-    val auroraWave by inf.animateFloat(
+    val cloudDrift by inf.animateFloat(
 
         initialValue = 0f,
 
-        targetValue = (2 * PI).toFloat(),
+        targetValue = 1f,
 
         animationSpec = infiniteRepeatable(
 
-            tween(if (isProxyActive) 4500 else 9500, easing = LinearEasing),
+            tween(durationMillis = if (isProxyActive) 13000 else 26000, easing = LinearEasing),
 
             RepeatMode.Restart
 
         ),
 
-        label = "auroraWave"
+        label = "cloudDrift"
 
     )
 
 
 
-    val nebulaBreath by inf.animateFloat(
+    val atmospherePulse by inf.animateFloat(
 
-        initialValue = 0.80f,
+        initialValue = 0.94f,
 
-        targetValue = 1.22f,
+        targetValue = 1.08f,
 
         animationSpec = infiniteRepeatable(
 
-            tween(2800, easing = FastOutSlowInEasing),
+            tween(2600, easing = FastOutSlowInEasing),
 
             RepeatMode.Reverse
 
         ),
 
-        label = "nebulaBreath"
-
-    )
-
-
-
-    val primaryGlow by animateColorAsState(
-
-        targetValue = when {
-
-            isTransitioning -> palette.sunCorona
-
-            isProxyActive -> palette.emeraldLive
-
-            else -> palette.sunCore
-
-        },
-
-        animationSpec = tween(700),
-
-        label = "primaryGlow"
-
-    )
-
-
-
-    val secondaryGlow by animateColorAsState(
-
-        targetValue = if (isProxyActive) palette.cyanAccent else palette.violetAccent,
-
-        animationSpec = tween(700),
-
-        label = "secondaryGlow"
+        label = "atmospherePulse"
 
     )
 
@@ -2184,197 +2172,9 @@ fun CosmicDeepBackdrop(
 
         val h = size.height
 
-        val lightOrigin = Offset(w * 0.50f, h * 0.23f)
 
-        val baseAlpha = if (palette.isDark) 0.20f else 0.14f
 
-
-
-        // 1. Volumetric Rotating Solar God-Rays across the entire background
-
-        val rayCount = 8
-
-        for (r in 0 until rayCount) {
-
-            val angleDeg = rayRotation + (r * (360f / rayCount))
-
-            rotate(degrees = angleDeg, pivot = lightOrigin) {
-
-                val beamPath = Path().apply {
-
-                    moveTo(lightOrigin.x, lightOrigin.y)
-
-                    lineTo(lightOrigin.x - w * 0.16f, lightOrigin.y + h * 1.1f)
-
-                    lineTo(lightOrigin.x + w * 0.16f, lightOrigin.y + h * 1.1f)
-
-                    close()
-
-                }
-
-                drawPath(
-
-                    path = beamPath,
-
-                    brush = Brush.verticalGradient(
-
-                        colors = listOf(
-
-                            primaryGlow.copy(alpha = baseAlpha * 0.42f),
-
-                            secondaryGlow.copy(alpha = baseAlpha * 0.16f),
-
-                            Color.Transparent
-
-                        ),
-
-                        startY = lightOrigin.y,
-
-                        endY = lightOrigin.y + h * 0.95f
-
-                    )
-
-                )
-
-            }
-
-        }
-
-
-
-        // 2. Dynamic Drifting Nebula Light Clouds (Top, Mid, Bottom)
-
-        val orb1 = Offset(
-
-            w * 0.24f + (sin(auroraWave) * w * 0.14f).toFloat(),
-
-            h * 0.20f + (cos(auroraWave) * h * 0.06f).toFloat()
-
-        )
-
-        val orb2 = Offset(
-
-            w * 0.78f - (cos(auroraWave * 0.8f) * w * 0.15f).toFloat(),
-
-            h * 0.58f + (sin(auroraWave * 0.8f) * h * 0.08f).toFloat()
-
-        )
-
-        val orb3 = Offset(
-
-            w * 0.45f + (sin(auroraWave * 1.2f) * w * 0.16f).toFloat(),
-
-            h * 0.86f - (cos(auroraWave * 1.2f) * h * 0.05f).toFloat()
-
-        )
-
-
-
-        drawCircle(
-
-            brush = Brush.radialGradient(
-
-                colors = listOf(primaryGlow.copy(alpha = baseAlpha * 1.1f), Color.Transparent),
-
-                center = orb1,
-
-                radius = w * 0.75f * nebulaBreath
-
-            ),
-
-            radius = w * 0.75f * nebulaBreath,
-
-            center = orb1
-
-        )
-
-        drawCircle(
-
-            brush = Brush.radialGradient(
-
-                colors = listOf(palette.cyanAccent.copy(alpha = baseAlpha), Color.Transparent),
-
-                center = orb2,
-
-                radius = w * 0.72f
-
-            ),
-
-            radius = w * 0.72f,
-
-            center = orb2
-
-        )
-
-        drawCircle(
-
-            brush = Brush.radialGradient(
-
-                colors = listOf(palette.violetAccent.copy(alpha = baseAlpha * 0.8f), Color.Transparent),
-
-                center = orb3,
-
-                radius = w * 0.68f
-
-            ),
-
-            radius = w * 0.68f,
-
-            center = orb3
-
-        )
-
-
-
-        // 3. Flowing Cosmic Aurora Light Ribbons
-
-        for (ribbon in 0..1) {
-
-            val auroraPath = Path()
-
-            val steps = 28
-
-            val baseY = if (ribbon == 0) h * 0.52f else h * 0.76f
-
-            for (i in 0..steps) {
-
-                val x = (i.toFloat() / steps) * w
-
-                val y = baseY + (sin(auroraWave + i * 0.32f + ribbon * 1.5f) * 24.dp.toPx()).toFloat()
-
-                if (i == 0) auroraPath.moveTo(x, y) else auroraPath.lineTo(x, y)
-
-            }
-
-            drawPath(
-
-                path = auroraPath,
-
-                brush = Brush.horizontalGradient(
-
-                    listOf(
-
-                        Color.Transparent,
-
-                        primaryGlow.copy(alpha = baseAlpha * 0.65f),
-
-                        palette.cyanAccent.copy(alpha = baseAlpha * 0.75f),
-
-                        Color.Transparent
-
-                    )
-
-                ),
-
-                style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round)
-
-            )
-
-        }
-
-
-
-        // 4. Twinkling Starfield + 4-Point Star Cross-Flares
+        // 1. Twinkling Deep-Space Starfield
 
         for (i in 0 until 48) {
 
@@ -2382,19 +2182,19 @@ fun CosmicDeepBackdrop(
 
             val sy = (h * ((i * 61 + 29) % 100)) / 100f
 
-            val tw = ((sin(auroraWave * 2f + i * 19f) + 1.0) * 0.5).toFloat()
+            val tw = ((sin((globeSpin * 2 * PI * 3) + i * 19f) + 1.0) * 0.5).toFloat()
 
-            val sr = (0.9f + (i % 3) * 0.7f).dp.toPx()
+            val sr = (0.9f + (i % 3) * 0.65f).dp.toPx()
 
-            val starAlpha = if (palette.isDark) (0.22f + tw * 0.58f) else (0.14f + tw * 0.25f)
+            val starAlpha = if (palette.isDark) (0.22f + tw * 0.55f) else (0.14f + tw * 0.25f)
 
             val starCol = if (palette.isDark) {
 
-                if (i % 4 == 0) palette.sunCore else Color.White
+                if (i % 5 == 0) palette.cyanAccent else Color.White
 
             } else {
 
-                if (i % 3 == 0) palette.sunCorona else palette.cyanAccent
+                if (i % 4 == 0) palette.sunCorona else palette.cyanAccent
 
             }
 
@@ -2412,43 +2212,675 @@ fun CosmicDeepBackdrop(
 
             )
 
+        }
 
 
-            if (i % 7 == 0 && tw > 0.6f) {
 
-                val flareLen = sr * 3.6f
+        // Globe position & size (majestic planetary horizon in the lower-middle background)
 
-                drawLine(
+        val globeRadius = w * 0.44f
 
-                    color = starCol.copy(alpha = starAlpha * 0.7f),
+        val globeCenter = Offset(w * 0.50f, h * 0.63f)
 
-                    start = Offset(sx - flareLen, sy),
+        val globeClip = Path().apply {
 
-                    end = Offset(sx + flareLen, sy),
+            addOval(
 
-                    strokeWidth = 1.dp.toPx()
+                Rect(
 
-                )
+                    left = globeCenter.x - globeRadius,
 
-                drawLine(
+                    top = globeCenter.y - globeRadius,
 
-                    color = starCol.copy(alpha = starAlpha * 0.7f),
+                    right = globeCenter.x + globeRadius,
 
-                    start = Offset(sx, sy - flareLen),
-
-                    end = Offset(sx, sy + flareLen),
-
-                    strokeWidth = 1.dp.toPx()
+                    bottom = globeCenter.y + globeRadius
 
                 )
 
-            }
+            )
 
         }
 
 
 
-        // 5. Tap-Reactive Gravitational Shockwave
+        val totalPhase = (globeSpin + (orbitBoostDeg / 720f)) % 1f
+
+
+
+        if (palette.isDark) {
+
+            // =========================================================
+
+            // DARK MODE: LIVE 3D ROTATING PLANET EARTH + ORBITING MOON
+
+            // =========================================================
+
+            val atmoColor = if (isProxyActive) palette.emeraldLive else Color(0xFF00B4D8)
+
+
+
+            // Outer Rayleigh-Scattering Atmospheric Halo
+
+            drawCircle(
+
+                brush = Brush.radialGradient(
+
+                    colors = listOf(
+
+                        atmoColor.copy(alpha = 0.36f),
+
+                        Color(0xFF0284C7).copy(alpha = 0.16f),
+
+                        Color.Transparent
+
+                    ),
+
+                    center = globeCenter,
+
+                    radius = globeRadius * 1.45f * atmospherePulse
+
+                ),
+
+                radius = globeRadius * 1.45f * atmospherePulse,
+
+                center = globeCenter
+
+            )
+
+
+
+            // Clipped 3D Earth Sphere
+
+            clipPath(globeClip) {
+
+                // Deep Pacific/Atlantic Ocean Base
+
+                drawCircle(
+
+                    brush = Brush.radialGradient(
+
+                        colors = listOf(
+
+                            Color(0xFF0369A1),
+
+                            Color(0xFF075985),
+
+                            Color(0xFF082F49)
+
+                        ),
+
+                        center = Offset(globeCenter.x - globeRadius * 0.3f, globeCenter.y - globeRadius * 0.3f),
+
+                        radius = globeRadius * 1.6f
+
+                    ),
+
+                    radius = globeRadius,
+
+                    center = globeCenter
+
+                )
+
+
+
+                // Latitude / Longitude subtle planetary grid curves
+
+                val spanW = globeRadius * 2.4f
+
+                for (tile in -1..1) {
+
+                    val shiftX = (tile * spanW) + (totalPhase * spanW)
+
+                    val baseX = globeCenter.x - globeRadius + shiftX
+
+
+
+                    // North America & Greenland
+
+                    drawOval(
+
+                        color = Color(0xFF10B981).copy(alpha = 0.78f),
+
+                        topLeft = Offset(baseX + globeRadius * 0.15f, globeCenter.y - globeRadius * 0.62f),
+
+                        size = Size(globeRadius * 0.68f, globeRadius * 0.52f)
+
+                    )
+
+                    // South America
+
+                    drawOval(
+
+                        color = Color(0xFF059669).copy(alpha = 0.80f),
+
+                        topLeft = Offset(baseX + globeRadius * 0.45f, globeCenter.y - globeRadius * 0.04f),
+
+                        size = Size(globeRadius * 0.42f, globeRadius * 0.65f)
+
+                    )
+
+                    // Eurasia
+
+                    drawOval(
+
+                        color = Color(0xFF10B981).copy(alpha = 0.82f),
+
+                        topLeft = Offset(baseX + globeRadius * 1.15f, globeCenter.y - globeRadius * 0.68f),
+
+                        size = Size(globeRadius * 0.98f, globeRadius * 0.56f)
+
+                    )
+
+                    // Africa
+
+                    drawOval(
+
+                        color = Color(0xFF34D399).copy(alpha = 0.76f),
+
+                        topLeft = Offset(baseX + globeRadius * 1.18f, globeCenter.y - globeRadius * 0.12f),
+
+                        size = Size(globeRadius * 0.52f, globeRadius * 0.62f)
+
+                    )
+
+                    // Australia
+
+                    drawOval(
+
+                        color = Color(0xFF059669).copy(alpha = 0.78f),
+
+                        topLeft = Offset(baseX + globeRadius * 1.92f, globeCenter.y + globeRadius * 0.24f),
+
+                        size = Size(globeRadius * 0.38f, globeRadius * 0.28f)
+
+                    )
+
+
+
+                    // Golden City Lights on the Night-Side Continents
+
+                    val cityColor = Color(0xFFFFD166).copy(alpha = 0.55f)
+
+                    drawCircle(cityColor, 3.dp.toPx(), Offset(baseX + globeRadius * 0.42f, globeCenter.y - globeRadius * 0.35f))
+
+                    drawCircle(cityColor, 2.2.dp.toPx(), Offset(baseX + globeRadius * 0.55f, globeCenter.y - globeRadius * 0.28f))
+
+                    drawCircle(cityColor, 3.2.dp.toPx(), Offset(baseX + globeRadius * 1.38f, globeCenter.y - globeRadius * 0.42f))
+
+                    drawCircle(cityColor, 2.6.dp.toPx(), Offset(baseX + globeRadius * 1.68f, globeCenter.y - globeRadius * 0.32f))
+
+                }
+
+
+
+                // Polar Ice Caps (Arctic & Antarctica)
+
+                drawOval(
+
+                    color = Color(0xFFF8FAFC).copy(alpha = 0.75f),
+
+                    topLeft = Offset(globeCenter.x - globeRadius * 0.7f, globeCenter.y - globeRadius * 1.05f),
+
+                    size = Size(globeRadius * 1.4f, globeRadius * 0.32f)
+
+                )
+
+                drawOval(
+
+                    color = Color(0xFFF8FAFC).copy(alpha = 0.70f),
+
+                    topLeft = Offset(globeCenter.x - globeRadius * 0.75f, globeCenter.y + globeRadius * 0.78f),
+
+                    size = Size(globeRadius * 1.5f, globeRadius * 0.32f)
+
+                )
+
+
+
+                // Drifting White Atmospheric Cloud Layer (rotates faster than continents)
+
+                val cloudPhase = (cloudDrift + (orbitBoostDeg / 450f)) % 1f
+
+                for (tile in -1..1) {
+
+                    val cxShift = (tile * spanW) + (cloudPhase * spanW)
+
+                    val cBase = globeCenter.x - globeRadius + cxShift
+
+                    val cloudCol = Color.White.copy(alpha = 0.32f)
+
+
+
+                    drawRoundRect(
+
+                        color = cloudCol,
+
+                        topLeft = Offset(cBase + globeRadius * 0.1f, globeCenter.y - globeRadius * 0.45f),
+
+                        size = Size(globeRadius * 0.85f, globeRadius * 0.14f),
+
+                        cornerRadius = CornerRadius(24f, 24f)
+
+                    )
+
+                    drawRoundRect(
+
+                        color = cloudCol,
+
+                        topLeft = Offset(cBase + globeRadius * 0.95f, globeCenter.y - globeRadius * 0.08f),
+
+                        size = Size(globeRadius * 0.95f, globeRadius * 0.16f),
+
+                        cornerRadius = CornerRadius(24f, 24f)
+
+                    )
+
+                    drawRoundRect(
+
+                        color = cloudCol,
+
+                        topLeft = Offset(cBase + globeRadius * 0.4f, globeCenter.y + globeRadius * 0.35f),
+
+                        size = Size(globeRadius * 0.78f, globeRadius * 0.13f),
+
+                        cornerRadius = CornerRadius(24f, 24f)
+
+                    )
+
+                }
+
+
+
+                // 3D Day/Night Terminator Shadow & Sunlit Specular Highlight
+
+                drawCircle(
+
+                    brush = Brush.radialGradient(
+
+                        colors = listOf(
+
+                            Color.White.copy(alpha = 0.22f),
+
+                            Color.Transparent,
+
+                            Color(0xFF02040A).copy(alpha = 0.82f)
+
+                        ),
+
+                        center = Offset(globeCenter.x - globeRadius * 0.45f, globeCenter.y - globeRadius * 0.45f),
+
+                        radius = globeRadius * 1.55f
+
+                    ),
+
+                    radius = globeRadius,
+
+                    center = globeCenter
+
+                )
+
+            }
+
+
+
+            // Crisp Atmospheric Limb Rim
+
+            drawCircle(
+
+                brush = Brush.linearGradient(
+
+                    colors = listOf(
+
+                        atmoColor.copy(alpha = 0.85f),
+
+                        Color(0xFF38BDF8).copy(alpha = 0.45f),
+
+                        Color.Transparent
+
+                    ),
+
+                    start = Offset(globeCenter.x - globeRadius, globeCenter.y - globeRadius),
+
+                    end = Offset(globeCenter.x + globeRadius, globeCenter.y + globeRadius)
+
+                ),
+
+                radius = globeRadius,
+
+                center = globeCenter,
+
+                style = Stroke(width = 2.4.dp.toPx())
+
+            )
+
+
+
+            // Orbiting 3D Moon around Earth
+
+            val moonAngle = totalPhase * 2.0 * PI
+
+            val moonOrbitRx = globeRadius * 1.28f
+
+            val moonOrbitRy = globeRadius * 0.38f
+
+            val mx = globeCenter.x + (moonOrbitRx * cos(moonAngle)).toFloat()
+
+            val my = globeCenter.y + (moonOrbitRy * sin(moonAngle)).toFloat()
+
+            val moonR = 11.dp.toPx() * (1f + 0.18f * sin(moonAngle).toFloat())
+
+
+
+            drawCircle(
+
+                brush = Brush.radialGradient(
+
+                    colors = listOf(Color(0xFFF8FAFC), Color(0xFF94A3B8), Color(0xFF334155)),
+
+                    center = Offset(mx - moonR * 0.3f, my - moonR * 0.3f),
+
+                    radius = moonR * 1.3f
+
+                ),
+
+                radius = moonR,
+
+                center = Offset(mx, my)
+
+            )
+
+        } else {
+
+            // =========================================================
+
+            // LIGHT MODE: LIVE 3D ROTATING JUPITER + GREAT RED SPOT
+
+            // =========================================================
+
+            val jupiterGlow = if (isProxyActive) palette.emeraldLive else Color(0xFFF59E0B)
+
+
+
+            // Outer Golden Jovian Magnetosphere Glow
+
+            drawCircle(
+
+                brush = Brush.radialGradient(
+
+                    colors = listOf(
+
+                        jupiterGlow.copy(alpha = 0.34f),
+
+                        Color(0xFFEA580C).copy(alpha = 0.14f),
+
+                        Color.Transparent
+
+                    ),
+
+                    center = globeCenter,
+
+                    radius = globeRadius * 1.42f * atmospherePulse
+
+                ),
+
+                radius = globeRadius * 1.42f * atmospherePulse,
+
+                center = globeCenter
+
+            )
+
+
+
+            // Clipped 3D Jupiter Sphere
+
+            clipPath(globeClip) {
+
+                // Base Jovian Cream-Gold Atmosphere
+
+                drawCircle(
+
+                    color = Color(0xFFFEF3C7),
+
+                    radius = globeRadius,
+
+                    center = globeCenter
+
+                )
+
+
+
+                // Zonal Atmospheric Cloud Belts (Equatorial & Tropical Bands)
+
+                val bandColors = listOf(
+
+                    Pair(-0.82f, Color(0xFF92400E)),
+
+                    Pair(-0.64f, Color(0xFFFDE68A)),
+
+                    Pair(-0.46f, Color(0xFFB45309)),
+
+                    Pair(-0.26f, Color(0xFFFEF3C7)),
+
+                    Pair(-0.08f, Color(0xFFD97706)),
+
+                    Pair(0.12f, Color(0xFFFDE68A)),
+
+                    Pair(0.28f, Color(0xFF9A3412)),
+
+                    Pair(0.50f, Color(0xFFFED7AA)),
+
+                    Pair(0.68f, Color(0xFFB45309))
+
+                )
+
+
+
+                bandColors.forEach { (yFrac, col) ->
+
+                    drawRect(
+
+                        color = col.copy(alpha = 0.85f),
+
+                        topLeft = Offset(globeCenter.x - globeRadius, globeCenter.y + globeRadius * yFrac),
+
+                        size = Size(globeRadius * 2f, globeRadius * 0.20f)
+
+                    )
+
+                }
+
+
+
+                // Scrolling Jovian Storm Eddies & The Great Red Spot
+
+                val spanW = globeRadius * 2.2f
+
+                for (tile in -1..1) {
+
+                    val shiftX = (tile * spanW) + (totalPhase * spanW)
+
+                    val baseX = globeCenter.x - globeRadius + shiftX
+
+
+
+                    // Turbulent White Oval Storms
+
+                    val stormWhite = Color(0xFFFFFBEB).copy(alpha = 0.80f)
+
+                    drawOval(
+
+                        color = stormWhite,
+
+                        topLeft = Offset(baseX + globeRadius * 0.25f, globeCenter.y - globeRadius * 0.42f),
+
+                        size = Size(globeRadius * 0.34f, globeRadius * 0.11f)
+
+                    )
+
+                    drawOval(
+
+                        color = stormWhite,
+
+                        topLeft = Offset(baseX + globeRadius * 1.45f, globeCenter.y - globeRadius * 0.16f),
+
+                        size = Size(globeRadius * 0.42f, globeRadius * 0.12f)
+
+                    )
+
+
+
+                    // Iconic Great Red Spot (Southern Tropical Zone) with Inner Anticyclonic Swirl
+
+                    val spotX = baseX + globeRadius * 0.85f
+
+                    val spotY = globeCenter.y + globeRadius * 0.22f
+
+                    val spotW = globeRadius * 0.48f
+
+                    val spotH = globeRadius * 0.28f
+
+
+
+                    drawOval(
+
+                        color = Color(0xFFFED7AA).copy(alpha = 0.9f),
+
+                        topLeft = Offset(spotX - spotW * 0.1f, spotY - spotH * 0.1f),
+
+                        size = Size(spotW * 1.2f, spotH * 1.2f)
+
+                    )
+
+                    drawOval(
+
+                        brush = Brush.radialGradient(
+
+                            colors = listOf(Color(0xFFEF4444), Color(0xFFDC2626), Color(0xFF991B1B)),
+
+                            center = Offset(spotX + spotW * 0.5f, spotY + spotH * 0.5f),
+
+                            radius = spotW * 0.6f
+
+                        ),
+
+                        topLeft = Offset(spotX, spotY),
+
+                        size = Size(spotW, spotH)
+
+                    )
+
+                    drawOval(
+
+                        color = Color(0xFFFCA5A5).copy(alpha = 0.7f),
+
+                        topLeft = Offset(spotX + spotW * 0.22f, spotY + spotH * 0.25f),
+
+                        size = Size(spotW * 0.56f, spotH * 0.50f),
+
+                        style = Stroke(width = 2.dp.toPx())
+
+                    )
+
+                }
+
+
+
+                // 3D Spherical Illumination & Limb Darkening for Jupiter
+
+                drawCircle(
+
+                    brush = Brush.radialGradient(
+
+                        colors = listOf(
+
+                            Color.White.copy(alpha = 0.28f),
+
+                            Color.Transparent,
+
+                            Color(0xFF451A03).copy(alpha = 0.68f)
+
+                        ),
+
+                        center = Offset(globeCenter.x - globeRadius * 0.38f, globeCenter.y - globeRadius * 0.38f),
+
+                        radius = globeRadius * 1.50f
+
+                    ),
+
+                    radius = globeRadius,
+
+                    center = globeCenter
+
+                )
+
+            }
+
+
+
+            // Golden Jovian Atmospheric Rim
+
+            drawCircle(
+
+                brush = Brush.linearGradient(
+
+                    colors = listOf(
+
+                        Color(0xFFF59E0B).copy(alpha = 0.85f),
+
+                        Color(0xFFEA580C).copy(alpha = 0.45f),
+
+                        Color.Transparent
+
+                    ),
+
+                    start = Offset(globeCenter.x - globeRadius, globeCenter.y - globeRadius),
+
+                    end = Offset(globeCenter.x + globeRadius, globeCenter.y + globeRadius)
+
+                ),
+
+                radius = globeRadius,
+
+                center = globeCenter,
+
+                style = Stroke(width = 2.4.dp.toPx())
+
+            )
+
+
+
+            // Orbiting Galilean Moons (Io & Europa)
+
+            val ioAngle = totalPhase * 2.0 * PI
+
+            val ioX = globeCenter.x + (globeRadius * 1.25f * cos(ioAngle)).toFloat()
+
+            val ioY = globeCenter.y + (globeRadius * 0.34f * sin(ioAngle)).toFloat()
+
+            drawCircle(
+
+                brush = Brush.radialGradient(
+
+                    colors = listOf(Color(0xFFFEF08A), Color(0xFFF59E0B), Color(0xFFB45309)),
+
+                    center = Offset(ioX, ioY),
+
+                    radius = 10.dp.toPx()
+
+                ),
+
+                radius = 8.5.dp.toPx(),
+
+                center = Offset(ioX, ioY)
+
+            )
+
+        }
+
+
+
+        // Tap-Reactive Gravitational Shockwave
 
         if (tapPos != Offset.Unspecified && rippleProgress < 0.99f) {
 
@@ -2492,7 +2924,7 @@ fun CosmicDeepBackdrop(
 
 // DEDICATED UNOBSTRUCTED 3D-PERSPECTIVE 8-PLANET SOLAR SYSTEM STAGE
 
-// (Includes Glowing Orbital Comet Trails, 3D Depth Occlusion & Sun Lens Flare)
+// (Zero harsh lines across Sun or planets — pure 3D spheres & clipped bands)
 
 // -------------------------------------------------------------
 
@@ -2618,7 +3050,7 @@ fun Interactive3DSolarSystemStage(
 
                 .fillMaxWidth()
 
-                .height(215.dp)
+                .height(210.dp)
 
                 .clickable(enabled = !isTransitioning) { onToggleProxy() }
 
@@ -2632,7 +3064,7 @@ fun Interactive3DSolarSystemStage(
 
                 val cx = w * 0.50f
 
-                val cy = h * 0.53f
+                val cy = h * 0.54f
 
                 val maxRx = w * 0.46f
 
@@ -2640,7 +3072,7 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                // 1. Draw All 8 Elliptical Orbital Paths + Glowing Comet Trails
+                // 1. Draw All 8 Elliptical Orbital Paths + Soft Comet Arcs
 
                 planets.forEach { p ->
 
@@ -2656,23 +3088,21 @@ fun Interactive3DSolarSystemStage(
 
                         size = Size(rx * 2f, ry * 2f),
 
-                        style = Stroke(width = 1.1.dp.toPx())
+                        style = Stroke(width = 1.dp.toPx())
 
                     )
 
 
 
-                    // Glowing 38-degree orbital trail behind each planet
-
                     val deg = p.initialPhaseDeg + (baseOrbitDeg * p.speedMultiplier) + (orbitBoostDeg * p.speedMultiplier * 0.6f)
 
                     drawArc(
 
-                        color = p.dayColor.copy(alpha = 0.55f),
+                        color = p.dayColor.copy(alpha = 0.48f),
 
-                        startAngle = deg - 38f,
+                        startAngle = deg - 32f,
 
-                        sweepAngle = 38f,
+                        sweepAngle = 32f,
 
                         useCenter = false,
 
@@ -2680,7 +3110,7 @@ fun Interactive3DSolarSystemStage(
 
                         size = Size(rx * 2f, ry * 2f),
 
-                        style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
 
                     )
 
@@ -2688,15 +3118,15 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                // Asteroid Belt between Mars (0.47) and Jupiter (0.61)
+                // Asteroid Belt between Mars and Jupiter
 
                 val beltRx = maxRx * 0.54f
 
                 val beltRy = beltRx * tiltRatio
 
-                for (a in 0 until 44) {
+                for (a in 0 until 42) {
 
-                    val aRad = Math.toRadians((a * (360.0 / 44.0)) + (baseOrbitDeg * 0.5))
+                    val aRad = Math.toRadians((a * (360.0 / 42.0)) + (baseOrbitDeg * 0.5))
 
                     val ax = cx + (beltRx * cos(aRad)).toFloat()
 
@@ -2790,7 +3220,7 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                    // Atmospheric Halo
+                    // Soft Atmospheric Halo
 
                     drawCircle(
 
@@ -2804,7 +3234,7 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                    // Saturn & Uranus Rings
+                    // Saturn & Uranus Elliptical Rings
 
                     if (cp.index == 5) {
 
@@ -2814,11 +3244,11 @@ fun Interactive3DSolarSystemStage(
 
                                 color = Color(0xFFFDE047).copy(alpha = 0.88f),
 
-                                topLeft = Offset(cp.x - pr * 2.4f, cp.y - pr * 0.72f),
+                                topLeft = Offset(cp.x - pr * 2.3f, cp.y - pr * 0.70f),
 
-                                size = Size(pr * 4.8f, pr * 1.44f),
+                                size = Size(pr * 4.6f, pr * 1.40f),
 
-                                style = Stroke(width = 2.4.dp.toPx())
+                                style = Stroke(width = 2.2.dp.toPx())
 
                             )
 
@@ -2826,11 +3256,11 @@ fun Interactive3DSolarSystemStage(
 
                                 color = Color(0xFFCA8A04).copy(alpha = 0.65f),
 
-                                topLeft = Offset(cp.x - pr * 1.85f, cp.y - pr * 0.52f),
+                                topLeft = Offset(cp.x - pr * 1.8f, cp.y - pr * 0.50f),
 
-                                size = Size(pr * 3.7f, pr * 1.04f),
+                                size = Size(pr * 3.6f, pr * 1.00f),
 
-                                style = Stroke(width = 1.4.dp.toPx())
+                                style = Stroke(width = 1.3.dp.toPx())
 
                             )
 
@@ -2842,13 +3272,13 @@ fun Interactive3DSolarSystemStage(
 
                             drawOval(
 
-                                color = Color(0xFFA5F3FC).copy(alpha = 0.72f),
+                                color = Color(0xFFA5F3FC).copy(alpha = 0.70f),
 
-                                topLeft = Offset(cp.x - pr * 1.9f, cp.y - pr * 0.48f),
+                                topLeft = Offset(cp.x - pr * 1.85f, cp.y - pr * 0.46f),
 
-                                size = Size(pr * 3.8f, pr * 0.96f),
+                                size = Size(pr * 3.7f, pr * 0.92f),
 
-                                style = Stroke(width = 1.3.dp.toPx())
+                                style = Stroke(width = 1.2.dp.toPx())
 
                             )
 
@@ -2858,73 +3288,89 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                    // 3D Sun-Illuminated Sphere
+                    // 3D Sun-Illuminated Sphere (No straight lines!)
 
-                    drawCircle(
+                    val planetClip = Path().apply {
 
-                        brush = Brush.radialGradient(
+                        addOval(Rect(cp.x - pr, cp.y - pr, cp.x + pr, cp.y + pr))
 
-                            colors = listOf(Color.White.copy(alpha = 0.9f), cp.spec.dayColor, cp.spec.nightColor),
+                    }
 
-                            center = lightOffset,
+                    clipPath(planetClip) {
 
-                            radius = pr * 1.35f
+                        drawCircle(
 
-                        ),
+                            brush = Brush.radialGradient(
 
-                        radius = pr,
+                                colors = listOf(Color.White.copy(alpha = 0.9f), cp.spec.dayColor, cp.spec.nightColor),
 
-                        center = pCenter
+                                center = lightOffset,
 
-                    )
+                                radius = pr * 1.35f
+
+                            ),
+
+                            radius = pr,
+
+                            center = pCenter
+
+                        )
 
 
 
-                    when (cp.index) {
+                        when (cp.index) {
 
-                        2 -> { // Earth continents + orbiting Moon
+                            2 -> { // Earth continents clipped inside sphere
 
-                            drawCircle(Color(0xFF10B981), pr * 0.40f, Offset(cp.x - pr * 0.18f, cp.y - pr * 0.08f))
+                                drawCircle(Color(0xFF10B981).copy(alpha = 0.85f), pr * 0.42f, Offset(cp.x - pr * 0.18f, cp.y - pr * 0.08f))
 
-                            drawCircle(Color(0xFF059669), pr * 0.30f, Offset(cp.x + pr * 0.25f, cp.y + pr * 0.20f))
+                                drawCircle(Color(0xFF059669).copy(alpha = 0.85f), pr * 0.32f, Offset(cp.x + pr * 0.25f, cp.y + pr * 0.20f))
 
-                            val mRad = Math.toRadians((cp.deg * 5f).toDouble())
+                            }
 
-                            drawCircle(
+                            4 -> { // Jupiter curved zonal belt + Great Red Spot clipped inside sphere
 
-                                color = Color(0xFFE2E8F0),
+                                drawOval(
 
-                                radius = 2.0.dp.toPx() * perspectiveScale,
+                                    color = Color(0xFF92400E).copy(alpha = 0.65f),
 
-                                center = Offset(
+                                    topLeft = Offset(cp.x - pr * 1.1f, cp.y - pr * 0.28f),
 
-                                    cp.x + (pr * 2.1f * cos(mRad)).toFloat(),
-
-                                    cp.y + (pr * 1.3f * sin(mRad)).toFloat()
+                                    size = Size(pr * 2.2f, pr * 0.24f)
 
                                 )
 
-                            )
+                                drawCircle(Color(0xFFDC2626), pr * 0.24f, Offset(cp.x + pr * 0.26f, cp.y + pr * 0.20f))
+
+                            }
 
                         }
 
-                        4 -> { // Jupiter equatorial bands + Great Red Spot
+                    }
 
-                            drawLine(
 
-                                color = Color(0xFF92400E),
 
-                                start = Offset(cp.x - pr * 0.82f, cp.y - pr * 0.22f),
+                    // Earth's orbiting Moon
 
-                                end = Offset(cp.x + pr * 0.82f, cp.y - pr * 0.22f),
+                    if (cp.index == 2) {
 
-                                strokeWidth = 1.8.dp.toPx()
+                        val mRad = Math.toRadians((cp.deg * 5f).toDouble())
+
+                        drawCircle(
+
+                            color = Color(0xFFE2E8F0),
+
+                            radius = 2.0.dp.toPx() * perspectiveScale,
+
+                            center = Offset(
+
+                                cp.x + (pr * 2.1f * cos(mRad)).toFloat(),
+
+                                cp.y + (pr * 1.3f * sin(mRad)).toFloat()
 
                             )
 
-                            drawCircle(Color(0xFFDC2626), pr * 0.26f, Offset(cp.x + pr * 0.28f, cp.y + pr * 0.22f))
-
-                        }
+                        )
 
                     }
 
@@ -2964,7 +3410,7 @@ fun Interactive3DSolarSystemStage(
 
 
 
-                // 3. Draw Blazing 3D Sun + Lens Flare Cross in Center
+                // 3. Draw Pure 3D Blazing Sun Sphere in Center (No harsh cross lines!)
 
                 val sunR = 18.dp.toPx()
 
@@ -2976,9 +3422,9 @@ fun Interactive3DSolarSystemStage(
 
                         colors = listOf(
 
-                            sunGlowColor.copy(alpha = 0.68f),
+                            sunGlowColor.copy(alpha = 0.72f),
 
-                            palette.sunCorona.copy(alpha = 0.28f),
+                            palette.sunCorona.copy(alpha = 0.30f),
 
                             Color.Transparent
 
@@ -2986,33 +3432,13 @@ fun Interactive3DSolarSystemStage(
 
                         center = Offset(cx, cy),
 
-                        radius = sunR * 3.6f * sunPulse
+                        radius = sunR * 3.5f * sunPulse
 
                     ),
 
-                    radius = sunR * 3.6f * sunPulse,
+                    radius = sunR * 3.5f * sunPulse,
 
                     center = Offset(cx, cy)
-
-                )
-
-                // Horizontal & vertical lens flare beams through the Sun
-
-                drawLine(
-
-                    brush = Brush.horizontalGradient(
-
-                        listOf(Color.Transparent, sunGlowColor.copy(alpha = 0.75f), Color.Transparent)
-
-                    ),
-
-                    start = Offset(cx - sunR * 4.2f, cy),
-
-                    end = Offset(cx + sunR * 4.2f, cy),
-
-                    strokeWidth = 2.dp.toPx(),
-
-                    cap = StrokeCap.Round
 
                 )
 
@@ -3024,7 +3450,7 @@ fun Interactive3DSolarSystemStage(
 
                         center = Offset(cx - sunR * 0.25f, cy - sunR * 0.25f),
 
-                        radius = sunR * 1.2f
+                        radius = sunR * 1.25f
 
                     ),
 
@@ -3082,7 +3508,7 @@ fun Interactive3DSolarSystemStage(
 
                 Text(
 
-                    text = "3D LIVE VIEW",
+                    text = if (palette.isDark) "🌍 EARTH ORBIT" else "🪐 JUPITER SKY",
 
                     fontSize = 9.sp,
 
@@ -3104,7 +3530,7 @@ fun Interactive3DSolarSystemStage(
 
 // -------------------------------------------------------------
 
-// HEADER & PLANET SLOT RIBBON
+// HEADER & PLANET SLOT RIBBON WITH SPRING ANIMATIONS
 
 // -------------------------------------------------------------
 
@@ -3154,7 +3580,7 @@ fun CosmicHeaderBar(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
 
-                    Text("🪐", fontSize = 16.sp)
+                    Text(if (palette.isDark) "🌍" else "🪐", fontSize = 16.sp)
 
                     Spacer(modifier = Modifier.width(6.dp))
 
@@ -3182,7 +3608,7 @@ fun CosmicHeaderBar(
 
                     } else {
 
-                        "$userTag • PORT ${ProfileManager.localInboundPort} • ${if (palette.isDark) "DARK COSMOS" else "DAYLIGHT SKY"}"
+                        "$userTag • PORT ${ProfileManager.localInboundPort} • ${if (palette.isDark) "EARTH DARK" else "JUPITER LIGHT"}"
 
                     },
 
@@ -3294,21 +3720,53 @@ fun CosmicPlanetSlotRibbon(
 
             val isBoot = startOnBoot && bootSlot == idx
 
-            val borderCol = when {
 
-                run -> palette.emeraldLive
 
-                sel -> palette.cyanAccent
+            val slotScale by animateFloatAsState(
 
-                else -> palette.glassRimBottom
+                targetValue = if (sel) 1.04f else 1f,
 
-            }
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+
+                label = "slotScale_$idx"
+
+            )
+
+
+
+            val borderCol by animateColorAsState(
+
+                targetValue = when {
+
+                    run -> palette.emeraldLive
+
+                    sel -> palette.cyanAccent
+
+                    else -> palette.glassRimBottom
+
+                },
+
+                animationSpec = tween(250),
+
+                label = "slotBorder_$idx"
+
+            )
+
+
 
             Column(
 
                 modifier = Modifier
 
                     .weight(1f)
+
+                    .graphicsLayer {
+
+                        scaleX = slotScale
+
+                        scaleY = slotScale
+
+                    }
 
                     .clip(RoundedCornerShape(13.dp))
 
@@ -3730,7 +4188,15 @@ fun CosmicCockpitScreen(
 
             val pressed by interaction.collectIsPressedAsState()
 
-            val scale by animateFloatAsState(if (pressed) 0.96f else 1f, label = "launchScale")
+            val scale by animateFloatAsState(
+
+                targetValue = if (pressed) 0.96f else 1f,
+
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+
+                label = "launchScale"
+
+            )
 
 
 
@@ -3796,17 +4262,25 @@ fun CosmicCockpitScreen(
 
 
 
-        if (testStatus != null) {
+        AnimatedVisibility(
+
+            visible = testStatus != null,
+
+            enter = expandVertically() + fadeIn(),
+
+            exit = shrinkVertically() + fadeOut()
+
+        ) {
 
             Text(
 
-                text = testStatus,
+                text = testStatus ?: "",
 
                 fontSize = 11.sp,
 
                 fontWeight = FontWeight.Bold,
 
-                color = if (testStatus.startsWith("✓")) palette.emeraldLive else palette.crimsonAlert,
+                color = if (testStatus?.startsWith("✓") == true) palette.emeraldLive else palette.crimsonAlert,
 
                 modifier = Modifier.padding(horizontal = 4.dp)
 
@@ -4250,7 +4724,7 @@ fun AccurateCosmicSpeedometer(
 
 // -------------------------------------------------------------
 
-// TAB 1: RESTYLED IN-APP IPFIGHTER.COM SUITE (DARK COSMIC CSS + DNS PURGE)
+// TAB 1: RESTYLED IN-APP IPFIGHTER.COM SUITE (NO LOADING PERCENTAGE)
 
 // -------------------------------------------------------------
 
@@ -4278,15 +4752,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    var isLoadingPage by remember { mutableStateOf(true) }
 
-    var loadProgress by remember { mutableIntStateOf(0) }
-
-
-
-    // Custom CSS + JS injected into ipfighter.com so its interface matches our Cosmic Glass UI
-
-    // and spoofs America/New_York timezone when tunnel is active so IP Score doesn't lose -15%
 
     val cosmicCssAndTzScript = remember(isProxyActive) {
 
@@ -4344,7 +4810,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
                             border-radius: 16px !important;
 
-                            border: 1px solid rgba(0, 229, 255, 0.35) !important;
+                            border: 1px solid rgba(56, 189, 248, 0.35) !important;
 
                             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
 
@@ -4367,8 +4833,6 @@ fun EmbeddedIpFighterWebViewScreen(
 
 
     fun deepFlushAndReload() {
-
-        isLoadingPage = true
 
         onRefreshNativeGeoIp()
 
@@ -4414,7 +4878,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Sleek Cosmic Telemetry Header Above Live IPFighter View
+            // Sleek Cosmic Telemetry Header (No Loading Percentage!)
 
             Row(
 
@@ -4464,7 +4928,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
                                 text = if (isProxyActive) {
 
-                                    "TUNNEL EXIT: ${publicIpInfo?.ip ?: "Verifying..."}"
+                                    "TUNNEL EXIT: ${publicIpInfo?.ip ?: "Active"}"
 
                                 } else {
 
@@ -4486,15 +4950,7 @@ fun EmbeddedIpFighterWebViewScreen(
 
                         Text(
 
-                            text = if (isLoadingPage) {
-
-                                "Syncing DNS & loading ipfighter.com ($loadProgress%)..."
-
-                            } else {
-
-                                "${publicIpInfo?.country ?: "Live Inspector"} • DNS & WebRTC Verified"
-
-                            },
+                            text = "${publicIpInfo?.country ?: "Live Inspector"} • DNS & WebRTC Verified",
 
                             fontSize = 9.5.sp,
 
@@ -4529,24 +4985,6 @@ fun EmbeddedIpFighterWebViewScreen(
                     Text("↻ Deep Reload", fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold)
 
                 }
-
-            }
-
-
-
-            if (isLoadingPage) {
-
-                LinearProgressIndicator(
-
-                    progress = { (loadProgress / 100f).coerceIn(0.05f, 1f) },
-
-                    modifier = Modifier.fillMaxWidth().height(2.5.dp),
-
-                    color = palette.emeraldLive,
-
-                    trackColor = Color.Transparent
-
-                )
 
             }
 
@@ -4604,8 +5042,6 @@ fun EmbeddedIpFighterWebViewScreen(
 
                                 super.onPageStarted(view, url, favicon)
 
-                                isLoadingPage = true
-
                                 view?.evaluateJavascript(cosmicCssAndTzScript, null)
 
                             }
@@ -4618,8 +5054,6 @@ fun EmbeddedIpFighterWebViewScreen(
 
                                 view?.evaluateJavascript(cosmicCssAndTzScript, null)
 
-                                isLoadingPage = false
-
                             }
 
                         }
@@ -4628,15 +5062,11 @@ fun EmbeddedIpFighterWebViewScreen(
 
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
 
-                                loadProgress = newProgress
-
                                 if (newProgress >= 40) {
 
                                     view?.evaluateJavascript(cosmicCssAndTzScript, null)
 
                                 }
-
-                                if (newProgress >= 100) isLoadingPage = false
 
                             }
 
@@ -4898,45 +5328,57 @@ fun CosmicNodeConfigScreen(
 
 
 
-                if (aliveResult != null) {
+                AnimatedVisibility(
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    visible = aliveResult != null,
 
-                    when (val res = aliveResult) {
+                    enter = expandVertically() + fadeIn(),
 
-                        is TestResult.Success -> {
+                    exit = shrinkVertically() + fadeOut()
 
-                            Text(
+                ) {
 
-                                text = "✓ HANDSHAKE VERIFIED (${res.latencyMs} ms)",
+                    Column {
 
-                                color = palette.emeraldLive,
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                                fontSize = 11.sp,
+                        when (val res = aliveResult) {
 
-                                fontWeight = FontWeight.Bold
+                            is TestResult.Success -> {
 
-                            )
+                                Text(
+
+                                    text = "✓ HANDSHAKE VERIFIED (${res.latencyMs} ms)",
+
+                                    color = palette.emeraldLive,
+
+                                    fontSize = 11.sp,
+
+                                    fontWeight = FontWeight.Bold
+
+                                )
+
+                            }
+
+                            is TestResult.Failure -> {
+
+                                Text(
+
+                                    text = "✕ UNREACHABLE: ${res.error}",
+
+                                    color = palette.crimsonAlert,
+
+                                    fontSize = 11.sp,
+
+                                    fontWeight = FontWeight.Bold
+
+                                )
+
+                            }
+
+                            null -> {}
 
                         }
-
-                        is TestResult.Failure -> {
-
-                            Text(
-
-                                text = "✕ UNREACHABLE: ${res.error}",
-
-                                color = palette.crimsonAlert,
-
-                                fontSize = 11.sp,
-
-                                fontWeight = FontWeight.Bold
-
-                            )
-
-                        }
-
-                        null -> {}
 
                     }
 
@@ -5510,7 +5952,15 @@ fun CosmicRoutingScreen(
 
 
 
-                if (startOnBoot) {
+                AnimatedVisibility(
+
+                    visible = startOnBoot,
+
+                    enter = expandVertically() + fadeIn(),
+
+                    exit = shrinkVertically() + fadeOut()
+
+                ) {
 
                     Row(
 
@@ -5578,17 +6028,19 @@ fun CosmicRoutingScreen(
 
 
 
-        if (!routeWholeProfile) {
+        AnimatedVisibility(
 
-            CrystalGlassCard(
+            visible = !routeWholeProfile,
 
-                modifier = Modifier
+            enter = expandVertically() + fadeIn(),
 
-                    .fillMaxWidth()
+            exit = shrinkVertically() + fadeOut(),
 
-                    .weight(1f)
+            modifier = Modifier.weight(1f)
 
-            ) {
+        ) {
+
+            CrystalGlassCard(modifier = Modifier.fillMaxSize()) {
 
                 Column(modifier = Modifier.padding(12.dp)) {
 
@@ -5662,9 +6114,13 @@ fun CosmicRoutingScreen(
 
                                     .fillMaxWidth()
 
+                                    .clip(RoundedCornerShape(10.dp))
+
+                                    .background(if (checked) palette.glassPod else Color.Transparent)
+
                                     .clickable { onToggleApp(app.packageName) }
 
-                                    .padding(vertical = 6.dp, horizontal = 6.dp),
+                                    .padding(vertical = 6.dp, horizontal = 8.dp),
 
                                 horizontalArrangement = Arrangement.SpaceBetween,
 
@@ -5848,11 +6304,31 @@ fun CosmicBottomDock(selectedTab: Int, onSelectTab: (Int) -> Unit) {
 
             val sel = selectedTab == idx
 
+            val tabScale by animateFloatAsState(
+
+                targetValue = if (sel) 1.05f else 1f,
+
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+
+                label = "dockTabScale_$idx"
+
+            )
+
+
+
             Box(
 
                 modifier = Modifier
 
                     .weight(1f)
+
+                    .graphicsLayer {
+
+                        scaleX = tabScale
+
+                        scaleY = tabScale
+
+                    }
 
                     .clip(RoundedCornerShape(14.dp))
 
@@ -6156,7 +6632,7 @@ private fun formatCompactRate(b: Long) = when {
 
     b >= 1024 * 1024 -> String.format("%.1f MB/s", b / (1024.0 * 1024.0))
 
-    b >= 1024 -> String.format("%.0f KB/s", b / (1024.0 * 1024.0))
+    b >= 1024 -> String.format("%.0f KB/s", b / 1024.0)
 
     else -> "$b B/s"
 
