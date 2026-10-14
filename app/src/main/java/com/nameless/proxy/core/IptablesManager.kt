@@ -4,6 +4,9 @@ object IptablesManager {
 
     private val IPV4_REGEX = Regex("^((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3})(/\\d{1,2})?$")
 
+    // Matches ConfigGenerator.SINGBOX_ROUTING_MARK (4249 = 0x1099)
+    private const val SINGBOX_MARK_HEX = "0x1099"
+
     private fun isValidIpv4(host: String): Boolean = IPV4_REGEX.matches(host.trim())
 
     fun generateEnableCommands(
@@ -15,6 +18,7 @@ object IptablesManager {
         val slot = ProfileManager.activeSlot
         val key = "u${user}_s$slot"
 
+        val dnsPort = inboundPort + 2
         val tproxyPort = inboundPort + 8
         val chainNatV4 = "NAMELESS_U${user}_S$slot"
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
@@ -32,10 +36,14 @@ object IptablesManager {
         val isolatedStart = user * 100000 + 90000
         val isolatedEnd = user * 100000 + 99999
 
-        val tableId = ProfileManager.getTableId(user, slot)
-        val markHex = ProfileManager.getMarkHex(user, slot)
-        val hsTableId = ProfileManager.getHotspotTableId(slot)
-        val hsMarkHex = ProfileManager.getHotspotMarkHex(slot)
+        // Android system UIDs responsible for Private DNS (DoT 853), netd DNS (53), and Captive Portal checks
+        val uidNetdDns = user * 100000 + 1051
+        val uidNetworkStack = user * 100000 + 1073
+
+        val tableId = 2080 + slot
+        val markHex = "0x" + Integer.toHexString(0x1080 + slot)
+        val hsTableId = 2000 + slot
+        val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
 
         val tetherInterfaces = listOf("wlan+", "ap+", "rndis+", "usb+", "softap+", "swlan+", "wigig+")
 
@@ -44,14 +52,13 @@ object IptablesManager {
             "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
         )
 
-        val resolvedHost = ConfigGenerator.resolveHostToIpIfNeeded(settings.host)
-        val hostIsIpv4 = isValidIpv4(resolvedHost)
+        val hostIsIpv4 = isValidIpv4(settings.host)
         val commands = mutableListOf<String>()
 
-        // 1. Flush existing rules cleanly
+        // 1. Clean any prior rules
         commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. Safe Loopback Settings (Preserves Cellular rmnet/ccmni interfaces)
+        // 2. Kernel Loopback & RP-Filter Tuning
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/lo/rp_filter 2>/dev/null")
         commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
@@ -71,14 +78,13 @@ object IptablesManager {
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 4. PHONE OUTBOUND MANGLE (Intercepts ALL UDP 53 including netd UID 0/1052!)
+        // 4. PHONE OUTBOUND MANGLE (UDP TPROXY)
         commands.add("iptables -t mangle -N $chainOutMangle")
+        // Always exempt sing-box's own marked sockets and direct proxy host IP first
+        commands.add("iptables -t mangle -A $chainOutMangle -m mark --mark $SINGBOX_MARK_HEX -j RETURN")
         if (hostIsIpv4) {
-            commands.add("iptables -t mangle -A $chainOutMangle -d $resolvedHost -j RETURN")
+            commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
-        // Intercept system netd & app UDP port 53 queries BEFORE uid 0-9999 return so Cloudflare/ISP DNS never leaks
-        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
-
         commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
 
         for (range in reservedV4) {
@@ -87,22 +93,21 @@ object IptablesManager {
 
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
             if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
-                commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp ! --dport 53 -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
+                commands.add("iptables -t mangle -A $chainOutMangle -p udp ! --dport 53 -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
             } else {
                 for (uid in selectedUids) {
-                    commands.add("iptables -t mangle -A $chainOutMangle -p udp -m owner --uid-owner $uid -j MARK --set-mark $markHex")
+                    commands.add("iptables -t mangle -A $chainOutMangle -p udp ! --dport 53 -m owner --uid-owner $uid -j MARK --set-mark $markHex")
                 }
             }
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE WEBRTC, DOQ & PRIVATE DNS (PORT 853 DoT) LEAK SHIELD
+        // 5. PHONE WEBRTC & UDP SHIELD
         commands.add("iptables -N $chainFilter 2>/dev/null")
-        // Block Android Private DNS (DoT port 853) so Android netd automatically falls back to hijacked port 53
-        commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset")
-        commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
+        commands.add("iptables -A $chainFilter -m mark --mark $SINGBOX_MARK_HEX -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
+        commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP") // Force DoQ/DoH3 to fall back to TCP port 853 DoT
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 3478 -j DROP")
 
@@ -118,17 +123,33 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 6. PHONE LOCAL TCP & DNS REDIRECTION
+        // 6. PHONE LOCAL TCP, SYSTEM DNS (53), & PRIVATE DNS DoT (853) REDIRECTION
         commands.add("iptables -t nat -N $chainNatV4")
+        // Critical: Exempt sing-box's own marked sockets (0x1099) & proxy server IP at the very top
+        commands.add("iptables -t nat -A $chainNatV4 -m mark --mark $SINGBOX_MARK_HEX -j RETURN")
         if (hostIsIpv4) {
-            commands.add("iptables -t nat -A $chainNatV4 -d $resolvedHost -j RETURN")
+            commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host.trim()} -j RETURN")
         }
-        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -d 127.0.0.0/8 -j RETURN")
+
+        // Redirect ALL UDP & TCP Port 53 (including Android netd UID 0/1051) to sing-box dns-in ($dnsPort)
+        commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
+
+        // Redirect ALL TCP Port 853 (Android Private DNS / Cloudflare / Google DoT) into sing-box tunnel!
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
 
         for (range in reservedV4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
         }
+
+        // Tunnel Android NetworkStack (UID 1073) & DNS (UID 1051) so Private DNS & Captive Portal checks pass
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uidNetdDns -j REDIRECT --to-ports $inboundPort")
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $uidNetworkStack -j REDIRECT --to-ports $inboundPort")
+        }
+
+        commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
 
         if (selectedUids.isNullOrEmpty()) {
             commands.add("iptables -t nat -A $chainNatV4 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
@@ -140,13 +161,16 @@ object IptablesManager {
         }
         commands.add("iptables -t nat -I OUTPUT 1 -j $chainNatV4")
 
-        // 7. PHONE IPV6 LEAK & DoT SHIELD
+        // 7. PHONE IPV6 LEAK & PRIVATE DNS IPV6 FALLBACK SHIELD
         if (settings.ipMode == IpMode.IPV4_ONLY) {
             commands.add("ip6tables -N $chainV6Filter 2>/dev/null")
-            commands.add("ip6tables -A $chainV6Filter -p tcp --dport 853 -j REJECT --reject-with tcp-reset")
-            commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP")
-            commands.add("ip6tables -A $chainV6Filter -p udp --dport 53 -j DROP")
-            commands.add("ip6tables -A $chainV6Filter -p tcp --dport 53 -j DROP")
+            // Immediately reject IPv6 DNS (53) and Private DNS DoT (853) even for UID 0 (netd)
+            // so Android instantly falls back to IPv4 Private DNS instead of hanging on IPv6!
+            commands.add("ip6tables -A $chainV6Filter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 853 -j DROP")
+            commands.add("ip6tables -A $chainV6Filter -p tcp --dport 53 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 53 -j DROP")
+            commands.add("ip6tables -A $chainV6Filter -p udp --dport 53 -j REJECT 2>/dev/null || ip6tables -A $chainV6Filter -p udp --dport 53 -j DROP")
+            commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j REJECT 2>/dev/null || ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP")
+            commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $uidNetworkStack -j REJECT 2>/dev/null || ip6tables -A $chainV6Filter -m owner --uid-owner $uidNetworkStack -j DROP")
             commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner 0-9999 -j RETURN")
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $appStart-$appEnd -j DROP")
@@ -159,10 +183,13 @@ object IptablesManager {
             commands.add("ip6tables -I OUTPUT 1 -j $chainV6Filter")
         } else {
             commands.add("ip6tables -t nat -N $chainNatV6 2>/dev/null")
-            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
-            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN")
+            commands.add("ip6tables -t nat -A $chainNatV6 -m mark --mark $SINGBOX_MARK_HEX -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d ::1/128 -j RETURN")
             commands.add("ip6tables -t nat -A $chainNatV6 -d fe80::/10 -j RETURN")
+            commands.add("ip6tables -t nat -A $chainNatV6 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
+            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
+            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
+            commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN")
 
             if (selectedUids.isNullOrEmpty()) {
                 commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $appStart-$appEnd -j REDIRECT --to-ports $inboundPort")
@@ -200,10 +227,12 @@ object IptablesManager {
             // A. Hotspot NAT PREROUTING
             commands.add("iptables -t nat -N $chainHotspotNat")
             if (hostIsIpv4) {
-                commands.add("iptables -t nat -A $chainHotspotNat -d $resolvedHost -j RETURN")
+                commands.add("iptables -t nat -A $chainHotspotNat -d ${settings.host.trim()} -j RETURN")
             }
             for (iface in tetherInterfaces) {
-                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
+                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
+                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
+                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
             }
             for (range in reservedV4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
@@ -213,21 +242,18 @@ object IptablesManager {
             }
             commands.add("iptables -t nat -I PREROUTING 1 -j $chainHotspotNat")
 
-            // B. Hotspot Mangle PREROUTING (UDP & DNS TPROXY)
+            // B. Hotspot Mangle PREROUTING (UDP TPROXY)
             commands.add("iptables -t mangle -N $chainHotspotMangle")
             commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
-            for (iface in tetherInterfaces) {
-                commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp --dport 53 -j TPROXY --on-port $tproxyPort --tproxy-mark $hsMarkHex")
-            }
             for (range in reservedV4) {
                 commands.add("iptables -t mangle -A $chainHotspotMangle -d $range -j RETURN")
             }
             if (hostIsIpv4) {
-                commands.add("iptables -t mangle -A $chainHotspotMangle -d $resolvedHost -j RETURN")
+                commands.add("iptables -t mangle -A $chainHotspotMangle -d ${settings.host.trim()} -j RETURN")
             }
             if (settings.transportMode == TransportMode.TCP_AND_UDP) {
                 for (iface in tetherInterfaces) {
-                    commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp -j TPROXY --on-port $tproxyPort --tproxy-mark $hsMarkHex")
+                    commands.add("iptables -t mangle -A $chainHotspotMangle -i $iface -p udp ! --dport 53 -j TPROXY --on-port $tproxyPort --tproxy-mark $hsMarkHex")
                 }
             }
             commands.add("iptables -t mangle -I PREROUTING 1 -j $chainHotspotMangle")
@@ -235,8 +261,6 @@ object IptablesManager {
             // C. Isolated Hotspot FORWARD Filter Chain
             commands.add("iptables -N $chainHotspotFwd 2>/dev/null")
             for (iface in tetherInterfaces) {
-                commands.add("iptables -A $chainHotspotFwd -i $iface -p tcp --dport 853 -j REJECT --reject-with tcp-reset")
-                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 853 -j DROP")
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 3478 -j DROP")
                 if (settings.transportMode == TransportMode.TCP_ONLY) {
                     commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 443 -j DROP")
@@ -264,10 +288,10 @@ object IptablesManager {
         val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val tableId = ProfileManager.getTableId(user, slot)
-        val markHex = ProfileManager.getMarkHex(user, slot)
-        val hsTableId = ProfileManager.getHotspotTableId(slot)
-        val hsMarkHex = ProfileManager.getHotspotMarkHex(slot)
+        val tableId = 2080 + slot
+        val markHex = "0x" + Integer.toHexString(0x1080 + slot)
+        val hsTableId = 2000 + slot
+        val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
 
         return listOf(
             "iptables -D FORWARD -j $chainHotspotFwd 2>/dev/null",
