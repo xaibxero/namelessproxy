@@ -227,11 +227,6 @@ object IptablesManager {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
             }
             for (range in reservedV4) {
-                commands.add("iptables -t nat -A $chainNatspotNat(chainHotspotNat, range)")
-            }
-            // Fix clean loop for reservedV4
-            commands.removeAt(commands.lastIndex)
-            for (range in reservedV4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
             }
             for (iface in tetherInterfaces) {
