@@ -422,7 +422,10 @@ private fun readPhysicalNetworkBytes(): Pair<Long, Long> {
                 val iface = trimmed.substringBefore(":").trim()
                 if (iface.startsWith("wlan") ||
                     iface.startsWith("rmnet") ||
+                    iface.startsWith("rev_rmnet") ||
+                    iface.startsWith("v4-rmnet") ||
                     iface.startsWith("ccmni") ||
+                    iface.startsWith("pdp") ||
                     iface.startsWith("eth") ||
                     iface.startsWith("rndis")
                 ) {
@@ -574,6 +577,18 @@ fun MainScreen(
         configuredSlots = set
     }
 
+    // Builds the target UID list for Per-App mode (Always includes Nameless Proxy's own UID
+    // so the built-in IPFighter tab always tests the active proxy tunnel!)
+    fun buildTargetUids(): List<Int>? {
+        if (routeWholeProfile) return null
+        val uids = installedApps
+            .filter { selectedPackages.contains(it.packageName) }
+            .map { it.uid }
+            .toMutableSet()
+        uids.add(context.applicationInfo.uid)
+        return uids.toList()
+    }
+
     fun applySettingsToState(
         pHost: String, pPort: String, pUser: String, pPass: String,
         pSni: String, pSsMethod: String, pRpk: String, pRsid: String,
@@ -696,7 +711,7 @@ fun MainScreen(
         refreshConfiguredSlots()
 
         val snap = getCurrentSettings()
-        val uids = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
+        val uids = buildTargetUids()
         val pkgs = selectedPackages.toSet()
         saveJob?.cancel()
         saveJob = scope.launch(Dispatchers.IO) {
@@ -866,7 +881,7 @@ fun MainScreen(
                                         return@SolarCockpitTab
                                     }
                                     saveConfigForSlot(activeSlot, true)
-                                    val targets = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
+                                    val targets = buildTargetUids()
                                     onStartProxy(getCurrentSettings(), targets) { ok, err ->
                                         testStatus = if (!ok) "Error: ${err?.lines()?.lastOrNull()}" else null
                                     }
