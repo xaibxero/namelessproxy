@@ -32,7 +32,6 @@ object IptablesManager {
         val isolatedStart = user * 100000 + 90000
         val isolatedEnd = user * 100000 + 99999
 
-        // Unique per-user AND per-slot routing table & fwmark so Multi-User profiles never collide
         val tableId = 2080 + (user * 10) + slot
         val markHex = "0x" + Integer.toHexString(0x1080 + (user * 0x10) + slot)
         val hsTableId = 2000 + slot
@@ -71,13 +70,13 @@ object IptablesManager {
         commands.add("iptables -t mangle -A $chainPreMangle -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex")
         commands.add("iptables -t mangle -I PREROUTING 1 -j $chainPreMangle")
 
-        // 4. PHONE OUTBOUND MANGLE (UDP & DNS TPROXY)
+        // 4. PHONE OUTBOUND MANGLE (UDP & STUN TPROXY)
         commands.add("iptables -t mangle -N $chainOutMangle")
         if (hostIsIpv4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
 
-        // Hijack UDP port 53 (DNS) for netd (UID 1051) and target apps before local subnet exemptions
+        // Intercept UDP port 53 (DNS) for netd (UID 1051) and target apps
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner 1051 -j MARK --set-mark $markHex")
         if (selectedUids.isNullOrEmpty()) {
             commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
@@ -106,33 +105,26 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE WEBRTC & STUN LEAK SHIELD (Blocks UDP STUN 3478, 5349, 19300-19309 so WebRTC uses TCP proxy)
+        // 5. PHONE WEBRTC SHIELD (Allows TPROXY-marked STUN 19302 so WebRTC matches Proxy IP; drops any unmarked UDP leak)
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
+        commands.add("iptables -A $chainFilter -p udp --dport 3478 -j DROP")
 
-        // Block all standard & Google Chrome STUN UDP ports for this user profile so WebRTC never leaks real IP
-        if (selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 19300:19309 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
-        } else {
-            for (uid in selectedUids) {
-                commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $uid -j DROP")
-                commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $uid -j DROP")
-                commands.add("iptables -A $chainFilter -p udp --dport 19300:19309 -m owner --uid-owner $uid -j DROP")
+        if (settings.transportMode == TransportMode.TCP_AND_UDP) {
+            for (range in reservedV4) {
+                commands.add("iptables -A $chainFilter -d $range -j RETURN")
             }
+            commands.add("iptables -A $chainFilter -p udp -m mark --mark $markHex -j RETURN")
         }
 
-        if (settings.transportMode == TransportMode.TCP_ONLY) {
-            if (selectedUids.isNullOrEmpty()) {
-                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $appStart-$appEnd -j DROP")
-                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j DROP")
-            } else {
-                for (uid in selectedUids) {
-                    commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
-                }
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $appStart-$appEnd -j DROP")
+            commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $isolatedStart-$isolatedEnd -j DROP")
+        } else {
+            for (uid in selectedUids) {
+                commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uid -j DROP")
             }
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
@@ -227,11 +219,6 @@ object IptablesManager {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
             }
             for (range in reservedV4) {
-                commands.add("iptables -t nat -A $chainNatspotNat(chainHotspotNat, range)")
-            }
-            // Fix clean loop for reservedV4
-            commands.removeAt(commands.lastIndex)
-            for (range in reservedV4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
             }
             for (iface in tetherInterfaces) {
@@ -260,8 +247,6 @@ object IptablesManager {
             commands.add("iptables -N $chainHotspotFwd 2>/dev/null")
             for (iface in tetherInterfaces) {
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 3478 -j DROP")
-                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 5349 -j DROP")
-                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 19300:19309 -j DROP")
                 if (settings.transportMode == TransportMode.TCP_ONLY) {
                     commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 443 -j DROP")
                 }
@@ -269,7 +254,6 @@ object IptablesManager {
             commands.add("iptables -I FORWARD 1 -j $chainHotspotFwd")
         }
 
-        // Flush stale UDP conntrack entries so Chrome WebRTC immediately uses the tunnel
         commands.add("conntrack -F 2>/dev/null || true")
 
         return commands
@@ -300,51 +284,39 @@ object IptablesManager {
             "iptables -D FORWARD -j $chainHotspotFwd 2>/dev/null",
             "iptables -F $chainHotspotFwd 2>/dev/null",
             "iptables -X $chainHotspotFwd 2>/dev/null",
-
             "iptables -D FORWARD -j ACCEPT 2>/dev/null",
             "iptables -t nat -D POSTROUTING -s 192.168.0.0/16 -j MASQUERADE 2>/dev/null",
             "iptables -t nat -D POSTROUTING -s 172.16.0.0/12 -j MASQUERADE 2>/dev/null",
-
             "ip6tables -D FORWARD -j $chainHotspotV6Block 2>/dev/null",
             "ip6tables -F $chainHotspotV6Block 2>/dev/null",
             "ip6tables -X $chainHotspotV6Block 2>/dev/null",
-
             "iptables -t nat -D PREROUTING -j $chainHotspotNat 2>/dev/null",
             "iptables -t nat -F $chainHotspotNat 2>/dev/null",
             "iptables -t nat -X $chainHotspotNat 2>/dev/null",
-
             "iptables -t mangle -D PREROUTING -j $chainHotspotMangle 2>/dev/null",
             "iptables -t mangle -F $chainHotspotMangle 2>/dev/null",
             "iptables -t mangle -X $chainHotspotMangle 2>/dev/null",
-
             "iptables -D OUTPUT -j $chainFilter 2>/dev/null",
             "iptables -F $chainFilter 2>/dev/null",
             "iptables -X $chainFilter 2>/dev/null",
-
             "iptables -t nat -D OUTPUT -j $chainNatV4 2>/dev/null",
             "iptables -t nat -F $chainNatV4 2>/dev/null",
             "iptables -t nat -X $chainNatV4 2>/dev/null",
-
             "iptables -t mangle -D PREROUTING -j $chainPreMangle 2>/dev/null",
             "iptables -t mangle -F $chainPreMangle 2>/dev/null",
             "iptables -t mangle -X $chainPreMangle 2>/dev/null",
-
             "iptables -t mangle -D OUTPUT -j $chainOutMangle 2>/dev/null",
             "iptables -t mangle -F $chainOutMangle 2>/dev/null",
             "iptables -t mangle -X $chainOutMangle 2>/dev/null",
-
             "ip rule del fwmark $markHex table $tableId 2>/dev/null",
             "ip route flush table $tableId 2>/dev/null",
             "ip -6 rule del fwmark $markHex table $tableId 2>/dev/null",
             "ip -6 route flush table $tableId 2>/dev/null",
-
             "ip rule del fwmark $hsMarkHex table $hsTableId 2>/dev/null",
             "ip route flush table $hsTableId 2>/dev/null",
-
             "ip6tables -D OUTPUT -j $chainV6Filter 2>/dev/null",
             "ip6tables -F $chainV6Filter 2>/dev/null",
             "ip6tables -X $chainV6Filter 2>/dev/null",
-
             "ip6tables -t nat -D OUTPUT -j $chainNatV6 2>/dev/null",
             "ip6tables -t nat -F $chainNatV6 2>/dev/null",
             "ip6tables -t nat -X $chainNatV6 2>/dev/null"
