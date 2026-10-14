@@ -12,8 +12,8 @@ android {
         applicationId = "com.nameless.proxy"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -22,12 +22,19 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Sign with debug key by default so GitHub Actions produces an installable Release APK
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+    }
+
+    androidResources {
+        noCompress += listOf("sing-box")
     }
 
     compileOptions {
