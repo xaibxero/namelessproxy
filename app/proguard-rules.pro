@@ -1,0 +1,3 @@
+-keepattributes *Annotation*,InnerClasses,EnclosingMethod,Signature
+-keep class com.nameless.proxy.core.** { *; }
+-dontwarn kotlinx.coroutines.**
