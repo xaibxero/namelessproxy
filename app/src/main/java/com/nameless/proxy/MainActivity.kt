@@ -32,6 +32,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,7 +52,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -104,7 +105,7 @@ private val ProxyType.displayTitle: String
 private val SlotPlanetNames = listOf("Mercury", "Venus", "Earth", "Mars", "Saturn")
 
 // -------------------------------------------------------------
-// AUTOMATIC SYSTEM DARK & LIGHT COSMIC GLASS PALETTE
+// REFINED CELESTIAL OBSIDIAN & ALABASTER PALETTES
 // -------------------------------------------------------------
 
 data class CosmicPalette(
@@ -121,6 +122,7 @@ data class CosmicPalette(
     val sunGold: Color,
     val sunOrange: Color,
     val earthCyan: Color,
+    val cosmicViolet: Color,
     val marsCoral: Color,
     val emeraldLive: Color,
     val textPrimary: Color,
@@ -130,19 +132,20 @@ data class CosmicPalette(
 
 private val DarkCosmicPalette = CosmicPalette(
     isDark = true,
-    skyTop = Color(0xFF030611),
-    skyMid = Color(0xFF070E24),
-    skyBottom = Color(0xFF0C1738),
-    glassFillTop = Color(0x38152347),
-    glassFillBottom = Color(0x220D162E),
-    glassPodFill = Color(0x331B2B56),
-    glassRimBright = Color(0x6694A3B8),
-    glassRimSubtle = Color(0x2464748B),
-    orbitTrack = Color(0x3D94A3B8),
+    skyTop = Color(0xFF04050C),
+    skyMid = Color(0xFF090C1C),
+    skyBottom = Color(0xFF0F142C),
+    glassFillTop = Color(0x40161B36),
+    glassFillBottom = Color(0x280E1226),
+    glassPodFill = Color(0x3D1E2548),
+    glassRimBright = Color(0x70818CF8),
+    glassRimSubtle = Color(0x284F46E5),
+    orbitTrack = Color(0x4294A3B8),
     sunGold = Color(0xFFFFBE0B),
-    sunOrange = Color(0xFFFB5607),
-    earthCyan = Color(0xFF00D2FF),
-    marsCoral = Color(0xFFFF3366),
+    sunOrange = Color(0xFFFF6B35),
+    earthCyan = Color(0xFF00E5FF),
+    cosmicViolet = Color(0xFF8B5CF6),
+    marsCoral = Color(0xFFFF2E63),
     emeraldLive = Color(0xFF00F5A0),
     textPrimary = Color(0xFFF8FAFC),
     textSecondary = Color(0xFFCBD5E1),
@@ -151,23 +154,24 @@ private val DarkCosmicPalette = CosmicPalette(
 
 private val LightCosmicPalette = CosmicPalette(
     isDark = false,
-    skyTop = Color(0xFFE0ECFF),
-    skyMid = Color(0xFFE8F0FE),
-    skyBottom = Color(0xFFF1F5F9),
-    glassFillTop = Color(0x59FFFFFF),
-    glassFillBottom = Color(0x38F8FAFC),
-    glassPodFill = Color(0x4DFFFFFF),
-    glassRimBright = Color(0x99FFFFFF),
-    glassRimSubtle = Color(0x3864748B),
-    orbitTrack = Color(0x40334155),
+    skyTop = Color(0xFFEEF2FF),
+    skyMid = Color(0xFFE0E7FF),
+    skyBottom = Color(0xFFF5F3FF),
+    glassFillTop = Color(0x66FFFFFF),
+    glassFillBottom = Color(0x42F8FAFC),
+    glassPodFill = Color(0x59FFFFFF),
+    glassRimBright = Color(0xB3FFFFFF),
+    glassRimSubtle = Color(0x386366F1),
+    orbitTrack = Color(0x42475569),
     sunGold = Color(0xFFD97706),
     sunOrange = Color(0xFFEA580C),
     earthCyan = Color(0xFF0284C7),
+    cosmicViolet = Color(0xFF6366F1),
     marsCoral = Color(0xFFE11D48),
     emeraldLive = Color(0xFF059669),
     textPrimary = Color(0xFF0F172A),
     textSecondary = Color(0xFF1E293B),
-    textMuted = Color(0xFF475569)
+    textMuted = Color(0xFF64748B)
 )
 
 val LocalCosmicPalette = compositionLocalOf { DarkCosmicPalette }
@@ -182,8 +186,8 @@ fun CrystalGlassCard(
 ) {
     val palette = LocalCosmicPalette.current
     val shape = RoundedCornerShape(cornerRadius.dp)
-    val rimStart = accentColor?.copy(alpha = 0.80f) ?: palette.glassRimBright
-    val rimEnd = accentColor?.copy(alpha = 0.22f) ?: palette.glassRimSubtle
+    val rimStart = accentColor?.copy(alpha = 0.85f) ?: palette.glassRimBright
+    val rimEnd = accentColor?.copy(alpha = 0.25f) ?: palette.glassRimSubtle
 
     Column(
         modifier = modifier
@@ -194,13 +198,71 @@ fun CrystalGlassCard(
                 )
             )
             .border(
-                width = 1.1.dp,
+                width = 1.2.dp,
                 brush = Brush.linearGradient(colors = listOf(rimStart, rimEnd)),
                 shape = shape
             )
             .padding(contentPadding),
         content = content
     )
+}
+
+// Custom Spring-Animated Switch for Smooth Toggling
+@Composable
+fun AnimatedCosmicSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    val palette = LocalCosmicPalette.current
+    val thumbProgress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "switchThumb"
+    )
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) palette.emeraldLive else palette.glassPodFill,
+        animationSpec = tween(260),
+        label = "switchTrack"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (checked) palette.emeraldLive else palette.glassRimBright,
+        animationSpec = tween(260),
+        label = "switchBorder"
+    )
+
+    Box(
+        modifier = Modifier
+            .width(50.dp)
+            .height(28.dp)
+            .clip(CircleShape)
+            .background(trackColor.copy(alpha = if (enabled) 0.32f else 0.12f))
+            .border(1.2.dp, borderColor.copy(alpha = if (enabled) 0.85f else 0.3f), CircleShape)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            modifier = Modifier
+                .offset(x = (22f * thumbProgress).dp)
+                .size(20.dp)
+                .graphicsLayer {
+                    scaleX = 0.92f + 0.12f * thumbProgress
+                    scaleY = 0.92f + 0.12f * thumbProgress
+                }
+                .clip(CircleShape)
+                .background(
+                    if (checked) {
+                        Brush.linearGradient(listOf(palette.emeraldLive, palette.earthCyan))
+                    } else {
+                        Brush.linearGradient(listOf(palette.textMuted, palette.textSecondary))
+                    }
+                )
+        )
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -248,15 +310,15 @@ class MainActivity : ComponentActivity() {
             val palette = if (isDark) DarkCosmicPalette else LightCosmicPalette
             val scheme = if (isDark) {
                 darkColorScheme(
-                    primary = palette.sunGold,
-                    secondary = palette.earthCyan,
+                    primary = palette.earthCyan,
+                    secondary = palette.cosmicViolet,
                     background = palette.skyTop,
                     surface = palette.glassFillTop,
                     onSurface = palette.textPrimary
                 )
             } else {
                 lightColorScheme(
-                    primary = palette.sunOrange,
+                    primary = palette.cosmicViolet,
                     secondary = palette.earthCyan,
                     background = palette.skyTop,
                     surface = palette.glassFillTop,
@@ -420,7 +482,7 @@ fun MainScreen(
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Continuous 120Hz Monotonic Clock for smooth 360° planetary orbits (Never resets or jumps)
+    // Continuous 120Hz Monotonic Clock for smooth 360° planetary orbits
     var continuousTimeSec by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         val startNanos = System.nanoTime()
@@ -431,10 +493,8 @@ fun MainScreen(
         }
     }
 
-    // Live Network Telemetry (40-point history for smooth area spline chart)
+    // Smooth EMA Network Telemetry (Eliminates on/off zero-flickering between packet bursts!)
     var sessionStartMs by remember { mutableLongStateOf(0L) }
-    var rxHistory by remember { mutableStateOf(List(40) { 0L }) }
-    var txHistory by remember { mutableStateOf(List(40) { 0L }) }
     var currentRxRate by remember { mutableLongStateOf(0L) }
     var currentTxRate by remember { mutableLongStateOf(0L) }
     var totalRxBytes by remember { mutableLongStateOf(0L) }
@@ -449,25 +509,37 @@ fun MainScreen(
             val startRx = initRx
             val startTx = initTx
             var prevTime = System.currentTimeMillis()
+            var emaRx = 0.0
+            var emaTx = 0.0
 
             while (isActive) {
-                delay(650)
+                delay(550)
                 val (currRxRaw, currTxRaw) = withContext(Dispatchers.IO) { readPhysicalNetworkBytes() }
                 val currRx = currRxRaw.coerceAtLeast(prevRx)
                 val currTx = currTxRaw.coerceAtLeast(prevTx)
                 val now = System.currentTimeMillis()
                 val dt = (now - prevTime).coerceAtLeast(1L) / 1000.0
 
-                val rxRate = ((currRx - prevRx) / dt).toLong().coerceAtLeast(0L)
-                val txRate = ((currTx - prevTx) / dt).toLong().coerceAtLeast(0L)
+                val instantRx = ((currRx - prevRx) / dt).coerceAtLeast(0.0)
+                val instantTx = ((currTx - prevTx) / dt).coerceAtLeast(0.0)
 
-                currentRxRate = rxRate
-                currentTxRate = txRate
+                // Smooth rise on burst, gentle decay between bursts so it never flickers on/off
+                emaRx = if (instantRx >= emaRx) {
+                    instantRx * 0.72 + emaRx * 0.28
+                } else {
+                    (emaRx * 0.65 + instantRx * 0.35).let { if (it < 180.0) 0.0 else it }
+                }
+
+                emaTx = if (instantTx >= emaTx) {
+                    instantTx * 0.72 + emaTx * 0.28
+                } else {
+                    (emaTx * 0.65 + instantTx * 0.35).let { if (it < 180.0) 0.0 else it }
+                }
+
+                currentRxRate = emaRx.toLong()
+                currentTxRate = emaTx.toLong()
                 totalRxBytes = (currRx - startRx).coerceAtLeast(0L)
                 totalTxBytes = (currTx - startTx).coerceAtLeast(0L)
-
-                rxHistory = rxHistory.drop(1) + rxRate
-                txHistory = txHistory.drop(1) + txRate
 
                 prevRx = currRx
                 prevTx = currTx
@@ -479,8 +551,6 @@ fun MainScreen(
             currentTxRate = 0L
             totalRxBytes = 0L
             totalTxBytes = 0L
-            rxHistory = List(40) { 0L }
-            txHistory = List(40) { 0L }
         }
     }
 
@@ -644,7 +714,6 @@ fun MainScreen(
         }
     }
 
-    // Reliable Exit IP, Country & Flag Resolution (Automatically retries until flag & country resolve)
     var publicIpInfo by remember { mutableStateOf<GeoIpResult?>(null) }
     var isFetchingIp by remember { mutableStateOf(false) }
     var ipFetchJob by remember { mutableStateOf<Job?>(null) }
@@ -654,7 +723,7 @@ fun MainScreen(
         isFetchingIp = true
         ipFetchJob = scope.launch(Dispatchers.IO) {
             for (attempt in 1..4) {
-                delay(if (attempt == 1) 350L else 1200L)
+                delay(if (attempt == 1) 300L else 1100L)
                 val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId) ?: activeSlot
                 val socksPort = 10800 + (ProfileManager.androidUserId * 100) + (rSlot * 10) + 1
                 val res = IpFetcher.getPublicIpInfo(if (isProxyActive) socksPort else null)
@@ -663,7 +732,6 @@ fun MainScreen(
                         publicIpInfo = res
                         isFetchingIp = false
                     }
-                    // If we got a valid country flag (not the fallback globe), we are done!
                     if (res.flagEmoji != "🌐") break
                 }
             }
@@ -702,7 +770,7 @@ fun MainScreen(
                 )
             )
     ) {
-        // 1. CLEAN DEEP-SPACE STARFIELD BACKDROP (Zero emojis, zero touch lightning)
+        // 1. CLEAN DEEP-SPACE STARFIELD BACKDROP
         CleanStarfieldBackdrop(
             continuousTimeSec = continuousTimeSec,
             isProxyActive = isProxyActive
@@ -714,7 +782,7 @@ fun MainScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // 2. TOP HEADER + PLANET SLOTS
+            // 2. TOP HEADER + ANIMATED PLANET SLOTS
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -747,7 +815,7 @@ fun MainScreen(
                 )
             }
 
-            // 3. MAIN VIEWPORT
+            // 3. SMOOTH SPRING-ANIMATED TAB VIEWPORT
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -757,7 +825,19 @@ fun MainScreen(
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
-                        fadeIn(tween(220)) togetherWith fadeOut(tween(160))
+                        val dir = if (targetState > initialState) 1 else -1
+                        (slideInHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            initialOffsetX = { fullW -> dir * (fullW / 4) }
+                        ) + fadeIn(tween(220))).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = tween(170),
+                                targetOffsetX = { fullW -> -dir * (fullW / 5) }
+                            ) + fadeOut(tween(150))
+                        )
                     },
                     label = "tabTransition"
                 ) { tabIdx ->
@@ -779,8 +859,6 @@ fun MainScreen(
                             currentTxRate = currentTxRate,
                             totalRxBytes = totalRxBytes,
                             totalTxBytes = totalTxBytes,
-                            rxHistory = rxHistory,
-                            txHistory = txHistory,
                             onRefreshIp = { triggerExitNodeCheck() },
                             onOpenIpFighterTab = { selectedTab = 1 },
                             onToggleProxy = {
@@ -935,7 +1013,7 @@ fun MainScreen(
                 }
             }
 
-            // 4. BOTTOM NAVIGATION DOCK
+            // 4. ANIMATED BOTTOM NAVIGATION DOCK
             SolarBottomDock(
                 selectedTab = selectedTab,
                 onSelectTab = { selectedTab = it }
@@ -945,7 +1023,7 @@ fun MainScreen(
 }
 
 // -------------------------------------------------------------
-// 1. CLEAN DEEP-SPACE STARFIELD BACKDROP (NO EMOJIS, NO TOUCH LIGHTNING)
+// 1. CLEAN DEEP-SPACE STARFIELD BACKDROP
 // -------------------------------------------------------------
 
 @Composable
@@ -959,23 +1037,21 @@ fun CleanStarfieldBackdrop(
         val w = size.width
         val h = size.height
 
-        // Soft Ambient Nebula Glows
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    (if (isProxyActive) palette.emeraldLive else palette.sunGold).copy(
-                        alpha = if (palette.isDark) 0.12f else 0.10f
+                    (if (isProxyActive) palette.emeraldLive else palette.cosmicViolet).copy(
+                        alpha = if (palette.isDark) 0.14f else 0.10f
                     ),
                     Color.Transparent
                 ),
                 center = Offset(w * 0.50f, h * 0.24f),
-                radius = w * 0.72f
+                radius = w * 0.75f
             ),
-            radius = w * 0.72f,
+            radius = w * 0.75f,
             center = Offset(w * 0.50f, h * 0.24f)
         )
 
-        // Subtle Twinkling Stars
         for (i in 0 until 55) {
             val sx = (w * ((i * 37 + 13) % 100)) / 100f
             val sy = (h * ((i * 61 + 29) % 100)) / 100f
@@ -1049,10 +1125,10 @@ fun Interactive3DSolarSystemStage(
     CrystalGlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .height(206.dp),
+            .height(216.dp),
         cornerRadius = 24,
-        accentColor = if (isProxyActive) palette.emeraldLive else palette.sunGold,
-        contentPadding = PaddingValues(12.dp)
+        accentColor = if (isProxyActive) palette.emeraldLive else palette.cosmicViolet,
+        contentPadding = PaddingValues(14.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1096,7 +1172,6 @@ fun Interactive3DSolarSystemStage(
                 val tiltRatio = 0.54f
                 val speedFactor = if (isProxyActive) 1.45f else 1.0f
 
-                // 1. Clean Elliptical Orbit Rings
                 planets.forEach { p ->
                     val rx = maxRx * p.semiMajorFrac
                     val ry = rx * tiltRatio
@@ -1237,7 +1312,7 @@ fun Interactive3DSolarSystemStage(
 }
 
 // -------------------------------------------------------------
-// 3. HEADER & PLANET SLOT BAR (CLEAN, NO EMOJIS)
+// 3. HEADER & ANIMATED PLANET SLOT BAR
 // -------------------------------------------------------------
 
 @Composable
@@ -1268,7 +1343,7 @@ fun SolarHeaderBar(
                         modifier = Modifier
                             .size(10.dp)
                             .background(
-                                Brush.linearGradient(listOf(palette.sunGold, palette.sunOrange)),
+                                Brush.linearGradient(listOf(palette.earthCyan, palette.cosmicViolet)),
                                 CircleShape
                             )
                     )
@@ -1341,9 +1416,9 @@ fun PlanetSlotBar(
     val pColors = listOf(
         Color(0xFF94A3B8),
         Color(0xFFF59E0B),
-        Color(0xFF38BDF8),
-        Color(0xFFFB7185),
-        Color(0xFFFACC15)
+        Color(0xFF00E5FF),
+        Color(0xFFFF2E63),
+        Color(0xFFA855F7)
     )
 
     Row(
@@ -1355,21 +1430,44 @@ fun PlanetSlotBar(
             val run = isProxyActive && runningSlot == idx
             val isBoot = startOnBoot && bootSlot == idx
 
+            val scale by animateFloatAsState(
+                targetValue = if (sel) 1.05f else 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
+                label = "slotScale"
+            )
+
             val borderCol by animateColorAsState(
                 targetValue = when {
                     run -> palette.emeraldLive
-                    sel -> palette.sunGold
+                    sel -> palette.earthCyan
                     else -> palette.glassRimSubtle
                 },
-                animationSpec = tween(220),
+                animationSpec = tween(240),
                 label = "slotBorder"
+            )
+
+            val fillCol by animateColorAsState(
+                targetValue = when {
+                    run -> palette.emeraldLive.copy(alpha = 0.16f)
+                    sel -> palette.cosmicViolet.copy(alpha = 0.24f)
+                    else -> palette.glassFillTop
+                },
+                animationSpec = tween(240),
+                label = "slotFill"
             )
 
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
                     .clip(RoundedCornerShape(14.dp))
-                    .background(if (sel || run) palette.glassPodFill else palette.glassFillTop)
+                    .background(fillCol)
                     .border(if (sel || run) 1.5.dp else 1.dp, borderCol, RoundedCornerShape(14.dp))
                     .clickable { onSelectSlot(idx) }
                     .padding(vertical = 8.dp, horizontal = 4.dp),
@@ -1399,8 +1497,8 @@ fun PlanetSlotBar(
                     letterSpacing = 0.4.sp,
                     color = when {
                         run -> palette.emeraldLive
-                        isBoot -> palette.sunOrange
-                        sel -> palette.sunGold
+                        isBoot -> palette.sunGold
+                        sel -> palette.earthCyan
                         else -> palette.textMuted
                     },
                     maxLines = 1
@@ -1411,7 +1509,7 @@ fun PlanetSlotBar(
 }
 
 // -------------------------------------------------------------
-// 4. TAB 0: SOLAR COCKPIT + MINIMALIST TWIN-ORBIT SPEEDOMETER
+// 4. TAB 0: SOLAR COCKPIT + FLUID TURBINE SPEEDOMETER (NO GRAPH LINE)
 // -------------------------------------------------------------
 
 @Composable
@@ -1432,8 +1530,6 @@ fun SolarCockpitTab(
     currentTxRate: Long,
     totalRxBytes: Long,
     totalTxBytes: Long,
-    rxHistory: List<Long>,
-    txHistory: List<Long>,
     onRefreshIp: () -> Unit,
     onOpenIpFighterTab: () -> Unit,
     onToggleProxy: () -> Unit,
@@ -1477,10 +1573,9 @@ fun SolarCockpitTab(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Country Flag Badge
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
                             .background(palette.glassPodFill)
                             .border(1.dp, palette.glassRimBright, CircleShape),
@@ -1565,18 +1660,17 @@ fun SolarCockpitTab(
             }
         }
 
-        // 3. CLEAN TWIN-ORBIT SPEEDOMETER & REAL-TIME AREA GRAPH (ZERO CLUTTER TEXT)
-        MinimalistTwinArcSpeedometer(
+        // 3. SMOOTH CONTINUOUS TWIN-TURBINE SPEEDOMETER (NO GRAPH LINE, NO ON/OFF FLICKERING)
+        FluidTwinTurbineSpeedometer(
+            continuousTimeSec = continuousTimeSec,
             isProxyActive = isProxyActive,
             rxRate = currentRxRate,
             txRate = currentTxRate,
             totalRx = totalRxBytes,
-            totalTx = totalTxBytes,
-            rxHistory = rxHistory,
-            txHistory = txHistory
+            totalTx = totalTxBytes
         )
 
-        // 4. PING & MASTER LAUNCH BAR
+        // 4. PING & ANIMATED MASTER LAUNCH BAR
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1589,7 +1683,7 @@ fun SolarCockpitTab(
                 border = BorderStroke(1.2.dp, palette.earthCyan),
                 modifier = Modifier
                     .weight(0.36f)
-                    .height(50.dp)
+                    .height(52.dp)
             ) {
                 Text(
                     text = if (isTesting) "Wait..." else "Ping P$activeSlot",
@@ -1601,19 +1695,35 @@ fun SolarCockpitTab(
                 )
             }
 
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val btnScale by animateFloatAsState(
+                targetValue = if (pressed) 0.96f else 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                label = "launchBtnScale"
+            )
+
             val btnBrush = when {
                 isTransitioning -> Brush.horizontalGradient(listOf(palette.sunGold, palette.sunOrange))
                 isCurrentSlotRunning -> Brush.horizontalGradient(listOf(palette.marsCoral, Color(0xFFBE123C)))
-                else -> Brush.horizontalGradient(listOf(palette.sunOrange, palette.sunGold, palette.earthCyan))
+                else -> Brush.horizontalGradient(listOf(palette.cosmicViolet, palette.earthCyan))
             }
 
             Box(
                 modifier = Modifier
                     .weight(0.64f)
-                    .height(50.dp)
+                    .height(52.dp)
+                    .graphicsLayer {
+                        scaleX = btnScale
+                        scaleY = btnScale
+                    }
                     .clip(RoundedCornerShape(16.dp))
                     .background(btnBrush)
-                    .clickable(enabled = !isTransitioning) { onToggleProxy() },
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = !isTransitioning
+                    ) { onToggleProxy() },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -1645,229 +1755,210 @@ fun SolarCockpitTab(
 }
 
 // -------------------------------------------------------------
-// 5. MINIMALIST TWIN-ARC SPEEDOMETER & TRUE-TO-SPEED AREA GRAPH
-// (Zero useless text, zero fake wiggling at 0 B/s)
+// 5. FLUID TWIN-TURBINE SPEEDOMETER (NO GRAPH LINE, NO ON/OFF FLICKER)
 // -------------------------------------------------------------
 
 private fun realisticSpeedFraction(bytesPerSec: Long): Float {
-    if (bytesPerSec < 256L) return 0f
+    if (bytesPerSec <= 0L) return 0f
     val kb = bytesPerSec / 1024.0
     return when {
-        kb <= 64.0 -> (kb / 64.0 * 0.25).toFloat()
-        kb <= 512.0 -> (0.25 + ((kb - 64.0) / (512.0 - 64.0)) * 0.30).toFloat()
-        kb <= 4096.0 -> (0.55 + ((kb - 512.0) / (4096.0 - 512.0)) * 0.28).toFloat()
-        else -> (0.83 + (ln(kb / 4096.0 + 1.0) / ln(16.0)) * 0.17).toFloat().coerceAtMost(1.0f)
+        kb <= 64.0 -> (0.08 + (kb / 64.0) * 0.22).toFloat()
+        kb <= 512.0 -> (0.30 + ((kb - 64.0) / (512.0 - 64.0)) * 0.28).toFloat()
+        kb <= 4096.0 -> (0.58 + ((kb - 512.0) / (4096.0 - 512.0)) * 0.26).toFloat()
+        else -> (0.84 + (ln(kb / 4096.0 + 1.0) / ln(16.0)) * 0.16).toFloat().coerceAtMost(1.0f)
     }
 }
 
 @Composable
-fun MinimalistTwinArcSpeedometer(
+fun FluidTwinTurbineSpeedometer(
+    continuousTimeSec: Float,
     isProxyActive: Boolean,
     rxRate: Long,
     txRate: Long,
     totalRx: Long,
-    totalTx: Long,
-    rxHistory: List<Long>,
-    txHistory: List<Long>
+    totalTx: Long
 ) {
+    // 900ms continuous easing so the numbers and turbine rings glide smoothly without snapping to 0
+    val animatedRxBytes by animateFloatAsState(
+        targetValue = if (isProxyActive) rxRate.toFloat() else 0f,
+        animationSpec = tween(durationMillis = 900, easing = LinearOutSlowInEasing),
+        label = "fluidRxBytes"
+    )
+    val animatedTxBytes by animateFloatAsState(
+        targetValue = if (isProxyActive) txRate.toFloat() else 0f,
+        animationSpec = tween(durationMillis = 900, easing = LinearOutSlowInEasing),
+        label = "fluidTxBytes"
+    )
+
+    // Keep a gentle baseline glow when the tunnel is active so the gauge never looks "turned off"
+    val rxTargetFrac = if (isProxyActive) {
+        realisticSpeedFraction(animatedRxBytes.toLong()).coerceAtLeast(0.10f)
+    } else 0f
+    val txTargetFrac = if (isProxyActive) {
+        realisticSpeedFraction(animatedTxBytes.toLong()).coerceAtLeast(0.10f)
+    } else 0f
+
+    val smoothRxFrac by animateFloatAsState(
+        targetValue = rxTargetFrac,
+        animationSpec = tween(durationMillis = 900, easing = LinearOutSlowInEasing),
+        label = "smoothRxFrac"
+    )
+    val smoothTxFrac by animateFloatAsState(
+        targetValue = txTargetFrac,
+        animationSpec = tween(durationMillis = 900, easing = LinearOutSlowInEasing),
+        label = "smoothTxFrac"
+    )
+
     val palette = LocalCosmicPalette.current
 
-    val smoothRx by animateFloatAsState(
-        targetValue = if (isProxyActive) rxRate.toFloat() else 0f,
-        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
-        label = "smoothRx"
-    )
-    val smoothTx by animateFloatAsState(
-        targetValue = if (isProxyActive) txRate.toFloat() else 0f,
-        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
-        label = "smoothTx"
-    )
-
-    val rxFrac = realisticSpeedFraction(smoothRx.toLong())
-    val txFrac = realisticSpeedFraction(smoothTx.toLong())
-
-    CrystalGlassCard(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 24,
-        contentPadding = PaddingValues(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Twin Orbital Speed Arcs (Download Left | Upload Right)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OrbitalSpeedArcPod(
-                modifier = Modifier.weight(1f),
-                title = "DOWNLOAD",
-                rateBytes = smoothRx.toLong(),
-                totalBytes = totalRx,
-                fraction = rxFrac,
-                startColor = palette.earthCyan,
-                endColor = palette.emeraldLive
-            )
+        TurbineGaugeCard(
+            modifier = Modifier.weight(1f),
+            title = "DOWNLOAD",
+            displayRateBytes = animatedRxBytes.toLong(),
+            totalBytes = totalRx,
+            arcFraction = smoothRxFrac,
+            continuousTimeSec = continuousTimeSec,
+            isProxyActive = isProxyActive,
+            primaryColor = palette.earthCyan,
+            secondaryColor = palette.emeraldLive
+        )
 
-            OrbitalSpeedArcPod(
-                modifier = Modifier.weight(1f),
-                title = "UPLOAD",
-                rateBytes = smoothTx.toLong(),
-                totalBytes = totalTx,
-                fraction = txFrac,
-                startColor = palette.sunGold,
-                endColor = palette.sunOrange
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Clean Real-Time Smooth Area Spline Graph (Rests calmly at 0 B/s, rises with real speed)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(palette.glassPodFill)
-                .border(1.dp, palette.glassRimSubtle, RoundedCornerShape(14.dp))
-                .padding(horizontal = 6.dp, vertical = 6.dp)
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
-                val w = size.width
-                val h = size.height
-                val count = rxHistory.size.coerceAtLeast(2)
-                val stepX = w / (count - 1).toFloat()
-
-                val rxPath = Path()
-                val rxFill = Path()
-                val txPath = Path()
-                rxFill.moveTo(0f, h)
-
-                for (i in 0 until count) {
-                    val x = i * stepX
-                    val rFrac = if (i == count - 1) rxFrac else realisticSpeedFraction(rxHistory[i])
-                    val tFrac = if (i == count - 1) txFrac else realisticSpeedFraction(txHistory[i])
-
-                    val ry = (h * 0.92f) - (rFrac * h * 0.82f)
-                    val ty = (h * 0.92f) - (tFrac * h * 0.78f)
-
-                    if (i == 0) {
-                        rxPath.moveTo(x, ry)
-                        rxFill.lineTo(x, ry)
-                        txPath.moveTo(x, ty)
-                    } else {
-                        val prevX = (i - 1) * stepX
-                        val midX = (prevX + x) / 2f
-                        rxPath.quadraticTo(midX, ry, x, ry)
-                        rxFill.quadraticTo(midX, ry, x, ry)
-                        txPath.quadraticTo(midX, ty, x, ty)
-                    }
-                }
-
-                rxFill.lineTo(w, h)
-                rxFill.close()
-
-                drawPath(
-                    path = rxFill,
-                    brush = Brush.verticalGradient(
-                        listOf(palette.earthCyan.copy(alpha = 0.30f), Color.Transparent)
-                    )
-                )
-
-                drawPath(
-                    path = txPath,
-                    color = palette.sunGold.copy(alpha = 0.75f),
-                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
-                )
-
-                drawPath(
-                    path = rxPath,
-                    brush = Brush.horizontalGradient(listOf(palette.earthCyan, palette.emeraldLive)),
-                    style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
-                )
-            }
-        }
+        TurbineGaugeCard(
+            modifier = Modifier.weight(1f),
+            title = "UPLOAD",
+            displayRateBytes = animatedTxBytes.toLong(),
+            totalBytes = totalTx,
+            arcFraction = smoothTxFrac,
+            continuousTimeSec = continuousTimeSec,
+            isProxyActive = isProxyActive,
+            primaryColor = palette.cosmicViolet,
+            secondaryColor = palette.sunGold
+        )
     }
 }
 
 @Composable
-private fun OrbitalSpeedArcPod(
+private fun TurbineGaugeCard(
     modifier: Modifier = Modifier,
     title: String,
-    rateBytes: Long,
+    displayRateBytes: Long,
     totalBytes: Long,
-    fraction: Float,
-    startColor: Color,
-    endColor: Color
+    arcFraction: Float,
+    continuousTimeSec: Float,
+    isProxyActive: Boolean,
+    primaryColor: Color,
+    secondaryColor: Color
 ) {
     val palette = LocalCosmicPalette.current
 
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(palette.glassPodFill)
-            .border(1.dp, startColor.copy(alpha = 0.30f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    CrystalGlassCard(
+        modifier = modifier,
+        cornerRadius = 22,
+        accentColor = if (isProxyActive) primaryColor else null,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
     ) {
-        // Sleek 240° Orbital Ring Gauge
-        Box(
-            modifier = Modifier.size(46.dp),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val stroke = 4.5.dp.toPx()
-                drawArc(
-                    color = palette.glassRimSubtle.copy(alpha = 0.35f),
-                    startAngle = 150f,
-                    sweepAngle = 240f,
-                    useCenter = false,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round)
-                )
-                if (fraction > 0.01f) {
-                    drawArc(
-                        brush = Brush.sweepGradient(listOf(startColor, endColor, startColor)),
-                        startAngle = 150f,
-                        sweepAngle = 240f * fraction.coerceIn(0.04f, 1f),
-                        useCenter = false,
-                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                    )
-                }
-            }
-            Text(
-                text = splitSpeedUnit(rateBytes),
-                fontSize = 8.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = startColor
-            )
-        }
+            // Continuous Rotating Turbine Ring + Smooth Progress Arc
+            Box(
+                modifier = Modifier.size(54.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
+                    val strokeW = 5.dp.toPx()
+                    val center = Offset(size.width / 2f, size.height / 2f)
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.8.sp,
-                color = startColor
-            )
-            Text(
-                text = splitSpeedValue(rateBytes),
-                fontSize = 19.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = palette.textPrimary,
-                maxLines = 1
-            )
-            Text(
-                text = formatBytes(totalBytes),
-                fontSize = 9.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = palette.textMuted,
-                maxLines = 1
-            )
+                    // Base Track
+                    drawArc(
+                        color = palette.glassRimSubtle.copy(alpha = 0.35f),
+                        startAngle = 140f,
+                        sweepAngle = 260f,
+                        useCenter = false,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+
+                    // Inner Rotating Turbine Halo when Tunnel is Active
+                    if (isProxyActive) {
+                        val spinSpeed = 60f + (arcFraction * 220f)
+                        rotate(degrees = (continuousTimeSec * spinSpeed) % 360f, pivot = center) {
+                            drawCircle(
+                                brush = Brush.sweepGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        primaryColor.copy(alpha = 0.35f),
+                                        secondaryColor.copy(alpha = 0.55f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                radius = size.minDimension * 0.34f,
+                                center = center,
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                        }
+                    }
+
+                    // Smooth Active Speed Arc (Never disappears while tunnel is ON)
+                    if (arcFraction > 0.01f) {
+                        drawArc(
+                            brush = Brush.sweepGradient(
+                                listOf(primaryColor, secondaryColor, primaryColor)
+                            ),
+                            startAngle = 140f,
+                            sweepAngle = 260f * arcFraction.coerceIn(0.08f, 1f),
+                            useCenter = false,
+                            style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                        )
+                    }
+                }
+
+                Text(
+                    text = splitSpeedUnit(displayRateBytes),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = primaryColor
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.8.sp,
+                    color = primaryColor
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = splitSpeedValue(displayRateBytes),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = palette.textPrimary,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = formatBytes(totalBytes),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = palette.textMuted,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
 
 // -------------------------------------------------------------
-// 6. TAB 1: LIVE EMBEDDED IPFIGHTER.COM (NO CACHING, LIVE VIEW)
+// 6. TAB 1: LIVE EMBEDDED IPFIGHTER.COM
+// (Mounted ONLY when Tab 1 is open; killed immediately on tab exit;
+// flushes all stale HTTP/2 sockets before loading so US IP shows live!)
 // -------------------------------------------------------------
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -1879,8 +1970,8 @@ fun EmbeddedIpFighterWebViewScreen(
 ) {
     val palette = LocalCosmicPalette.current
     val scope = rememberCoroutineScope()
-    // Incrementing reloadNonce recreates a brand-new WebView with a fresh socket pool & zero cache
     var reloadNonce by remember { mutableIntStateOf(0) }
+    var isFlushingSockets by remember { mutableStateOf(true) }
     var loadProgress by remember { mutableIntStateOf(0) }
 
     val targetTz = remember(isProxyActive, publicIpInfo?.country) {
@@ -1917,24 +2008,36 @@ fun EmbeddedIpFighterWebViewScreen(
     }
 
     fun triggerFreshLiveLoad() {
+        isFlushingSockets = true
         scope.launch(Dispatchers.IO) {
             try {
+                // Kill all cached HTTP/HTTPS/DNS sockets in the kernel so WebView MUST open a new socket through the current tunnel state
                 ProcessBuilder(
                     "su", "-c",
-                    "ss -K dport = :853 2>/dev/null; ss -K dport = :53 2>/dev/null; conntrack -F 2>/dev/null"
+                    "ss -K dport = :443 2>/dev/null; ss -K dport = :80 2>/dev/null; ss -K dport = :853 2>/dev/null; ss -K dport = :53 2>/dev/null; conntrack -F 2>/dev/null"
                 ).start().waitFor()
             } catch (_: Exception) {}
+            delay(250)
             withContext(Dispatchers.Main) {
                 WebStorage.getInstance().deleteAllData()
                 CookieManager.getInstance().removeAllCookies(null)
                 CookieManager.getInstance().flush()
                 reloadNonce++
+                isFlushingSockets = false
             }
         }
     }
 
     LaunchedEffect(isProxyActive, runningSlot) {
         triggerFreshLiveLoad()
+    }
+
+    // Ensure WebView cookies/storage are wiped when leaving the IPFighter tab
+    DisposableEffect(Unit) {
+        onDispose {
+            WebStorage.getInstance().deleteAllData()
+            CookieManager.getInstance().removeAllCookies(null)
+        }
     }
 
     CrystalGlassCard(
@@ -1982,7 +2085,6 @@ fun EmbeddedIpFighterWebViewScreen(
             }
         }
 
-        // Thin non-blocking progress bar so you watch ipfighter.com update live in real time
         if (loadProgress in 1..95) {
             LinearProgressIndicator(
                 progress = { loadProgress / 100f },
@@ -2001,65 +2103,71 @@ fun EmbeddedIpFighterWebViewScreen(
                 .clip(RoundedCornerShape(18.dp))
                 .border(1.dp, palette.glassRimBright, RoundedCornerShape(18.dp))
         ) {
-            key(reloadNonce) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            clearCache(true)
-                            clearHistory()
-                            settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                databaseEnabled = true
-                                cacheMode = WebSettings.LOAD_NO_CACHE
-                                useWideViewPort = true
-                                loadWithOverviewMode = true
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                userAgentString =
-                                    "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
-                            }
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                    loadProgress = newProgress
-                                    view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+            if (!isFlushingSockets) {
+                key(reloadNonce) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                clearCache(true)
+                                clearHistory()
+                                settings.apply {
+                                    javaScriptEnabled = true
+                                    domStorageEnabled = true
+                                    databaseEnabled = false
+                                    cacheMode = WebSettings.LOAD_NO_CACHE
+                                    useWideViewPort = true
+                                    loadWithOverviewMode = true
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    userAgentString =
+                                        "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
                                 }
-                            }
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                    view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                                webChromeClient = object : WebChromeClient() {
+                                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                        loadProgress = newProgress
+                                        view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                                    }
                                 }
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                        super.onPageStarted(view, url, favicon)
+                                        view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                                    }
 
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    loadProgress = 100
-                                    view?.evaluateJavascript(liveCacheBustAndTzScript, null)
-                                }
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        loadProgress = 100
+                                        view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                                    }
 
-                                override fun shouldOverrideUrlLoading(
-                                    view: WebView?,
-                                    request: WebResourceRequest?
-                                ): Boolean = false
+                                    override fun shouldOverrideUrlLoading(
+                                        view: WebView?,
+                                        request: WebResourceRequest?
+                                    ): Boolean = false
+                                }
+                                val noCacheHeaders = mapOf(
+                                    "Cache-Control" to "no-cache, no-store, must-revalidate",
+                                    "Pragma" to "no-cache",
+                                    "Expires" to "0",
+                                    "Connection" to "close"
+                                )
+                                loadUrl("https://ipfighter.com/?live=${System.currentTimeMillis()}", noCacheHeaders)
                             }
-                            val noCacheHeaders = mapOf(
-                                "Cache-Control" to "no-cache, no-store, must-revalidate",
-                                "Pragma" to "no-cache",
-                                "Expires" to "0"
-                            )
-                            loadUrl("https://ipfighter.com/?live=${System.currentTimeMillis()}", noCacheHeaders)
+                        },
+                        onRelease = { wv ->
+                            wv.stopLoading()
+                            wv.loadUrl("about:blank")
+                            wv.clearHistory()
+                            wv.clearCache(true)
+                            wv.removeAllViews()
+                            wv.destroy()
                         }
-                    },
-                    onRelease = { wv ->
-                        wv.stopLoading()
-                        wv.clearCache(true)
-                        wv.destroy()
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -2168,7 +2276,7 @@ fun SolarNodeConfigTab(
                     enabled = !isCheckingAlive,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.sunOrange, contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.cosmicViolet, contentColor = Color.White)
                 ) {
                     Text(
                         text = if (isCheckingAlive) "Probing..." else "Probe Socket",
@@ -2486,7 +2594,7 @@ fun SolarRoutingTab(
                         color = palette.textSecondary
                     )
                 }
-                Switch(checked = startOnBoot, onCheckedChange = onStartOnBootChange)
+                AnimatedCosmicSwitch(checked = startOnBoot, onCheckedChange = onStartOnBootChange)
             }
 
             AnimatedVisibility(
@@ -2522,7 +2630,11 @@ fun SolarRoutingTab(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text("Share tunnel with Wi-Fi / USB clients", fontSize = 11.sp, color = palette.textSecondary)
                 }
-                Switch(checked = routeHotspot && uid == 0, enabled = uid == 0, onCheckedChange = onRouteHotspotChange)
+                AnimatedCosmicSwitch(
+                    checked = routeHotspot && uid == 0,
+                    enabled = uid == 0,
+                    onCheckedChange = onRouteHotspotChange
+                )
             }
 
             HorizontalDivider(color = palette.glassRimSubtle, modifier = Modifier.padding(vertical = 10.dp))
@@ -2541,7 +2653,7 @@ fun SolarRoutingTab(
                         color = palette.textSecondary
                     )
                 }
-                Switch(checked = routeWholeProfile, onCheckedChange = onRouteWholeProfileChange)
+                AnimatedCosmicSwitch(checked = routeWholeProfile, onCheckedChange = onRouteWholeProfileChange)
             }
         }
 
@@ -2603,7 +2715,7 @@ fun SolarRoutingTab(
                                 Text(app.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary, maxLines = 1)
                                 Text("${app.packageName} • UID ${app.uid}", fontSize = 10.5.sp, color = palette.textSecondary, maxLines = 1)
                             }
-                            Checkbox(checked = checked, onCheckedChange = { onToggleApp(app.packageName) })
+                            AnimatedCosmicSwitch(checked = checked, onCheckedChange = { onToggleApp(app.packageName) })
                         }
                     }
                 }
@@ -2685,12 +2797,24 @@ fun SolarBottomDock(selectedTab: Int, onSelectTab: (Int) -> Unit) {
         ) {
             tabs.forEachIndexed { idx, label ->
                 val sel = selectedTab == idx
+                val scale by animateFloatAsState(
+                    targetValue = if (sel) 1.06f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "dockScale"
+                )
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        }
                         .clip(RoundedCornerShape(14.dp))
                         .background(
-                            if (sel) Brush.horizontalGradient(listOf(palette.sunOrange, palette.sunGold))
+                            if (sel) Brush.horizontalGradient(listOf(palette.cosmicViolet, palette.earthCyan))
                             else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
                         )
                         .clickable { onSelectTab(idx) }
