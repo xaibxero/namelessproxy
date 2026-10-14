@@ -1,9 +1,7 @@
 package com.nameless.proxy.core
 
 import android.content.Context
-import java.io.BufferedReader
 import java.io.DataOutputStream
-import java.io.InputStreamReader
 
 data class StartResult(
     val success: Boolean,
@@ -28,22 +26,17 @@ object ProxyController {
 
     private fun executeSuWithOutput(commands: List<String>): String {
         return try {
-            val process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            for (cmd in commands) {
-                os.writeBytes("$cmd\n")
+            val process = ProcessBuilder("su").redirectErrorStream(true).start()
+            DataOutputStream(process.outputStream).use { os ->
+                for (cmd in commands) {
+                    os.writeBytes("$cmd\n")
+                }
+                os.writeBytes("exit\n")
+                os.flush()
             }
-            os.writeBytes("exit\n")
-            os.flush()
-
-            val sb = StringBuilder()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                sb.append(line).append("\n")
-            }
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
             process.waitFor()
-            sb.toString().trim()
+            output
         } catch (e: Exception) {
             ""
         }
@@ -51,13 +44,14 @@ object ProxyController {
 
     private fun executeSu(commands: List<String>): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            for (cmd in commands) {
-                os.writeBytes("$cmd\n")
+            val process = ProcessBuilder("su").redirectErrorStream(true).start()
+            DataOutputStream(process.outputStream).use { os ->
+                for (cmd in commands) {
+                    os.writeBytes("$cmd\n")
+                }
+                os.writeBytes("exit\n")
+                os.flush()
             }
-            os.writeBytes("exit\n")
-            os.flush()
             process.waitFor() == 0
         } catch (e: Exception) {
             false
@@ -67,7 +61,7 @@ object ProxyController {
     fun getRunningSlot(user: Int = ProfileManager.androidUserId): Int? {
         val out = executeSuWithOutput(listOf(
             "if [ -f $ACTIVE_SLOT_FILE ]; then cat $ACTIVE_SLOT_FILE; fi"
-        )).trim()
+        )).lineSequence().lastOrNull()?.trim() ?: ""
         val s = out.toIntOrNull()
         return if (s != null && isRunning(user, s)) s else null
     }
@@ -75,12 +69,16 @@ object ProxyController {
     fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = getBinaryPath()
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $ADB_DIR && rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath && chcon u:object_r:system_file:s0 $targetPath 2>/dev/null"))
+            val process = ProcessBuilder(
+                "su", "-c",
+                "mkdir -p $ADB_DIR && rm -f $targetPath && cat > $targetPath && chmod 755 $targetPath && chcon u:object_r:system_file:s0 $targetPath 2>/dev/null"
+            ).redirectErrorStream(true).start()
             context.assets.open("sing-box").use { input ->
-                input.copyTo(process.outputStream)
+                process.outputStream.use { out ->
+                    input.copyTo(out)
+                    out.flush()
+                }
             }
-            process.outputStream.flush()
-            process.outputStream.close()
             process.waitFor() == 0
         } catch (e: Exception) {
             false
@@ -89,10 +87,14 @@ object ProxyController {
 
     fun writeConfigDirectly(configContent: String, configPath: String): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $ADB_DIR && rm -f $configPath && cat > $configPath && chmod 644 $configPath"))
-            process.outputStream.write(configContent.toByteArray(Charsets.UTF_8))
-            process.outputStream.flush()
-            process.outputStream.close()
+            val process = ProcessBuilder(
+                "su", "-c",
+                "mkdir -p $ADB_DIR && rm -f $configPath && cat > $configPath && chmod 644 $configPath"
+            ).redirectErrorStream(true).start()
+            process.outputStream.use { os ->
+                os.write(configContent.toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
             process.waitFor() == 0
         } catch (e: Exception) {
             false
@@ -112,19 +114,19 @@ object ProxyController {
         val result = executeSuWithOutput(listOf(
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then cat $pidFile; fi"
         ))
-        return result.trim().ifEmpty { null }
+        return result.lineSequence().lastOrNull()?.trim()?.takeIf { it.all(Char::isDigit) && it.isNotEmpty() }
     }
 
     fun clearLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot) {
         val logFile = getLogFile(user, slot)
-        executeSu(listOf("> $logFile"))
+        executeSu(listOf(": > $logFile"))
     }
 
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
         val raw = executeSuWithOutput(listOf(
-            "echo '=== DAEMON STATUS (USER $user • SLOT $slot) ==='",
+            "echo '=== DAEMON STATUS (USER $user • SLOT P$slot) ==='",
             "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then",
             "  echo 'State: ACTIVE (PID: '\$(cat $pidFile)')'",
             "else",
@@ -150,31 +152,36 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val port = ProfileManager.localInboundPort
 
-        // Verify binary presence
         val testRun = executeSuWithOutput(listOf("$binaryPath version 2>&1"))
         if (!testRun.contains("sing-box version")) {
             val extracted = extractBinaryDirectly(context)
             if (!extracted) {
-                return StartResult(success = false, errorMessage = "Failed to extract core binary to $ADB_DIR")
+                return StartResult(success = false, errorMessage = "Failed to extract sing-box binary to $ADB_DIR")
             }
         }
 
-        // Generate and write slot configuration
         val configContent = ConfigGenerator.generateJson(settings, port)
         val configWritten = writeConfigDirectly(configContent, configPath)
         if (!configWritten) {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        // Stop any running instance cleanly
         stopProxy(context, user)
 
-        // Launch directly without nohup
         val runCmd = "$binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile && echo $slot > $ACTIVE_SLOT_FILE"
         executeSu(listOf(runCmd))
 
-        Thread.sleep(700)
-        if (!isRunning(user, slot)) {
+        // Fast adaptive readiness check + stability verification
+        var alive = false
+        for (attempt in 1..6) {
+            Thread.sleep(150)
+            if (isRunning(user, slot)) {
+                alive = true
+                if (attempt >= 2) break
+            }
+        }
+
+        if (!alive || !isRunning(user, slot)) {
             val failureInfo = getDiagnosticsAndLogs(user, slot)
             return StartResult(
                 success = false,
@@ -182,7 +189,6 @@ object ProxyController {
             )
         }
 
-        // Apply kernel redirection rules
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
         val ipSuccess = executeSu(iptablesCmds)
 
@@ -190,7 +196,7 @@ object ProxyController {
             StartResult(success = true)
         } else {
             stopProxy(context, user)
-            StartResult(success = false, errorMessage = "Failed to apply iptables rules")
+            StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
         }
     }
 
@@ -200,14 +206,12 @@ object ProxyController {
     ): Boolean {
         val commands = mutableListOf<String>()
 
-        // 1. Flush iptables rules across all slots
-        for (s in 0..4) {
+        for (s in 0 until ProfileManager.MAX_SLOTS) {
             commands.addAll(IptablesManager.generateDisableCommands(user, s))
             val pFile = getPidFile(user, s)
             commands.add("if [ -f $pFile ]; then kill -9 \$(cat $pFile) 2>/dev/null; rm -f $pFile; fi")
         }
 
-        // 2. Terminate background processes
         commands.add("rm -f $ACTIVE_SLOT_FILE")
         commands.add("killall -9 sing-box 2>/dev/null")
         commands.add("pkill -9 -f sing-box 2>/dev/null")
