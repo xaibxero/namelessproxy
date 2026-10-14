@@ -9,8 +9,7 @@ object IptablesManager {
     fun generateEnableCommands(
         inboundPort: Int,
         settings: ProxySettings,
-        selectedUids: List<Int>? = null,
-        relayHost: String = ""
+        selectedUids: List<Int>? = null
     ): List<String> {
         val user = ProfileManager.androidUserId
         val slot = ProfileManager.activeSlot
@@ -26,7 +25,6 @@ object IptablesManager {
         val chainHotspotNat = "NAMELESS_HS_NAT_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
-        val chainHotspotTtl = "NAMELESS_HS_TTL_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
         val appStart = user * 100000 + 10000
@@ -47,21 +45,15 @@ object IptablesManager {
         )
 
         val hostIsIpv4 = isValidIpv4(settings.host)
-        val relayIsIpv4 = isValidIpv4(relayHost)
         val commands = mutableListOf<String>()
 
         // 1. Flush existing rules for this user & slot
         commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. Safe Loopback & Kernel TCP BBR + FastOpen Turbo
+        // 2. Safe Loopback Settings
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/lo/rp_filter 2>/dev/null")
         commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
-
-        if (settings.enableBbrAndTfo) {
-            commands.add("sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || true")
-            commands.add("echo 3 > /proc/sys/net/ipv4/tcp_fastopen 2>/dev/null || true")
-        }
 
         // 3. Policy Routing for TPROXY
         commands.add("ip rule add fwmark $markHex table $tableId pref ${100 + user}")
@@ -83,11 +75,8 @@ object IptablesManager {
         if (hostIsIpv4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
-        if (relayIsIpv4) {
-            commands.add("iptables -t mangle -A $chainOutMangle -d ${relayHost.trim()} -j RETURN")
-        }
 
-        if (!hostIsIpv4 || (relayHost.isNotBlank() && !relayIsIpv4)) {
+        if (!hostIsIpv4) {
             commands.add("iptables -t mangle -A $chainOutMangle -p udp -d 8.8.8.8 --dport 53 -m owner --uid-owner 0 -j RETURN")
         }
         commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -j MARK --set-mark $markHex")
@@ -122,7 +111,6 @@ object IptablesManager {
         commands.add("iptables -A $chainFilter -p udp --dport 3478 -j DROP")
 
         if (settings.enableKillSwitch) {
-            // Strict Kill-Switch: Only allow loopback (127.0.0.0/8) where REDIRECTed TCP goes
             commands.add("iptables -A $chainFilter -d 127.0.0.0/8 -j RETURN")
         } else {
             for (range in reservedV4) {
@@ -131,9 +119,6 @@ object IptablesManager {
         }
         if (hostIsIpv4) {
             commands.add("iptables -A $chainFilter -d ${settings.host.trim()} -j RETURN")
-        }
-        if (relayIsIpv4) {
-            commands.add("iptables -A $chainFilter -d ${relayHost.trim()} -j RETURN")
         }
 
         if (settings.transportMode == TransportMode.TCP_AND_UDP) {
@@ -163,9 +148,6 @@ object IptablesManager {
         commands.add("iptables -t nat -N $chainNatV4")
         if (hostIsIpv4) {
             commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host.trim()} -j RETURN")
-        }
-        if (relayIsIpv4) {
-            commands.add("iptables -t nat -A $chainNatV4 -d ${relayHost.trim()} -j RETURN")
         }
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
@@ -221,7 +203,7 @@ object IptablesManager {
             commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6")
         }
 
-        // 8. HOTSPOT / TETHERING ROUTING + CARRIER TTL=64 HIDE (Owner User 0)
+        // 8. HOTSPOT / TETHERING ROUTING (Owner User 0)
         if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null")
             val tetherIfs = listOf("wlan0", "wlan1", "wlan2", "ap0", "ap1", "rndis0", "usb0", "softap0", "swlan0")
@@ -234,13 +216,6 @@ object IptablesManager {
             commands.add("iptables -t nat -I POSTROUTING 1 -s 192.168.0.0/16 -j MASQUERADE 2>/dev/null")
             commands.add("iptables -t nat -I POSTROUTING 1 -s 172.16.0.0/12 -j MASQUERADE 2>/dev/null")
 
-            // Carrier Hotspot / Tethering Detection Hide (Mangles TTL/HL to 64)
-            if (settings.hideHotspotTtl) {
-                commands.add("iptables -t mangle -N $chainHotspotTtl 2>/dev/null")
-                commands.add("iptables -t mangle -A $chainHotspotTtl -j TTL --ttl-set 64 2>/dev/null || true")
-                commands.add("iptables -t mangle -I POSTROUTING 1 -j $chainHotspotTtl 2>/dev/null || true")
-            }
-
             commands.add("ip6tables -N $chainHotspotV6Block 2>/dev/null")
             for (iface in tetherInterfaces) {
                 commands.add("ip6tables -A $chainHotspotV6Block -i $iface -j DROP")
@@ -250,9 +225,6 @@ object IptablesManager {
             commands.add("iptables -t nat -N $chainHotspotNat")
             if (hostIsIpv4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d ${settings.host.trim()} -j RETURN")
-            }
-            if (relayIsIpv4) {
-                commands.add("iptables -t nat -A $chainHotspotNat -d ${relayHost.trim()} -j RETURN")
             }
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
@@ -276,9 +248,6 @@ object IptablesManager {
             }
             if (hostIsIpv4) {
                 commands.add("iptables -t mangle -A $chainHotspotMangle -d ${settings.host.trim()} -j RETURN")
-            }
-            if (relayIsIpv4) {
-                commands.add("iptables -t mangle -A $chainHotspotMangle -d ${relayHost.trim()} -j RETURN")
             }
             if (settings.transportMode == TransportMode.TCP_AND_UDP) {
                 for (iface in tetherInterfaces) {
@@ -324,7 +293,6 @@ object IptablesManager {
         val chainHotspotNat = "NAMELESS_HS_NAT_$key"
         val chainHotspotMangle = "NAMELESS_HS_MANGLE_$key"
         val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
-        val chainHotspotTtl = "NAMELESS_HS_TTL_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
         val tableId = 2080 + (user * 10) + slot
@@ -333,9 +301,6 @@ object IptablesManager {
         val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
 
         return listOf(
-            "iptables -t mangle -D POSTROUTING -j $chainHotspotTtl 2>/dev/null",
-            "iptables -t mangle -F $chainHotspotTtl 2>/dev/null",
-            "iptables -t mangle -X $chainHotspotTtl 2>/dev/null",
             "iptables -D FORWARD -j $chainHotspotFwd 2>/dev/null",
             "iptables -F $chainHotspotFwd 2>/dev/null",
             "iptables -X $chainHotspotFwd 2>/dev/null",
