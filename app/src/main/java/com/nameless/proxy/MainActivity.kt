@@ -43,6 +43,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -90,98 +91,152 @@ private val ProxyType.displayTitle: String
     }
 
 // -------------------------------------------------------------
-// 3 DISTINCT TACTICAL & STUDIO COLOR THEMES + DYNAMIC ENGINES
+// 6 VIBRANT MULTI-COLOR CHROMA THEMES
 // -------------------------------------------------------------
 
-data class AetherTheme(
+data class ChromaTheme(
     val id: Int,
     val name: String,
     val isLight: Boolean,
-    val bgPrimary: Color,
-    val bgElevated: Color,
-    val cardBg: Color,
-    val cardHighlight: Color,
-    val inputBg: Color,
-    val accentPrimary: Color,
-    val accentSecondary: Color,
-    val accentTertiary: Color,
-    val statusLive: Color,
-    val statusWarn: Color,
-    val statusDanger: Color,
-    val textMain: Color,
-    val textSub: Color,
-    val textDim: Color,
-    val strokeSubtle: Color
+    val bgDeep: Color,
+    val cardGlass: Color,
+    val cardInner: Color,
+    val neonPrimary: Color,
+    val neonSecondary: Color,
+    val neonTertiary: Color,
+    val statusOnline: Color,
+    val statusWarning: Color,
+    val statusAlert: Color,
+    val textBright: Color,
+    val textSoft: Color,
+    val textMuted: Color,
+    val borderBase: Color
 )
 
-// Theme 0: Cyber Acid-Lime & Electric Cyan on Deep Carbon Onyx
-private val AcidOnyxTheme = AetherTheme(
+private val CyberpunkTheme = ChromaTheme(
     id = 0,
-    name = "ACID ONYX",
+    name = "CYBERPUNK",
     isLight = false,
-    bgPrimary = Color(0xFF06080E),
-    bgElevated = Color(0xFF0D111C),
-    cardBg = Color(0xFF101624),
-    cardHighlight = Color(0xFF172034),
-    inputBg = Color(0xFF0B0F1A),
-    accentPrimary = Color(0xFFB8FF01),   // Neon Acid Lime
-    accentSecondary = Color(0xFF00F0FF), // Electric Cyan
-    accentTertiary = Color(0xFF7000FF),  // Hyper Violet
-    statusLive = Color(0xFFB8FF01),
-    statusWarn = Color(0xFFFFB800),
-    statusDanger = Color(0xFFFF2E54),
-    textMain = Color(0xFFF8FAFC),
-    textSub = Color(0xFF94A3B8),
-    textDim = Color(0xFF526077),
-    strokeSubtle = Color(0xFF1E293B)
+    bgDeep = Color(0xFF090414),
+    cardGlass = Color(0xFF150B28),
+    cardInner = Color(0xFF1F113B),
+    neonPrimary = Color(0xFFFF007F),   // Hot Neon Magenta
+    neonSecondary = Color(0xFF00F0FF), // Electric Cyan
+    neonTertiary = Color(0xFF9D4EDD),  // Hyper Violet
+    statusOnline = Color(0xFF00F5D4),
+    statusWarning = Color(0xFFFFBE0B),
+    statusAlert = Color(0xFFFF0055),
+    textBright = Color(0xFFFFFFFF),
+    textSoft = Color(0xFFD8B4F8),
+    textMuted = Color(0xFF8B6FA8),
+    borderBase = Color(0xFF381E63)
 )
 
-// Theme 1: Solar Titanium & Molten Orange on Obsidian Carbon
-private val SolarTitaniumTheme = AetherTheme(
+private val SupernovaTheme = ChromaTheme(
     id = 1,
-    name = "SOLAR TITAN",
+    name = "SUPERNOVA",
     isLight = false,
-    bgPrimary = Color(0xFF0B0908),
-    bgElevated = Color(0xFF15110F),
-    cardBg = Color(0xFF1A1412),
-    cardHighlight = Color(0xFF261D1A),
-    inputBg = Color(0xFF110D0C),
-    accentPrimary = Color(0xFFFF9E00),   // Molten Gold
-    accentSecondary = Color(0xFFFF3D00), // Laser Orange-Red
-    accentTertiary = Color(0xFF00E5FF),  // Cyan Contrast
-    statusLive = Color(0xFF00E676),
-    statusWarn = Color(0xFFFFAB00),
-    statusDanger = Color(0xFFFF1744),
-    textMain = Color(0xFFFFF8F5),
-    textSub = Color(0xFFBFA89E),
-    textDim = Color(0xFF7A655C),
-    strokeSubtle = Color(0xFF2E221E)
+    bgDeep = Color(0xFF0E050B),
+    cardGlass = Color(0xFF1D0C18),
+    cardInner = Color(0xFF2B1224),
+    neonPrimary = Color(0xFFFF2A54),   // Supernova Coral Red
+    neonSecondary = Color(0xFFFFBE0B), // Solar Gold
+    neonTertiary = Color(0xFF8338EC),  // Cosmic Purple
+    statusOnline = Color(0xFF06D6A0),
+    statusWarning = Color(0xFFFFBE0B),
+    statusAlert = Color(0xFFFF0054),
+    textBright = Color(0xFFFFF8FA),
+    textSoft = Color(0xFFF4B8C8),
+    textMuted = Color(0xFF9E6B7B),
+    borderBase = Color(0xFF4A1D36)
 )
 
-// Theme 2: Frost Alabaster & Sapphire Cobalt (Crisp Daylight Mode)
-private val FrostCobaltTheme = AetherTheme(
+private val EmeraldMatrixTheme = ChromaTheme(
     id = 2,
-    name = "FROST COBALT",
-    isLight = true,
-    bgPrimary = Color(0xFFF2F5FA),
-    bgElevated = Color(0xFFE6ECF5),
-    cardBg = Color(0xFFFFFFFF),
-    cardHighlight = Color(0xFFEEF4FF),
-    inputBg = Color(0xFFF7F9FC),
-    accentPrimary = Color(0xFF0052FF),   // Deep Cobalt Blue
-    accentSecondary = Color(0xFF00B87C), // Emerald Mint
-    accentTertiary = Color(0xFF7C3AED),  // Royal Violet
-    statusLive = Color(0xFF00A86B),
-    statusWarn = Color(0xFFD97706),
-    statusDanger = Color(0xFFE11D48),
-    textMain = Color(0xFF0F172A),
-    textSub = Color(0xFF475569),
-    textDim = Color(0xFF94A3B8),
-    strokeSubtle = Color(0xFFDCE4F0)
+    name = "HYPER MINT",
+    isLight = false,
+    bgDeep = Color(0xFF030F0C),
+    cardGlass = Color(0xFF09211B),
+    cardInner = Color(0xFF0F332A),
+    neonPrimary = Color(0xFF00F5A0),   // Hyper Emerald
+    neonSecondary = Color(0xFF00D9F5), // Electric Aqua
+    neonTertiary = Color(0xFFA3E635),  // Volt Lime
+    statusOnline = Color(0xFF00F5A0),
+    statusWarning = Color(0xFFFACC15),
+    statusAlert = Color(0xFFFB7185),
+    textBright = Color(0xFFF0FDF9),
+    textSoft = Color(0xFF99F6E4),
+    textMuted = Color(0xFF4F8A7E),
+    borderBase = Color(0xFF164E41)
 )
 
-private val AllThemes = listOf(AcidOnyxTheme, SolarTitaniumTheme, FrostCobaltTheme)
-val LocalAetherTheme = compositionLocalOf { AcidOnyxTheme }
+private val AuroraTheme = ChromaTheme(
+    id = 3,
+    name = "AURORA",
+    isLight = false,
+    bgDeep = Color(0xFF05081C),
+    cardGlass = Color(0xFF0D1438),
+    cardInner = Color(0xFF162052),
+    neonPrimary = Color(0xFF4CC9F0),   // Glacial Sky
+    neonSecondary = Color(0xFFF72585), // Aurora Pink
+    neonTertiary = Color(0xFF4361EE),  // Royal Starlight
+    statusOnline = Color(0xFF4CC9F0),
+    statusWarning = Color(0xFFFCA311),
+    statusAlert = Color(0xFFF72585),
+    textBright = Color(0xFFF8FAFF),
+    textSoft = Color(0xFFA5B4FC),
+    textMuted = Color(0xFF6474B5),
+    borderBase = Color(0xFF233275)
+)
+
+private val OverdriveTheme = ChromaTheme(
+    id = 4,
+    name = "OVERDRIVE",
+    isLight = false,
+    bgDeep = Color(0xFF110606),
+    cardGlass = Color(0xFF240D0E),
+    cardInner = Color(0xFF361417),
+    neonPrimary = Color(0xFFFF5400),   // Nitro Orange
+    neonSecondary = Color(0xFFFF0A54), // Laser Crimson
+    neonTertiary = Color(0xFF00BBF9),  // Nitrous Blue
+    statusOnline = Color(0xFF00F5D4),
+    statusWarning = Color(0xFFFFD166),
+    statusAlert = Color(0xFFFF0A54),
+    textBright = Color(0xFFFFF5F5),
+    textSoft = Color(0xFFFCA5A5),
+    textMuted = Color(0xFFA86464),
+    borderBase = Color(0xFF521E22)
+)
+
+private val CrystalDayTheme = ChromaTheme(
+    id = 5,
+    name = "CRYSTAL",
+    isLight = true,
+    bgDeep = Color(0xFFEEF2FF),
+    cardGlass = Color(0xFFFFFFFF),
+    cardInner = Color(0xFFF3F6FF),
+    neonPrimary = Color(0xFF4F46E5),   // Royal Indigo
+    neonSecondary = Color(0xFFEC4899), // Vivid Rose
+    neonTertiary = Color(0xFF06B6D4),  // Cyan Turquoise
+    statusOnline = Color(0xFF059669),
+    statusWarning = Color(0xFFD97706),
+    statusAlert = Color(0xFFE11D48),
+    textBright = Color(0xFF0F172A),
+    textSoft = Color(0xFF475569),
+    textMuted = Color(0xFF94A3B8),
+    borderBase = Color(0xFFD8E0F8)
+)
+
+private val ChromaPalettes = listOf(
+    CyberpunkTheme,
+    SupernovaTheme,
+    EmeraldMatrixTheme,
+    AuroraTheme,
+    OverdriveTheme,
+    CrystalDayTheme
+)
+
+val LocalChromaTheme = compositionLocalOf { CyberpunkTheme }
 
 class MainActivity : ComponentActivity() {
 
@@ -226,33 +281,33 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var themeIndex by remember {
-                mutableIntStateOf(globalPrefs.getInt("aether_theme_idx", 0).coerceIn(0, AllThemes.lastIndex))
+                mutableIntStateOf(globalPrefs.getInt("chroma_theme_idx", 0).coerceIn(0, ChromaPalettes.lastIndex))
             }
-            val theme = AllThemes[themeIndex]
+            val theme = ChromaPalettes[themeIndex]
 
             val colorScheme = if (theme.isLight) {
                 lightColorScheme(
-                    primary = theme.accentPrimary,
-                    secondary = theme.accentSecondary,
-                    background = theme.bgPrimary,
-                    surface = theme.cardBg,
+                    primary = theme.neonPrimary,
+                    secondary = theme.neonSecondary,
+                    background = theme.bgDeep,
+                    surface = theme.cardGlass,
                     onPrimary = Color.White,
-                    onSurface = theme.textMain,
-                    error = theme.statusDanger
+                    onSurface = theme.textBright,
+                    error = theme.statusAlert
                 )
             } else {
                 darkColorScheme(
-                    primary = theme.accentPrimary,
-                    secondary = theme.accentSecondary,
-                    background = theme.bgPrimary,
-                    surface = theme.cardBg,
-                    onPrimary = Color(0xFF06080E),
-                    onSurface = theme.textMain,
-                    error = theme.statusDanger
+                    primary = theme.neonPrimary,
+                    secondary = theme.neonSecondary,
+                    background = theme.bgDeep,
+                    surface = theme.cardGlass,
+                    onPrimary = Color.White,
+                    onSurface = theme.textBright,
+                    error = theme.statusAlert
                 )
             }
 
-            CompositionLocalProvider(LocalAetherTheme provides theme) {
+            CompositionLocalProvider(LocalChromaTheme provides theme) {
                 MaterialTheme(colorScheme = colorScheme) {
                     MainScreen(
                         rootState = rootState,
@@ -261,9 +316,10 @@ class MainActivity : ComponentActivity() {
                         isTransitioning = isTransitioningState,
                         runningSlot = runningSlotState,
                         activePid = activePidState,
-                        onCycleTheme = {
-                            themeIndex = (themeIndex + 1) % AllThemes.size
-                            globalPrefs.edit().putInt("aether_theme_idx", themeIndex).apply()
+                        selectedThemeIdx = themeIndex,
+                        onSelectTheme = { idx ->
+                            themeIndex = idx
+                            globalPrefs.edit().putInt("chroma_theme_idx", idx).apply()
                         },
                         onRecheckRoot = { refreshRootStatus() },
                         installedApps = installedApps,
@@ -358,14 +414,15 @@ fun MainScreen(
     isTransitioning: Boolean,
     runningSlot: Int?,
     activePid: String?,
-    onCycleTheme: () -> Unit,
+    selectedThemeIdx: Int,
+    onSelectTheme: (Int) -> Unit,
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
     onSyncStatus: () -> Unit,
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -375,13 +432,12 @@ fun MainScreen(
     var routeHotspot by remember { mutableStateOf(globalPrefs.getBoolean("route_hotspot", true)) }
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
-    // 4 Dedicated Screens via Floating Bottom Dock: 0 = Cockpit, 1 = Node Config, 2 = Split Tunnel, 3 = Live Logs
     var selectedScreen by remember { mutableIntStateOf(0) }
 
-    // Hoisted Live Telemetry & Spectrum History
+    // Hoisted Live Session Telemetry
     var sessionStartMs by remember { mutableLongStateOf(0L) }
-    var rxSpectrum by remember { mutableStateOf(List(24) { 0L }) }
-    var txSpectrum by remember { mutableStateOf(List(24) { 0L }) }
+    var rxSpectrum by remember { mutableStateOf(List(28) { 0L }) }
+    var txSpectrum by remember { mutableStateOf(List(28) { 0L }) }
     var currentRxRate by remember { mutableLongStateOf(0L) }
     var currentTxRate by remember { mutableLongStateOf(0L) }
     var peakRxRate by remember { mutableLongStateOf(0L) }
@@ -399,7 +455,7 @@ fun MainScreen(
             var prevTime = System.currentTimeMillis()
 
             while (isActive) {
-                delay(650) // Faster 650ms sampling for snappy gauge & spectrum motion
+                delay(600)
                 val currRx = TrafficStats.getTotalRxBytes().coerceAtLeast(prevRx)
                 val currTx = TrafficStats.getTotalTxBytes().coerceAtLeast(prevTx)
                 val currTime = System.currentTimeMillis()
@@ -430,8 +486,8 @@ fun MainScreen(
             peakTxRate = 0L
             totalRxBytes = 0L
             totalTxBytes = 0L
-            rxSpectrum = List(24) { 0L }
-            txSpectrum = List(24) { 0L }
+            rxSpectrum = List(28) { 0L }
+            txSpectrum = List(28) { 0L }
         }
     }
 
@@ -644,7 +700,7 @@ fun MainScreen(
     var testStatus by remember { mutableStateOf<String?>(null) }
     var testLatencyMs by remember { mutableStateOf<Long?>(null) }
     var isTesting by remember { mutableStateOf(false) }
-    var currentLogs by remember { mutableStateOf("Tap Refresh to load kernel daemon telemetry...") }
+    var currentLogs by remember { mutableStateOf("Tap Refresh to inspect kernel & sing-box logs...") }
 
     var publicIpInfo by remember { mutableStateOf<GeoIpResult?>(null) }
     var isFetchingIp by remember { mutableStateOf(false) }
@@ -696,9 +752,9 @@ fun MainScreen(
     }
 
     val animatedBg by animateColorAsState(
-        targetValue = theme.bgPrimary,
-        animationSpec = tween(450),
-        label = "aetherBg"
+        targetValue = theme.bgDeep,
+        animationSpec = tween(500),
+        label = "chromaBg"
     )
 
     Box(
@@ -706,9 +762,8 @@ fun MainScreen(
             .fillMaxSize()
             .background(animatedBg)
     ) {
-        // 1. MULTI-MODE DYNAMIC GEOMETRIC & RADAR BACKGROUND
-        AetherDynamicBackdrop(
-            themeId = theme.id,
+        // 1. MULTI-COLOR NEBULA, LASER GRID & FLOATING PLASMA PARTICLES
+        ChromaLivingNebula(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning || isTesting
         )
@@ -719,24 +774,32 @@ fun MainScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // 2. SPACIOUS COLLISION-FREE TOP BAR + HORIZONTAL NODE CAROUSEL
+            // 2. VIBRANT TOP HEADER + 6-COLOR LIVE SWATCH BAR + NODE SELECTOR
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
-                AetherTopCommandBar(
+                ChromaTopHeader(
                     isProxyActive = isProxyActive,
                     runningSlot = runningSlot,
                     activeSlot = activeSlot,
                     rootState = rootState,
-                    onCycleTheme = onCycleTheme,
                     onRecheckRoot = onRecheckRoot
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                AetherNodeCarousel(
+                // 6-Theme Instant Color Swatch Picker Bar
+                ChromaThemeSwatchBar(
+                    selectedThemeIdx = selectedThemeIdx,
+                    onSelectTheme = onSelectTheme
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Glowing Gradient Node Slots P0..P4
+                ChromaNodeRibbon(
                     activeSlot = activeSlot,
                     runningSlot = runningSlot,
                     isProxyActive = isProxyActive,
@@ -747,7 +810,7 @@ fun MainScreen(
                 )
             }
 
-            // 3. MAIN VIEWPORT (4 DEDICATED SCREENS)
+            // 3. ANIMATED SCREEN VIEWPORT
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -757,25 +820,25 @@ fun MainScreen(
                 AnimatedContent(
                     targetState = selectedScreen,
                     transitionSpec = {
-                        val forward = targetState > initialState
-                        (slideInVertically(
+                        val dir = if (targetState > initialState) 1 else -1
+                        (slideInHorizontally(
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetY = { fullHeight -> if (forward) fullHeight / 6 else -fullHeight / 6 }
-                        ) + fadeIn(tween(220))).togetherWith(
-                            slideOutVertically(
-                                animationSpec = tween(160),
-                                targetOffsetY = { fullHeight -> if (forward) -fullHeight / 8 else fullHeight / 8 }
+                            initialOffsetX = { fullW -> dir * (fullW / 3) }
+                        ) + fadeIn(tween(220)) + scaleIn(initialScale = 0.94f, animationSpec = tween(220))).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = tween(170),
+                                targetOffsetX = { fullW -> -dir * (fullW / 4) }
                             ) + fadeOut(tween(150))
                         )
                     },
-                    label = "screenTransition"
+                    label = "chromaScreenTransition"
                 ) { screenIdx ->
                     when (screenIdx) {
                         0 -> {
-                            AetherCockpitScreen(
+                            ChromaCockpitView(
                                 isProxyActive = isProxyActive,
                                 isTransitioning = isTransitioning,
                                 runningSlot = runningSlot,
@@ -810,14 +873,14 @@ fun MainScreen(
                                             testStatus = "Enter Server Host/IP in Nodes tab first"
                                             testLatencyMs = null
                                             selectedScreen = 1
-                                            return@AetherCockpitScreen
+                                            return@ChromaCockpitView
                                         }
                                         saveConfigForSlot(activeSlot, immediateRootSync = true)
                                         val settings = getCurrentSettings()
                                         val targets = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
                                         onStartProxy(settings, targets) { success, error ->
                                             if (!success) {
-                                                testStatus = "Error: ${error?.lines()?.lastOrNull() ?: "See Terminal tab"}"
+                                                testStatus = "Error: ${error?.lines()?.lastOrNull() ?: "See Logs tab"}"
                                                 testLatencyMs = null
                                             } else {
                                                 testStatus = null
@@ -833,11 +896,11 @@ fun MainScreen(
                                         testStatus = "Configure Server Host/IP first"
                                         testLatencyMs = null
                                         selectedScreen = 1
-                                        return@AetherCockpitScreen
+                                        return@ChromaCockpitView
                                     }
                                     saveConfigForSlot(activeSlot)
                                     isTesting = true
-                                    testStatus = "Pinging ${host.trim()}:${port.trim()}..."
+                                    testStatus = "Probing ${host.trim()}:${port.trim()}..."
                                     testLatencyMs = null
                                     val settings = getCurrentSettings()
                                     coroutineScope.launch {
@@ -858,7 +921,7 @@ fun MainScreen(
                         }
 
                         1 -> {
-                            AetherNodeConfigScreen(
+                            ChromaNodeConfigView(
                                 activeSlot = activeSlot,
                                 host = host,
                                 port = port,
@@ -910,7 +973,7 @@ fun MainScreen(
                         }
 
                         2 -> {
-                            AetherRoutingScreen(
+                            ChromaRoutingView(
                                 startOnBoot = startOnBoot,
                                 bootSlot = bootSlot,
                                 activeSlot = activeSlot,
@@ -963,7 +1026,7 @@ fun MainScreen(
                         }
 
                         3 -> {
-                            AetherTerminalScreen(
+                            ChromaTerminalView(
                                 activeSlot = activeSlot,
                                 runningSlot = runningSlot,
                                 currentLogs = currentLogs,
@@ -989,8 +1052,8 @@ fun MainScreen(
                 }
             }
 
-            // 4. FLOATING BOTTOM GLASS NAVIGATION DOCK
-            AetherBottomDock(
+            // 4. GRADIENT FLOATING NAVIGATION DOCK
+            ChromaBottomDock(
                 selectedScreen = selectedScreen,
                 onSelectScreen = { selectedScreen = it },
                 splitAppsCount = if (routeWholeProfile) null else selectedPackages.size
@@ -1000,250 +1063,278 @@ fun MainScreen(
 }
 
 // -------------------------------------------------------------
-// MULTI-MODE DYNAMIC BACKGROUND (RADAR SWEEP / HEXAGON PULSE)
+// LIVE MULTI-COLOR NEBULA, LASER RINGS & FLOATING ORBS CANVAS
 // -------------------------------------------------------------
 
 @Composable
-fun AetherDynamicBackdrop(
-    themeId: Int,
+fun ChromaLivingNebula(
     isProxyActive: Boolean,
     isTransitioning: Boolean
 ) {
-    val theme = LocalAetherTheme.current
-    val infiniteTransition = rememberInfiniteTransition(label = "aetherBackdrop")
+    val theme = LocalChromaTheme.current
+    val infiniteTransition = rememberInfiniteTransition(label = "chromaNebula")
 
-    val radarSweep by infiniteTransition.animateFloat(
+    val orbitDeg by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            tween(if (isProxyActive) 6000 else 16000, easing = LinearEasing),
+            tween(if (isProxyActive) 12000 else 24000, easing = LinearEasing),
             RepeatMode.Restart
         ),
-        label = "radarSweep"
+        label = "orbitDeg"
     )
 
-    val wavePhase by infiniteTransition.animateFloat(
+    val streamShift by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
+        targetValue = 1000f,
         animationSpec = infiniteRepeatable(
-            tween(if (isProxyActive) 4000 else 10000, easing = LinearEasing),
+            tween(if (isProxyActive) 5500 else 14000, easing = LinearEasing),
             RepeatMode.Restart
         ),
-        label = "wavePhase"
+        label = "streamShift"
     )
 
-    val glowColor by animateColorAsState(
-        targetValue = when {
-            isTransitioning -> theme.statusWarn
-            isProxyActive -> theme.statusLive
-            else -> theme.accentSecondary
-        },
-        animationSpec = tween(600),
-        label = "backdropGlow"
+    val auraBreath by infiniteTransition.animateFloat(
+        initialValue = 0.65f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            tween(2400, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "auraBreath"
     )
 
     Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
         val w = size.width
         val h = size.height
+        val rad = Math.toRadians(orbitDeg.toDouble())
 
-        // Top-Right & Bottom-Left Ambient Glow Fields
+        val orb1X = (w * 0.78f) - (sin(rad) * w * 0.22f).toFloat()
+        val orb1Y = (h * 0.20f) + (cos(rad) * h * 0.12f).toFloat()
+
+        val orb2X = (w * 0.22f) + (cos(rad * 1.3) * w * 0.20f).toFloat()
+        val orb2Y = (h * 0.55f) + (sin(rad * 1.3) * h * 0.14f).toFloat()
+
+        val orb3X = (w * 0.55f) + (sin(rad * 0.8) * w * 0.25f).toFloat()
+        val orb3Y = (h * 0.85f) - (cos(rad * 0.8) * h * 0.10f).toFloat()
+
+        val alphaBoost = if (theme.isLight) 0.18f else if (isProxyActive) 0.34f else 0.24f
+
+        // Primary Neon Plasma Sphere
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(
-                    glowColor.copy(alpha = if (theme.isLight) 0.14f else 0.18f),
-                    Color.Transparent
-                ),
-                center = Offset(w * 0.85f, h * 0.16f),
+                colors = listOf(theme.neonPrimary.copy(alpha = alphaBoost), Color.Transparent),
+                center = Offset(orb1X, orb1Y),
+                radius = w * 0.78f * auraBreath
+            ),
+            center = Offset(orb1X, orb1Y),
+            radius = w * 0.78f * auraBreath
+        )
+
+        // Secondary Neon Plasma Sphere
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(theme.neonSecondary.copy(alpha = alphaBoost), Color.Transparent),
+                center = Offset(orb2X, orb2Y),
                 radius = w * 0.75f
             ),
-            center = Offset(w * 0.85f, h * 0.16f),
+            center = Offset(orb2X, orb2Y),
             radius = w * 0.75f
         )
 
+        // Tertiary Neon Plasma Sphere
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(
-                    theme.accentTertiary.copy(alpha = if (theme.isLight) 0.10f else 0.15f),
-                    Color.Transparent
-                ),
-                center = Offset(w * 0.15f, h * 0.78f),
+                colors = listOf(theme.neonTertiary.copy(alpha = alphaBoost * 0.85f), Color.Transparent),
+                center = Offset(orb3X, orb3Y),
                 radius = w * 0.70f
             ),
-            center = Offset(w * 0.15f, h * 0.78f),
+            center = Offset(orb3X, orb3Y),
             radius = w * 0.70f
         )
 
-        when (themeId) {
-            0 -> {
-                // Mode 0: Tactical Radar Concentric Rings + Scanning Sweep
-                val radarCenter = Offset(w * 0.5f, h * 0.32f)
-                for (rIdx in 1..4) {
-                    val radius = (w * 0.16f) * rIdx
-                    drawCircle(
-                        color = glowColor.copy(alpha = 0.05f),
-                        radius = radius,
-                        center = radarCenter,
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                }
-                rotate(degrees = radarSweep, pivot = radarCenter) {
-                    drawLine(
-                        brush = Brush.linearGradient(
-                            colors = listOf(glowColor.copy(alpha = 0.22f), Color.Transparent),
-                            start = radarCenter,
-                            end = Offset(radarCenter.x + w * 0.55f, radarCenter.y)
-                        ),
-                        start = radarCenter,
-                        end = Offset(radarCenter.x + w * 0.55f, radarCenter.y),
-                        strokeWidth = 2.dp.toPx()
-                    )
-                }
+        // Rising Multi-Color Quantum Sparks
+        val sparkCount = 28
+        for (i in 0 until sparkCount) {
+            val px = (w * ((i * 43 + 11) % 100) / 100f)
+            val baseY = (h * ((i * 61 + 19) % 100) / 100f)
+            val speed = 0.5f + (i % 4) * 0.25f
+            val py = (baseY - (streamShift * speed)) % h
+            val actualY = if (py < 0) py + h else py
+            val dotR = (1.5f + (i % 3) * 1.2f).dp.toPx()
+
+            val sparkColor = when (i % 3) {
+                0 -> theme.neonPrimary
+                1 -> theme.neonSecondary
+                else -> theme.neonTertiary
             }
-            1 -> {
-                // Mode 1: Solar Horizon Perspective Laser Lines
-                val lines = 12
-                for (i in 0 until lines) {
-                    val y = (h * 0.1f) + (i * (h * 0.075f)) + (sin(wavePhase + i * 0.5f) * 8f).toFloat()
-                    drawLine(
-                        color = glowColor.copy(alpha = 0.055f),
-                        start = Offset(0f, y),
-                        end = Offset(w, y - 24f),
-                        strokeWidth = 1.2.dp.toPx()
-                    )
-                }
-            }
-            else -> {
-                // Mode 2: Precision Isometric Dot Matrix
-                val step = 36.dp.toPx()
-                var x = step / 2f
-                while (x < w) {
-                    var y = step / 2f
-                    while (y < h) {
-                        drawCircle(
-                            color = theme.accentPrimary.copy(alpha = 0.08f),
-                            radius = 1.5.dp.toPx(),
-                            center = Offset(x, y)
-                        )
-                        y += step
-                    }
-                    x += step
-                }
-            }
+
+            drawCircle(
+                color = sparkColor,
+                radius = dotR,
+                center = Offset(px, actualY),
+                alpha = if (isProxyActive) 0.55f else 0.26f
+            )
         }
     }
 }
 
 // -------------------------------------------------------------
-// SPACIOUS TOP COMMAND BAR (ZERO TEXT COLLISIONS)
+// TOP HEADER + 6-COLOR LIVE THEME SWATCH BAR + NODE RIBBON
 // -------------------------------------------------------------
 
 @Composable
-fun AetherTopCommandBar(
+fun ChromaTopHeader(
     isProxyActive: Boolean,
     runningSlot: Int?,
     activeSlot: Int,
     rootState: RootState,
-    onCycleTheme: () -> Unit,
     onRecheckRoot: () -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Brand & Subtitle Stack
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(if (isProxyActive) theme.statusLive else theme.accentPrimary)
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(listOf(theme.neonPrimary, theme.neonSecondary))
+                        )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "NAMELESS // CORE",
-                    fontSize = 18.sp,
+                    text = "NAMELESS PROXY",
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Black,
-                    color = theme.textMain,
+                    color = theme.textBright,
+                    letterSpacing = 1.2.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = if (isProxyActive) {
-                    "TUNNEL ACTIVE • NODE P${runningSlot ?: activeSlot} • PORT ${ProfileManager.localInboundPort}"
+                    "TUNNEL ONLINE • NODE P${runningSlot ?: activeSlot} • PORT ${ProfileManager.localInboundPort}"
                 } else {
-                    "KERNEL STANDBY • USER ${ProfileManager.androidUserId} • ${theme.name}"
+                    "KERNEL TPROXY • USER ${ProfileManager.androidUserId} • ${theme.name} EDITION"
                 },
                 fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isProxyActive) theme.statusLive else theme.textSub,
+                fontWeight = FontWeight.Bold,
+                color = if (isProxyActive) theme.statusOnline else theme.textSoft,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        val rootColor = when (rootState) {
+            RootState.GRANTED -> theme.statusOnline
+            RootState.DENIED -> theme.statusAlert
+            RootState.CHECKING -> theme.statusWarning
+        }
 
-        // Action Pills (Theme Switcher + Root Status)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = theme.cardGlass,
+            border = BorderStroke(1.2.dp, rootColor),
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onRecheckRoot() }
         ) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = theme.cardBg,
-                border = BorderStroke(1.dp, theme.strokeSubtle),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onCycleTheme() }
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .background(rootColor, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "🎨 ${theme.name.substringBefore(" ")}",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = theme.accentPrimary,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                    text = when (rootState) {
+                        RootState.GRANTED -> "ROOT OK"
+                        RootState.DENIED -> "NO ROOT"
+                        RootState.CHECKING -> "WAIT"
+                    },
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = theme.textBright
                 )
             }
+        }
+    }
+}
 
-            val rootColor = when (rootState) {
-                RootState.GRANTED -> theme.statusLive
-                RootState.DENIED -> theme.statusDanger
-                RootState.CHECKING -> theme.statusWarn
-            }
+@Composable
+fun ChromaThemeSwatchBar(
+    selectedThemeIdx: Int,
+    onSelectTheme: (Int) -> Unit
+) {
+    val currentTheme = LocalChromaTheme.current
 
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = theme.cardBg,
-                border = BorderStroke(1.dp, rootColor.copy(alpha = 0.6f)),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onRecheckRoot() }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(currentTheme.cardGlass.copy(alpha = 0.85f))
+            .border(1.dp, currentTheme.borderBase, RoundedCornerShape(14.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "CHROMA",
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Black,
+            color = currentTheme.textSoft,
+            letterSpacing = 1.sp
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ChromaPalettes.forEachIndexed { idx, palette ->
+                val isSelected = idx == selectedThemeIdx
+                val scale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.18f else 1f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    label = "swatchScale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(palette.neonPrimary, palette.neonSecondary)
+                            )
+                        )
+                        .border(
+                            width = if (isSelected) 2.dp else 0.8.dp,
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clickable { onSelectTheme(idx) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .background(rootColor, CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = when (rootState) {
-                            RootState.GRANTED -> "SU"
-                            RootState.DENIED -> "NO SU"
-                            RootState.CHECKING -> "..."
-                        },
-                        fontSize = 10.sp,
+                        text = palette.name.take(5),
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.Black,
-                        color = theme.textMain
+                        color = Color.White
                     )
                 }
             }
@@ -1251,12 +1342,8 @@ fun AetherTopCommandBar(
     }
 }
 
-// -------------------------------------------------------------
-// NODE SLOT CAROUSEL (P0 - P4 WITH PROTOCOL TAGS)
-// -------------------------------------------------------------
-
 @Composable
-fun AetherNodeCarousel(
+fun ChromaNodeRibbon(
     activeSlot: Int,
     runningSlot: Int?,
     isProxyActive: Boolean,
@@ -1265,7 +1352,7 @@ fun AetherNodeCarousel(
     slotProtocols: Map<Int, String>,
     onSelectSlot: (Int) -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1277,67 +1364,69 @@ fun AetherNodeCarousel(
             val isBoot = startOnBoot && (bootSlot == slotIdx)
             val proto = slotProtocols[slotIdx]
 
-            val bg by animateColorAsState(
-                targetValue = when {
-                    isRunning -> theme.statusLive.copy(alpha = 0.16f)
-                    isSelected -> theme.accentPrimary.copy(alpha = if (theme.isLight) 0.14f else 0.20f)
-                    else -> theme.cardBg
-                },
-                animationSpec = tween(220),
-                label = "nodeBg"
+            val scale by animateFloatAsState(
+                targetValue = if (isSelected) 1.04f else 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                label = "slotBounce"
             )
 
-            val borderCol by animateColorAsState(
-                targetValue = when {
-                    isRunning -> theme.statusLive
-                    isSelected -> theme.accentPrimary
-                    proto != null -> theme.strokeSubtle
-                    else -> theme.strokeSubtle.copy(alpha = 0.5f)
-                },
-                animationSpec = tween(220),
-                label = "nodeBorder"
-            )
+            val cardBrush = when {
+                isRunning -> Brush.linearGradient(
+                    listOf(theme.statusOnline.copy(alpha = 0.32f), theme.neonSecondary.copy(alpha = 0.22f))
+                )
+                isSelected -> Brush.linearGradient(
+                    listOf(theme.neonPrimary.copy(alpha = 0.35f), theme.neonTertiary.copy(alpha = 0.25f))
+                )
+                else -> Brush.linearGradient(listOf(theme.cardGlass, theme.cardGlass))
+            }
+
+            val borderBrush = when {
+                isRunning -> Brush.linearGradient(listOf(theme.statusOnline, theme.neonSecondary))
+                isSelected -> Brush.linearGradient(listOf(theme.neonPrimary, theme.neonSecondary))
+                else -> Brush.linearGradient(listOf(theme.borderBase, theme.borderBase))
+            }
 
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(bg)
-                    .border(if (isSelected || isRunning) 1.5.dp else 1.dp, borderCol, RoundedCornerShape(12.dp))
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(cardBrush)
+                    .border(if (isSelected || isRunning) 1.6.dp else 1.dp, borderBrush, RoundedCornerShape(13.dp))
                     .clickable { onSelectSlot(slotIdx) }
                     .padding(vertical = 7.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "NODE $slotIdx",
-                    fontSize = 10.5.sp,
+                    text = "P$slotIdx",
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Black,
                     color = when {
-                        isRunning -> theme.statusLive
-                        isSelected -> theme.accentPrimary
-                        proto != null -> theme.textMain
-                        else -> theme.textDim
-                    },
-                    maxLines = 1
+                        isRunning -> theme.statusOnline
+                        isSelected -> theme.textBright
+                        proto != null -> theme.textSoft
+                        else -> theme.textMuted
+                    }
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = when {
-                        isRunning -> "ONLINE"
+                        isRunning -> "LIVE"
                         isBoot -> "BOOT"
                         proto != null -> proto.take(6)
-                        else -> "EMPTY"
+                        else -> "FREE"
                     },
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = when {
-                        isRunning -> theme.statusLive
-                        isBoot -> theme.statusWarn
-                        proto != null -> theme.textSub
-                        else -> theme.textDim
+                        isRunning -> theme.statusOnline
+                        isBoot -> theme.statusWarning
+                        isSelected -> theme.neonSecondary
+                        else -> theme.textMuted
                     },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 1
                 )
             }
         }
@@ -1345,82 +1434,11 @@ fun AetherNodeCarousel(
 }
 
 // -------------------------------------------------------------
-// FLOATING BOTTOM GLASS NAVIGATION DOCK
+// SCREEN 0: VIBRANT CHROMA COCKPIT (PLASMA TURBINE + DUAL GAUGES)
 // -------------------------------------------------------------
 
 @Composable
-fun AetherBottomDock(
-    selectedScreen: Int,
-    onSelectScreen: (Int) -> Unit,
-    splitAppsCount: Int?
-) {
-    val theme = LocalAetherTheme.current
-    val items = listOf(
-        Pair("⚡", "Cockpit"),
-        Pair("🛰️", "Nodes"),
-        Pair("🛡️", if (splitAppsCount == null) "Routing" else "Split ($splitAppsCount)"),
-        Pair("📟", "Terminal")
-    )
-
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = theme.cardBg,
-        border = BorderStroke(1.dp, theme.strokeSubtle),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(5.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items.forEachIndexed { index, (icon, title) ->
-                val isSelected = selectedScreen == index
-                val pillBg by animateColorAsState(
-                    targetValue = if (isSelected) theme.accentPrimary else Color.Transparent,
-                    animationSpec = tween(220),
-                    label = "dockPillBg"
-                )
-                val contentCol = if (isSelected) {
-                    if (theme.isLight) Color.White else Color(0xFF06080E)
-                } else {
-                    theme.textSub
-                }
-
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(15.dp))
-                        .background(pillBg)
-                        .clickable { onSelectScreen(index) }
-                        .padding(vertical = 9.dp, horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = icon, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = title,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
-                        color = contentCol,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// SCREEN 0: TACTICAL COCKPIT (BENTO DECK + TWIN SPEEDOMETERS)
-// -------------------------------------------------------------
-
-@Composable
-fun AetherCockpitScreen(
+fun ChromaCockpitView(
     isProxyActive: Boolean,
     isTransitioning: Boolean,
     runningSlot: Int?,
@@ -1453,7 +1471,7 @@ fun AetherCockpitScreen(
     testLatencyMs: Long?,
     onTestUpstream: () -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
     val isCurrentSlotRunning = isProxyActive && (runningSlot == activeSlot)
 
     Column(
@@ -1462,8 +1480,8 @@ fun AetherCockpitScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // 1. SPLIT BENTO HERO DECK (LEFT: HEXAGON POWER CORE | RIGHT: EXIT PASSPORT & TELEMETRY)
-        AetherBentoHeroDeck(
+        // 1. HERO PLASMA TURBINE + EXIT NODE PASSPORT CARD
+        ChromaPlasmaHeroCard(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning,
             runningSlot = runningSlot,
@@ -1480,8 +1498,8 @@ fun AetherCockpitScreen(
             onToggleProxy = onToggleProxy
         )
 
-        // 2. TWIN-TURBINE 240° RADIAL SPEEDOMETER GAUGES + 24-BAR SPECTRUM ANALYZER
-        AetherTwinSpeedometerCluster(
+        // 2. TWIN NEON SPEEDOMETER GAUGES + LIVE DUAL WAVE & 28-BAR SPECTRUM
+        ChromaTelemetryDeck(
             isProxyActive = isProxyActive,
             currentRxRate = currentRxRate,
             currentTxRate = currentTxRate,
@@ -1493,11 +1511,14 @@ fun AetherCockpitScreen(
             txSpectrum = txSpectrum
         )
 
-        // 3. PIPELINE TELEMETRY CHIPS + PING ACTION
+        // 3. GRADIENT PIPELINE CHIPS & LATENCY PROBE
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = theme.cardBg,
-            border = BorderStroke(1.dp, theme.strokeSubtle),
+            shape = RoundedCornerShape(18.dp),
+            color = theme.cardGlass,
+            border = BorderStroke(
+                1.dp,
+                Brush.horizontalGradient(listOf(theme.neonPrimary.copy(alpha = 0.5f), theme.neonSecondary.copy(alpha = 0.5f)))
+            ),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -1507,25 +1528,18 @@ fun AetherCockpitScreen(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    AetherChip(label = proxyType.displayTitle, color = theme.accentPrimary)
-                    AetherChip(
-                        label = if (transportMode == TransportMode.TCP_AND_UDP) "TPROXY TCP+UDP" else "TCP ONLY",
-                        color = theme.accentSecondary
+                    ChromaTag(label = proxyType.displayTitle, color = theme.neonPrimary)
+                    ChromaTag(
+                        label = if (transportMode == TransportMode.TCP_AND_UDP) "TCP + UDP TPROXY" else "TCP ONLY",
+                        color = theme.neonSecondary
                     )
-                    AetherChip(
-                        label = "DoT 853 + DNS 53 TUNNELED",
-                        color = theme.statusLive
-                    )
-                    AetherChip(
-                        label = when (ipMode) {
-                            IpMode.IPV4_ONLY -> "IPv4 ONLY"
-                            IpMode.DUAL_STACK -> "DUAL-STACK"
-                            IpMode.IPV6_ONLY -> "IPv6 ONLY"
-                        },
-                        color = theme.textSub
+                    ChromaTag(label = "PRIVATE DNS 853 READY", color = theme.statusOnline)
+                    ChromaTag(
+                        label = if (routeWholeProfile) "FULL PROFILE" else "$selectedAppsCount APPS",
+                        color = theme.neonTertiary
                     )
                     if (routeHotspot) {
-                        AetherChip(label = "HOTSPOT READY", color = theme.accentPrimary)
+                        ChromaTag(label = "HOTSPOT ON", color = theme.statusWarning)
                     }
                 }
 
@@ -1536,20 +1550,23 @@ fun AetherCockpitScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
+                    Button(
                         onClick = onTestUpstream,
                         enabled = !isTesting && !isTransitioning,
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, theme.accentSecondary.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.cardInner,
+                            contentColor = theme.neonSecondary
+                        ),
+                        border = BorderStroke(1.dp, theme.neonSecondary.copy(alpha = 0.6f)),
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .height(42.dp)
                     ) {
                         Text(
-                            text = if (isTesting) "Probing Socket..." else "⚡ Test Node P$activeSlot Latency",
+                            text = if (isTesting) "Probing Upstream Socket..." else "⚡ Test Node P$activeSlot Latency & Handshake",
                             fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = theme.accentSecondary,
+                            fontWeight = FontWeight.Black,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1561,53 +1578,47 @@ fun AetherCockpitScreen(
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    val statusColor = when {
-                        isTesting -> theme.statusWarn
-                        testLatencyMs != null -> theme.statusLive
-                        else -> theme.statusDanger
+                    val sCol = when {
+                        isTesting -> theme.statusWarning
+                        testLatencyMs != null -> theme.statusOnline
+                        else -> theme.statusAlert
                     }
                     Text(
                         text = testStatus ?: "",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = statusColor,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = sCol,
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
             }
         }
 
-        // 4. MASTER IGNITION TRIGGER BAR
+        // 4. MULTI-STOP NEON GRADIENT LAUNCH BAR
         val interactionSource = remember { MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
-        val scale by animateFloatAsState(
-            targetValue = if (isPressed) 0.97f else 1f,
+        val btnScale by animateFloatAsState(
+            targetValue = if (isPressed) 0.96f else 1f,
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "ignitionScale"
+            label = "launchScale"
         )
 
-        val btnBg = when {
-            isTransitioning -> theme.statusWarn
-            isCurrentSlotRunning -> theme.statusDanger
-            else -> theme.accentPrimary
-        }
-
-        val btnTextCol = when {
-            isCurrentSlotRunning -> Color.White
-            theme.isLight -> Color.White
-            else -> Color(0xFF06080E)
+        val btnBrush = when {
+            isTransitioning -> Brush.horizontalGradient(listOf(theme.statusWarning, theme.neonPrimary))
+            isCurrentSlotRunning -> Brush.horizontalGradient(listOf(theme.statusAlert, Color(0xFF991B1B)))
+            else -> Brush.horizontalGradient(listOf(theme.neonPrimary, theme.neonTertiary, theme.neonSecondary))
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(54.dp)
                 .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
+                    scaleX = btnScale
+                    scaleY = btnScale
                 }
                 .clip(RoundedCornerShape(16.dp))
-                .background(btnBg)
+                .background(btnBrush)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -1617,14 +1628,15 @@ fun AetherCockpitScreen(
         ) {
             Text(
                 text = when {
-                    isTransitioning -> "APPLYING KERNEL NETFILTER..."
-                    !isProxyActive -> "IGNITE KERNEL TUNNEL • NODE P$activeSlot"
-                    isCurrentSlotRunning -> "DISENGAGE TUNNEL • STOP P$activeSlot"
-                    else -> "SWITCH TO NODE P$activeSlot & IGNITE"
+                    isTransitioning -> "SYNCHRONIZING KERNEL TUNNEL..."
+                    !isProxyActive -> "ENGAGE TUNNEL • NODE P$activeSlot"
+                    isCurrentSlotRunning -> "DISCONNECT TUNNEL • NODE P$activeSlot"
+                    else -> "SWITCH TO NODE P$activeSlot & ENGAGE"
                 },
-                fontSize = 13.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Black,
-                color = btnTextCol,
+                color = Color.White,
+                letterSpacing = 0.8.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1633,11 +1645,11 @@ fun AetherCockpitScreen(
 }
 
 // -------------------------------------------------------------
-// SPLIT BENTO HERO DECK (HEXAGON POWER CORE + EXIT PASSPORT)
+// HERO PLASMA TURBINE + EXIT NODE PASSPORT CARD
 // -------------------------------------------------------------
 
 @Composable
-fun AetherBentoHeroDeck(
+fun ChromaPlasmaHeroCard(
     isProxyActive: Boolean,
     isTransitioning: Boolean,
     runningSlot: Int?,
@@ -1653,83 +1665,79 @@ fun AetherBentoHeroDeck(
     onRefreshIp: () -> Unit,
     onToggleProxy: () -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
     val context = LocalContext.current
 
-    val infiniteTransition = rememberInfiniteTransition(label = "hexCore")
-    val hexAngle by infiniteTransition.animateFloat(
+    val infiniteTransition = rememberInfiniteTransition(label = "plasmaTurbine")
+
+    val spinOuter by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             tween(
                 durationMillis = when {
-                    isTransitioning -> 1600
-                    isProxyActive -> 5000
-                    else -> 16000
+                    isTransitioning -> 1400
+                    isProxyActive -> 3600
+                    else -> 12000
                 },
                 easing = LinearEasing
             ),
             RepeatMode.Restart
         ),
-        label = "hexAngle"
+        label = "spinOuter"
     )
 
-    val sonarRipple by infiniteTransition.animateFloat(
+    val spinInner by infiniteTransition.animateFloat(
+        initialValue = 360f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            tween(
+                durationMillis = when {
+                    isTransitioning -> 1000
+                    isProxyActive -> 2400
+                    else -> 9000
+                },
+                easing = LinearEasing
+            ),
+            RepeatMode.Restart
+        ),
+        label = "spinInner"
+    )
+
+    val pulseWave by infiniteTransition.animateFloat(
         initialValue = 0.45f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            tween(1600, easing = FastOutSlowInEasing),
+            tween(1500, easing = FastOutSlowInEasing),
             RepeatMode.Restart
         ),
-        label = "sonarRipple"
+        label = "pulseWave"
     )
 
-    val coreColor by animateColorAsState(
-        targetValue = when {
-            isTransitioning -> theme.statusWarn
-            isProxyActive -> theme.statusLive
-            else -> theme.accentSecondary
-        },
-        animationSpec = tween(400),
-        label = "coreColor"
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = theme.cardGlass,
+        border = BorderStroke(
+            width = 1.5.dp,
+            brush = Brush.linearGradient(
+                if (isProxyActive) listOf(theme.statusOnline, theme.neonSecondary, theme.neonPrimary)
+                else listOf(theme.neonPrimary.copy(alpha = 0.7f), theme.neonTertiary.copy(alpha = 0.5f))
+            )
+        ),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        // LEFT BENTO: INTERACTIVE HEXAGON SONAR POWER CORE
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = theme.cardBg,
-            border = BorderStroke(1.2.dp, if (isProxyActive) coreColor.copy(alpha = 0.65f) else theme.strokeSubtle),
-            modifier = Modifier
-                .weight(0.42f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(20.dp))
-                .clickable(enabled = !isTransitioning) { onToggleProxy() }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = if (isProxyActive) "CORE ONLINE" else "TAP TO START",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = coreColor,
-                    maxLines = 1
-                )
-
+                // Left: Interactive Multi-Ring Plasma Turbine (Tap to Toggle)
                 Box(
                     modifier = Modifier
-                        .size(92.dp)
-                        .padding(4.dp),
+                        .size(106.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = !isTransitioning) { onToggleProxy() },
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
@@ -1737,198 +1745,211 @@ fun AetherBentoHeroDeck(
                         val cy = size.height / 2f
                         val r = size.minDimension / 2f
 
-                        // Expanding Sonar Shockwave Ring when Active
+                        // Expanding Shockwave Ring
                         if (isProxyActive || isTransitioning) {
                             drawCircle(
-                                color = coreColor.copy(alpha = (1f - sonarRipple) * 0.55f),
-                                radius = r * sonarRipple,
+                                color = theme.statusOnline.copy(alpha = (1f - pulseWave) * 0.6f),
+                                radius = r * pulseWave,
                                 center = Offset(cx, cy),
-                                style = Stroke(width = 2.dp.toPx())
+                                style = Stroke(width = 2.5.dp.toPx())
                             )
                         }
 
-                        // Rotating Tactical Hexagon
-                        rotate(degrees = hexAngle, pivot = Offset(cx, cy)) {
-                            val hexPath = Path()
-                            for (i in 0 until 6) {
-                                val deg = i * 60.0
-                                val rad = Math.toRadians(deg)
-                                val px = cx + (r * 0.78f * cos(rad)).toFloat()
-                                val py = cy + (r * 0.78f * sin(rad)).toFloat()
-                                if (i == 0) hexPath.moveTo(px, py) else hexPath.lineTo(px, py)
+                        // Outer Multi-Stop Gradient Ring
+                        rotate(degrees = spinOuter, pivot = Offset(cx, cy)) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(theme.neonPrimary, theme.neonSecondary, theme.neonTertiary, theme.neonPrimary)
+                                ),
+                                startAngle = 0f,
+                                sweepAngle = 290f,
+                                useCenter = false,
+                                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+                            )
+
+                            // 3 Orbiting Satellite Nodes
+                            for (s in 0..2) {
+                                val ang = Math.toRadians((s * 120).toDouble())
+                                val sx = cx + (r * 0.86f * cos(ang)).toFloat()
+                                val sy = cy + (r * 0.86f * sin(ang)).toFloat()
+                                drawCircle(
+                                    color = theme.neonSecondary,
+                                    radius = 3.2.dp.toPx(),
+                                    center = Offset(sx, sy)
+                                )
                             }
-                            hexPath.close()
-                            drawPath(
-                                path = hexPath,
-                                color = coreColor,
-                                style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
+                        }
+
+                        // Inner Counter-Rotating Dashed Plasma Ring
+                        rotate(degrees = spinInner, pivot = Offset(cx, cy)) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(theme.neonSecondary, theme.statusOnline, Color.Transparent, theme.neonSecondary)
+                                ),
+                                startAngle = 20f,
+                                sweepAngle = 240f,
+                                useCenter = false,
+                                topLeft = Offset(r * 0.24f, r * 0.24f),
+                                size = Size(r * 1.52f, r * 1.52f),
+                                style = Stroke(
+                                    width = 2.4.dp.toPx(),
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                                )
                             )
                         }
 
-                        // Counter-Rotating Inner Triangle/Hex Core
-                        rotate(degrees = -hexAngle * 1.4f, pivot = Offset(cx, cy)) {
-                            drawCircle(
-                                color = coreColor.copy(alpha = 0.18f),
-                                radius = r * 0.48f,
-                                center = Offset(cx, cy)
-                            )
-                        }
+                        // Glowing Center Core
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = if (isProxyActive) {
+                                    listOf(theme.statusOnline.copy(alpha = 0.45f), theme.neonSecondary.copy(alpha = 0.1f))
+                                } else {
+                                    listOf(theme.neonPrimary.copy(alpha = 0.35f), Color.Transparent)
+                                }
+                            ),
+                            radius = r * 0.52f,
+                            center = Offset(cx, cy)
+                        )
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (isProxyActive) "P${runningSlot ?: activeSlot}" else "P$activeSlot",
-                            fontSize = 15.sp,
+                            text = when {
+                                isTransitioning -> "SYNC"
+                                isProxyActive -> "LIVE"
+                                else -> "START"
+                            },
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Black,
-                            color = theme.textMain
+                            color = theme.textBright
                         )
                         Text(
-                            text = if (isProxyActive) "LIVE" else "IDLE",
-                            fontSize = 8.5.sp,
+                            text = "NODE P${if (isProxyActive) (runningSlot ?: activeSlot) else activeSlot}",
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            color = coreColor
+                            color = if (isProxyActive) theme.statusOnline else theme.neonSecondary
                         )
                     }
                 }
 
-                // Bottom Uptime or Protocol Label (Stacked cleanly, zero collision)
-                if (isProxyActive && sessionStartMs > 0L) {
-                    AetherUptimePill(sessionStartMs = sessionStartMs)
-                } else {
-                    Text(
-                        text = proxyType.displayTitle,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = theme.textSub,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-
-        // RIGHT BENTO STACK: EXIT NODE PASSPORT + KERNEL PID / DNS STATUS
-        Column(
-            modifier = Modifier
-                .weight(0.58f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Top Right Card: Exit IP & Geo Location Passport
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = theme.cardBg,
-                border = BorderStroke(1.dp, theme.strokeSubtle),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable {
-                        if (isProxyActive && publicIpInfo != null) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("ExitIP", publicIpInfo.ip))
-                            Toast.makeText(context, "Copied: ${publicIpInfo.ip}", Toast.LENGTH_SHORT).show()
-                        } else if (isProxyActive) {
-                            onRefreshIp()
-                        }
-                    }
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                // Right: Cleanly Stacked Exit Node & Session Telemetry (Zero Text Collision)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (isProxyActive) "EXIT NODE IP" else "TARGET ENDPOINT",
-                            fontSize = 9.5.sp,
+                            text = if (isProxyActive) "EXIT TUNNEL" else "CONFIGURED NODE",
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
-                            color = theme.textSub
+                            color = if (isProxyActive) theme.statusOnline else theme.neonPrimary
                         )
-                        if (isProxyActive) {
+
+                        if (isProxyActive && sessionStartMs > 0L) {
+                            ChromaUptimePill(sessionStartMs = sessionStartMs)
+                        }
+                    }
+
+                    // Exit IP / Host Card
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = theme.cardInner,
+                        border = BorderStroke(1.dp, theme.borderBase),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                if (isProxyActive && publicIpInfo != null) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("ExitIP", publicIpInfo.ip))
+                                    Toast.makeText(context, "Copied: ${publicIpInfo.ip}", Toast.LENGTH_SHORT).show()
+                                } else if (isProxyActive) {
+                                    onRefreshIp()
+                                }
+                            }
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "🛰️",
+                                        fontSize = 17.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isProxyActive) {
+                                            when {
+                                                isFetchingIp -> "Verifying..."
+                                                publicIpInfo != null -> publicIpInfo.ip
+                                                ipFetchFailed -> "Tap Retry"
+                                                else -> "Resolving..."
+                                            }
+                                        } else {
+                                            if (host.isNotBlank()) host.trim() else "No Host Set"
+                                        },
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = theme.textBright,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (isProxyActive) {
+                                    Text(
+                                        text = if (isFetchingIp) "..." else "↻",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = theme.neonSecondary,
+                                        modifier = Modifier
+                                            .clickable { onRefreshIp() }
+                                            .padding(start = 6.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(3.dp))
+
                             Text(
-                                text = if (isFetchingIp) "..." else "↻ Verify",
+                                text = if (isProxyActive) {
+                                    when {
+                                        isFetchingIp -> "Checking exit node via local SOCKS..."
+                                        publicIpInfo != null -> "${publicIpInfo.country} • Tap to copy"
+                                        ipFetchFailed -> "Tap card to re-verify exit IP"
+                                        else -> "Synchronizing..."
+                                    }
+                                } else {
+                                    if (host.isNotBlank()) "Port ${port.trim()} • ${proxyType.displayTitle}" else "Configure in Nodes tab"
+                                },
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = theme.accentSecondary,
-                                modifier = Modifier.clickable { onRefreshIp() }
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (ipFetchFailed && isProxyActive) theme.statusAlert else theme.textSoft,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "🛰️",
-                            fontSize = 18.sp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isProxyActive) {
-                                when {
-                                    isFetchingIp -> "Checking..."
-                                    publicIpInfo != null -> publicIpInfo.ip
-                                    ipFetchFailed -> "Tap Verify"
-                                    else -> "Resolving..."
-                                }
-                            } else {
-                                if (host.isNotBlank()) host.trim() else "Not Configured"
-                            },
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
-                            color = theme.textMain,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
                     Text(
                         text = if (isProxyActive) {
-                            when {
-                                isFetchingIp -> "Querying through tunnel..."
-                                publicIpInfo != null -> publicIpInfo.country
-                                ipFetchFailed -> "Timeout • Tap to retry"
-                                else -> "Synchronizing..."
-                            }
+                            "PID ${activePid ?: "Active"} • Cloudflare & Google DoT Ready"
                         } else {
-                            if (host.isNotBlank()) "Port ${port.trim()} • ${proxyType.displayTitle}" else "Open Nodes tab to configure"
-                        },
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (ipFetchFailed && isProxyActive) theme.statusDanger else theme.accentSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // Bottom Right Card: Private DNS Shield & Kernel PID Status
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = theme.cardHighlight,
-                border = BorderStroke(1.dp, theme.strokeSubtle),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                    Text(
-                        text = if (isProxyActive) "PRIVATE DNS (DoT 853) TUNNELED" else "DNS HIJACK ENGINE READY",
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = if (isProxyActive) theme.statusLive else theme.textSub,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (isProxyActive) {
-                            "PID ${activePid ?: "Active"} • Cloudflare / Google DoT Ready"
-                        } else {
-                            "Supports Cloudflare, Google & Custom DoT"
+                            "Tap Plasma Core or Launch Bar to start"
                         },
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = theme.textMain,
+                        fontWeight = FontWeight.SemiBold,
+                        color = theme.textMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1939,11 +1960,11 @@ fun AetherBentoHeroDeck(
 }
 
 // -------------------------------------------------------------
-// TWIN-TURBINE 240° RADIAL SPEEDOMETER GAUGES + 24-BAR SPECTRUM
+// TWIN NEON SPEEDOMETER GAUGES + LIVE DUAL WAVE & 28-BAR SPECTRUM
 // -------------------------------------------------------------
 
 @Composable
-fun AetherTwinSpeedometerCluster(
+fun ChromaTelemetryDeck(
     isProxyActive: Boolean,
     currentRxRate: Long,
     currentTxRate: Long,
@@ -1954,109 +1975,118 @@ fun AetherTwinSpeedometerCluster(
     rxSpectrum: List<Long>,
     txSpectrum: List<Long>
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
+    val infiniteTransition = rememberInfiniteTransition(label = "waveAnim")
+    val wavePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            tween(if (isProxyActive) 1500 else 4500, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "wavePhase"
+    )
 
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = theme.cardBg,
-        border = BorderStroke(1.dp, theme.strokeSubtle),
+        shape = RoundedCornerShape(22.dp),
+        color = theme.cardGlass,
+        border = BorderStroke(
+            width = 1.2.dp,
+            brush = Brush.horizontalGradient(
+                listOf(theme.neonSecondary.copy(alpha = 0.6f), theme.neonPrimary.copy(alpha = 0.6f))
+            )
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Twin Radial Gauges Row (Downlink Left | Uplink Right)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                AetherRadialSpeedGauge(
-                    title = "DOWNLINK",
+                ChromaSpeedGauge(
+                    title = "DOWNLOAD",
                     bytesPerSec = currentRxRate,
                     peakBytesPerSec = peakRxRate,
                     totalBytes = totalRxBytes,
-                    gaugeColor = theme.accentPrimary,
+                    primaryColor = theme.neonSecondary,
+                    secondaryColor = theme.statusOnline,
                     isProxyActive = isProxyActive,
                     modifier = Modifier.weight(1f)
                 )
 
-                AetherRadialSpeedGauge(
-                    title = "UPLINK",
+                ChromaSpeedGauge(
+                    title = "UPLOAD",
                     bytesPerSec = currentTxRate,
                     peakBytesPerSec = peakTxRate,
                     totalBytes = totalTxBytes,
-                    gaugeColor = theme.accentSecondary,
+                    primaryColor = theme.neonPrimary,
+                    secondaryColor = theme.neonTertiary,
                     isProxyActive = isProxyActive,
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 24-Bar Vertical LED Packet Spectrum Equalizer
-            Column(
+            // Hybrid Live Dual-Wave + 28-Bar Neon Equalizer Canvas
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(theme.inputBg)
-                    .border(1.dp, theme.strokeSubtle, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(theme.cardInner)
+                    .border(1.dp, theme.borderBase, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "LIVE PACKET SPECTRUM",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black,
-                        color = theme.textSub
-                    )
-                    Text(
-                        text = "TOTAL ${formatBytes(totalRxBytes + totalTxBytes)}",
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = theme.accentPrimary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp)
-                        .graphicsLayer()
-                ) {
-                    val barCount = rxSpectrum.size.coerceAtLeast(1)
-                    val maxVal = (rxSpectrum.maxOrNull() ?: 0L)
+                Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
+                    val w = size.width
+                    val h = size.height
+                    val barCount = rxSpectrum.size.coerceAtLeast(2)
+                    val maxSample = (rxSpectrum.maxOrNull() ?: 0L)
                         .coerceAtLeast(txSpectrum.maxOrNull() ?: 0L)
                         .coerceAtLeast(32 * 1024L)
 
-                    val spacing = 4.dp.toPx()
-                    val totalSpacing = spacing * (barCount - 1)
-                    val barWidth = ((size.width - totalSpacing) / barCount).coerceAtLeast(2f)
+                    val gap = 3.dp.toPx()
+                    val barW = ((w - gap * (barCount - 1)) / barCount).coerceAtLeast(2f)
+
+                    val wavePath = Path()
 
                     for (i in 0 until barCount) {
-                        val rxNorm = speedToLogFraction(rxSpectrum[i], maxVal)
-                        val txNorm = speedToLogFraction(txSpectrum[i], maxVal)
-                        val combined = (rxNorm * 0.7f + txNorm * 0.3f).coerceIn(0.08f, 1f)
-                        val barH = if (isProxyActive) size.height * combined else size.height * 0.10f
-                        val x = i * (barWidth + spacing)
-                        val y = size.height - barH
+                        val rxFrac = speedToLogFraction(rxSpectrum[i], maxSample)
+                        val txFrac = speedToLogFraction(txSpectrum[i], maxSample)
+                        val idleWave = ((sin(wavePhase + i * 0.35f) + 1f) * 0.12f).toFloat()
+                        val activeHeightFrac = if (isProxyActive) {
+                            (rxFrac * 0.75f + txFrac * 0.25f + idleWave * 0.4f).coerceIn(0.14f, 1f)
+                        } else {
+                            (0.10f + idleWave * 0.5f).coerceIn(0.10f, 0.32f)
+                        }
+
+                        val bh = h * activeHeightFrac
+                        val x = i * (barW + gap)
+                        val y = h - bh
 
                         drawRoundRect(
                             brush = Brush.verticalGradient(
-                                colors = if (isProxyActive) {
-                                    listOf(theme.accentPrimary, theme.accentSecondary)
-                                } else {
-                                    listOf(theme.textDim.copy(alpha = 0.35f), theme.textDim.copy(alpha = 0.15f))
-                                }
+                                colors = listOf(theme.neonSecondary, theme.neonPrimary)
                             ),
                             topLeft = Offset(x, y),
-                            size = Size(barWidth, barH),
-                            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                            size = Size(barW, bh),
+                            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                            alpha = if (isProxyActive) 0.85f else 0.35f
                         )
+
+                        val wx = x + barW / 2f
+                        val wy = (h * 0.78f) - (rxFrac * h * 0.62f) + (sin(wavePhase + i * 0.4f) * 4f).toFloat()
+                        if (i == 0) wavePath.moveTo(wx, wy) else wavePath.lineTo(wx, wy)
                     }
+
+                    drawPath(
+                        path = wavePath,
+                        brush = Brush.horizontalGradient(
+                            listOf(theme.statusOnline, theme.neonSecondary, theme.neonPrimary)
+                        ),
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                    )
                 }
             }
         }
@@ -2064,56 +2094,55 @@ fun AetherTwinSpeedometerCluster(
 }
 
 @Composable
-fun AetherRadialSpeedGauge(
+fun ChromaSpeedGauge(
     title: String,
     bytesPerSec: Long,
     peakBytesPerSec: Long,
     totalBytes: Long,
-    gaugeColor: Color,
+    primaryColor: Color,
+    secondaryColor: Color,
     isProxyActive: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val theme = LocalAetherTheme.current
-    // Logarithmic gauge fraction (0.0 .. 1.0) so both KB/s and MB/s animate smoothly
-    val targetFraction = if (isProxyActive) speedToLogFraction(bytesPerSec, 50L * 1024L * 1024L) else 0f
-    val animatedFraction by animateFloatAsState(
-        targetValue = targetFraction,
+    val theme = LocalChromaTheme.current
+    val targetFrac = if (isProxyActive) speedToLogFraction(bytesPerSec, 50L * 1024L * 1024L) else 0f
+    val animFrac by animateFloatAsState(
+        targetValue = targetFrac,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "gaugeArcFraction"
+        label = "speedGaugeArc"
     )
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(theme.inputBg)
-            .border(1.dp, theme.strokeSubtle, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
+            .background(theme.cardInner)
+            .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
             .padding(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = title,
-            fontSize = 9.5.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Black,
-            color = gaugeColor,
+            color = primaryColor,
+            letterSpacing = 0.8.sp,
             maxLines = 1
         )
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 240° Sweeping Speedometer Dial
         Box(
-            modifier = Modifier.size(92.dp),
+            modifier = Modifier.size(88.dp),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
                 val strokeW = 7.dp.toPx()
-                val pad = strokeW / 2f + 4.dp.toPx()
+                val pad = strokeW / 2f + 3.dp.toPx()
                 val arcSize = Size(size.width - pad * 2, size.height - pad * 2)
                 val topLeft = Offset(pad, pad)
 
-                // Background Track Arc (150° to +240°)
                 drawArc(
-                    color = theme.strokeSubtle,
+                    color = theme.borderBase,
                     startAngle = 150f,
                     sweepAngle = 240f,
                     useCenter = false,
@@ -2122,12 +2151,11 @@ fun AetherRadialSpeedGauge(
                     style = Stroke(width = strokeW, cap = StrokeCap.Round)
                 )
 
-                // Active Speed Sweep Arc
-                val sweep = (240f * animatedFraction).coerceIn(2f, 240f)
-                if (isProxyActive && bytesPerSec > 0) {
+                val sweep = (240f * animFrac).coerceIn(4f, 240f)
+                if (isProxyActive) {
                     drawArc(
                         brush = Brush.sweepGradient(
-                            colors = listOf(gaugeColor.copy(alpha = 0.5f), gaugeColor, theme.accentSecondary)
+                            listOf(primaryColor, secondaryColor, primaryColor)
                         ),
                         startAngle = 150f,
                         sweepAngle = sweep,
@@ -2137,42 +2165,21 @@ fun AetherRadialSpeedGauge(
                         style = Stroke(width = strokeW, cap = StrokeCap.Round)
                     )
                 }
-
-                // Outer Scale Tick Marks
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val outerR = size.width / 2f - 1.dp.toPx()
-                for (t in 0..8) {
-                    val deg = 150.0 + (t * 30.0)
-                    val rad = Math.toRadians(deg)
-                    val sx = cx + ((outerR - 3.dp.toPx()) * cos(rad)).toFloat()
-                    val sy = cy + ((outerR - 3.dp.toPx()) * sin(rad)).toFloat()
-                    val ex = cx + (outerR * cos(rad)).toFloat()
-                    val ey = cy + (outerR * sin(rad)).toFloat()
-                    drawLine(
-                        color = if (t / 8f <= animatedFraction && isProxyActive) gaugeColor else theme.textDim.copy(alpha = 0.4f),
-                        start = Offset(sx, sy),
-                        end = Offset(ex, ey),
-                        strokeWidth = 1.5.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-                }
             }
 
-            // Center Digital Speed Readout (Stacked vertically so unit never collides)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = splitSpeedValue(bytesPerSec),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Black,
-                    color = theme.textMain,
+                    color = theme.textBright,
                     maxLines = 1
                 )
                 Text(
                     text = splitSpeedUnit(bytesPerSec),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Bold,
-                    color = gaugeColor,
+                    color = primaryColor,
                     maxLines = 1
                 )
             }
@@ -2180,19 +2187,18 @@ fun AetherRadialSpeedGauge(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Clean Stacked Footer (No Side-by-Side Collisions!)
         Text(
-            text = "Peak: ${formatCompactRate(peakBytesPerSec)}",
+            text = "Peak ${formatCompactRate(peakBytesPerSec)}",
             fontSize = 9.5.sp,
             fontWeight = FontWeight.SemiBold,
-            color = theme.textSub,
+            color = theme.textSoft,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = "Total: ${formatBytes(totalBytes)}",
+            text = "Total ${formatBytes(totalBytes)}",
             fontSize = 9.sp,
-            color = theme.textDim,
+            color = theme.textMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -2200,12 +2206,12 @@ fun AetherRadialSpeedGauge(
 }
 
 // -------------------------------------------------------------
-// SCREEN 1: NODE CONFIGURATION & URI IMPORT
+// SCREEN 1: NODE CONFIGURATION & URI IMPORTER
 // -------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AetherNodeConfigScreen(
+fun ChromaNodeConfigView(
     activeSlot: Int,
     host: String,
     port: String,
@@ -2234,7 +2240,7 @@ fun AetherNodeConfigScreen(
     onResetSlot: () -> Unit,
     getCurrentSettings: () -> ProxySettings
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isCheckingAlive by remember { mutableStateOf(false) }
@@ -2246,11 +2252,10 @@ fun AetherNodeConfigScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. SPACIOUS STACKED QUICK IMPORT & SOCKET PROBE CARD (NO COLLISION)
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = theme.cardBg,
-            border = BorderStroke(1.dp, theme.strokeSubtle),
+            color = theme.cardGlass,
+            border = BorderStroke(1.dp, theme.borderBase),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -2258,13 +2263,13 @@ fun AetherNodeConfigScreen(
                     text = "QUICK IMPORT & SOCKET DIAGNOSTICS",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
-                    color = theme.accentPrimary
+                    color = theme.neonSecondary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Import vless://, trojan://, ss://, hy2://, socks5:// or test node reachability",
+                    text = "Paste vless://, trojan://, ss://, hy2://, socks5:// or test socket",
                     fontSize = 10.5.sp,
-                    color = theme.textSub
+                    color = theme.textSoft
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -2282,14 +2287,14 @@ fun AetherNodeConfigScreen(
                                 onImportUri(parsed)
                                 Toast.makeText(context, "Imported ${parsed.type.displayTitle}", Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(context, "Clipboard does not contain a supported proxy URI", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "No valid proxy URI in clipboard", Toast.LENGTH_SHORT).show()
                             }
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, theme.accentSecondary.copy(alpha = 0.6f))
+                        border = BorderStroke(1.dp, theme.neonSecondary)
                     ) {
-                        Text("📋 Paste URI", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.accentSecondary)
+                        Text("📋 Paste URI", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.neonSecondary)
                     }
 
                     Button(
@@ -2309,8 +2314,8 @@ fun AetherNodeConfigScreen(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = theme.accentPrimary,
-                            contentColor = if (theme.isLight) Color.White else Color(0xFF06080E)
+                            containerColor = theme.neonPrimary,
+                            contentColor = Color.White
                         )
                     ) {
                         Text(
@@ -2332,17 +2337,17 @@ fun AetherNodeConfigScreen(
                             is TestResult.Success -> {
                                 Text(
                                     text = "✓ HANDSHAKE VERIFIED (${res.latencyMs} ms)",
-                                    color = theme.statusLive,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    color = theme.statusOnline,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Black
                                 )
                             }
                             is TestResult.Failure -> {
                                 Text(
                                     text = "✕ UNREACHABLE: ${res.error}",
-                                    color = theme.statusDanger,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    color = theme.statusAlert,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Black
                                 )
                             }
                             null -> {}
@@ -2352,11 +2357,10 @@ fun AetherNodeConfigScreen(
             }
         }
 
-        // 2. NODE PARAMETERS CARD
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = theme.cardBg,
-            border = BorderStroke(1.dp, theme.strokeSubtle),
+            color = theme.cardGlass,
+            border = BorderStroke(1.dp, theme.borderBase),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -2369,20 +2373,20 @@ fun AetherNodeConfigScreen(
                         text = "NODE P$activeSlot PARAMETERS",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = theme.accentPrimary
+                        color = theme.neonPrimary
                     )
                     Text(
-                        text = "Reset Node",
+                        text = "Clear P$activeSlot",
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = theme.statusDanger,
+                        color = theme.statusAlert,
                         modifier = Modifier.clickable { onResetSlot() }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text("PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSub)
+                Text("PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSoft)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
@@ -2396,8 +2400,8 @@ fun AetherNodeConfigScreen(
                             onClick = { onProxyTypeChange(t); onConfigChanged() },
                             label = { Text(t.displayTitle, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = theme.accentPrimary,
-                                selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
+                                selectedContainerColor = theme.neonPrimary,
+                                selectedLabelColor = Color.White
                             )
                         )
                     }
@@ -2405,7 +2409,7 @@ fun AetherNodeConfigScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Text("TRANSPORT & WEBRTC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSub)
+                Text("TRANSPORT & WEBRTC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSoft)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -2413,8 +2417,8 @@ fun AetherNodeConfigScreen(
                         onClick = { onTransportModeChange(TransportMode.TCP_AND_UDP); onConfigChanged() },
                         label = { Text("TCP + UDP (TProxy)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = theme.accentPrimary,
-                            selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
+                            selectedContainerColor = theme.neonPrimary,
+                            selectedLabelColor = Color.White
                         )
                     )
                     FilterChip(
@@ -2422,15 +2426,15 @@ fun AetherNodeConfigScreen(
                         onClick = { onTransportModeChange(TransportMode.TCP_ONLY); onConfigChanged() },
                         label = { Text("TCP Only", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = theme.accentPrimary,
-                            selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
+                            selectedContainerColor = theme.neonPrimary,
+                            selectedLabelColor = Color.White
                         )
                     )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Text("IP STACK STRATEGY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSub)
+                Text("IP STACK STRATEGY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSoft)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
@@ -2443,8 +2447,8 @@ fun AetherNodeConfigScreen(
                             onClick = { onIpModeChange(mode); onConfigChanged() },
                             label = { Text(lbl, fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = theme.accentPrimary,
-                                selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
+                                selectedContainerColor = theme.neonPrimary,
+                                selectedLabelColor = Color.White
                             )
                         )
                     }
@@ -2504,7 +2508,7 @@ fun AetherNodeConfigScreen(
                                             Text(
                                                 text = if (passVisible) "Hide" else "Show",
                                                 fontSize = 11.sp,
-                                                color = theme.accentPrimary,
+                                                color = theme.neonSecondary,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier
                                                     .clickable { passVisible = !passVisible }
@@ -2538,7 +2542,7 @@ fun AetherNodeConfigScreen(
                                         Text(
                                             text = if (passVisible) "Hide" else "Show",
                                             fontSize = 11.sp,
-                                            color = theme.accentPrimary,
+                                            color = theme.neonSecondary,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .clickable { passVisible = !passVisible }
@@ -2601,7 +2605,7 @@ fun AetherNodeConfigScreen(
                                         Text(
                                             text = if (passVisible) "Hide" else "Show",
                                             fontSize = 11.sp,
-                                            color = theme.accentPrimary,
+                                            color = theme.neonSecondary,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .clickable { passVisible = !passVisible }
@@ -2638,7 +2642,7 @@ fun AetherNodeConfigScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AetherRoutingScreen(
+fun ChromaRoutingView(
     startOnBoot: Boolean,
     bootSlot: Int,
     activeSlot: Int,
@@ -2654,7 +2658,7 @@ fun AetherRoutingScreen(
     onSelectAll: () -> Unit,
     onClearAll: () -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -2662,8 +2666,8 @@ fun AetherRoutingScreen(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = theme.cardBg,
-            border = BorderStroke(1.dp, theme.strokeSubtle),
+            color = theme.cardGlass,
+            border = BorderStroke(1.dp, theme.borderBase),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -2673,11 +2677,11 @@ fun AetherRoutingScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Start on System Boot", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textMain)
+                        Text("Auto-Start on System Boot", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textBright)
                         Text(
                             text = if (startOnBoot) "Armed for Node P$bootSlot (/data/adb/service.d)" else "Manual launch only",
                             fontSize = 10.5.sp,
-                            color = if (startOnBoot) theme.statusLive else theme.textSub
+                            color = if (startOnBoot) theme.statusOnline else theme.textSoft
                         )
                     }
                     Switch(
@@ -2707,7 +2711,7 @@ fun AetherRoutingScreen(
                     }
                 }
 
-                HorizontalDivider(color = theme.strokeSubtle, modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = theme.borderBase, modifier = Modifier.padding(vertical = 8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2715,11 +2719,11 @@ fun AetherRoutingScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Hotspot & USB Tethering Bridge", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textMain)
+                        Text("Hotspot & USB Tethering Bridge", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textBright)
                         Text(
                             text = "Route connected Wi-Fi & RNDIS clients through proxy",
                             fontSize = 10.5.sp,
-                            color = if (routeHotspot) theme.accentSecondary else theme.textSub
+                            color = if (routeHotspot) theme.neonSecondary else theme.textSoft
                         )
                     }
                     Switch(
@@ -2732,8 +2736,8 @@ fun AetherRoutingScreen(
 
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = theme.cardBg,
-            border = BorderStroke(1.dp, theme.strokeSubtle),
+            color = theme.cardGlass,
+            border = BorderStroke(1.dp, theme.borderBase),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -2745,11 +2749,11 @@ fun AetherRoutingScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Global Profile Tunneling", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textMain)
+                        Text("Global Profile Tunneling", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textBright)
                         Text(
                             text = if (routeWholeProfile) "All apps in User ${ProfileManager.androidUserId} routed" else "Split Tunneling (${selectedPackages.size} apps active)",
                             fontSize = 10.5.sp,
-                            color = theme.textSub
+                            color = theme.textSoft
                         )
                     }
                     Switch(
@@ -2788,10 +2792,10 @@ fun AetherRoutingScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("${selectedPackages.size} selected", fontSize = 10.5.sp, color = theme.textSub)
+                            Text("${selectedPackages.size} selected", fontSize = 10.5.sp, color = theme.textSoft)
                             Row {
                                 TextButton(onClick = onSelectAll) { Text("Select All", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                                TextButton(onClick = onClearAll) { Text("Clear", fontSize = 11.sp, color = theme.statusDanger, fontWeight = FontWeight.Bold) }
+                                TextButton(onClick = onClearAll) { Text("Clear", fontSize = 11.sp, color = theme.statusAlert, fontWeight = FontWeight.Bold) }
                             }
                         }
 
@@ -2802,15 +2806,15 @@ fun AetherRoutingScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isChecked) theme.cardHighlight else Color.Transparent)
+                                        .background(if (isChecked) theme.cardInner else Color.Transparent)
                                         .clickable { onToggleAppSelection(app.packageName) }
                                         .padding(vertical = 6.dp, horizontal = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(app.name, color = theme.textMain, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${app.packageName} • UID ${app.uid}", color = theme.textSub, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(app.name, color = theme.textBright, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${app.packageName} • UID ${app.uid}", color = theme.textSoft, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     Checkbox(
                                         checked = isChecked,
@@ -2831,20 +2835,20 @@ fun AetherRoutingScreen(
 // -------------------------------------------------------------
 
 @Composable
-fun AetherTerminalScreen(
+fun ChromaTerminalView(
     activeSlot: Int,
     runningSlot: Int?,
     currentLogs: String,
     onRefreshLogs: () -> Unit,
     onClearLogs: () -> Unit
 ) {
-    val theme = LocalAetherTheme.current
+    val theme = LocalChromaTheme.current
     val context = LocalContext.current
 
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = theme.cardBg,
-        border = BorderStroke(1.dp, theme.strokeSubtle),
+        color = theme.cardGlass,
+        border = BorderStroke(1.dp, theme.borderBase),
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
@@ -2862,12 +2866,12 @@ fun AetherTerminalScreen(
                         text = "KERNEL TELEMETRY CONSOLE",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
-                        color = theme.accentPrimary
+                        color = theme.neonSecondary
                     )
                     Text(
                         text = "Slot P${runningSlot ?: activeSlot} • sing-box & netfilter stream",
                         fontSize = 10.5.sp,
-                        color = theme.textSub
+                        color = theme.textSoft
                     )
                 }
 
@@ -2877,10 +2881,10 @@ fun AetherTerminalScreen(
                         clipboard.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", currentLogs))
                         Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
                     }) {
-                        Text("Copy", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.accentSecondary)
+                        Text("Copy", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.neonSecondary)
                     }
                     TextButton(onClick = onClearLogs) {
-                        Text("Clear", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.statusDanger)
+                        Text("Clear", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.statusAlert)
                     }
                     Button(
                         onClick = onRefreshLogs,
@@ -2898,8 +2902,8 @@ fun AetherTerminalScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(theme.inputBg)
-                    .border(1.dp, theme.strokeSubtle, RoundedCornerShape(14.dp))
+                    .background(theme.cardInner)
+                    .border(1.dp, theme.borderBase, RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
                 Text(
@@ -2907,7 +2911,7 @@ fun AetherTerminalScreen(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
-                    color = theme.textMain,
+                    color = theme.textBright,
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
@@ -2918,20 +2922,94 @@ fun AetherTerminalScreen(
 }
 
 // -------------------------------------------------------------
-// HELPERS, CHIPS, UPTIME PILL & URI PARSER
+// FLOATING NEON BOTTOM NAVIGATION DOCK
 // -------------------------------------------------------------
 
 @Composable
-fun AetherChip(label: String, color: Color) {
+fun ChromaBottomDock(
+    selectedScreen: Int,
+    onSelectScreen: (Int) -> Unit,
+    splitAppsCount: Int?
+) {
+    val theme = LocalChromaTheme.current
+    val items = listOf(
+        Pair("⚡", "Cockpit"),
+        Pair("🛰️", "Nodes"),
+        Pair("🛡️", if (splitAppsCount == null) "Routing" else "Split ($splitAppsCount)"),
+        Pair("📟", "Logs")
+    )
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = theme.cardGlass,
+        border = BorderStroke(
+            width = 1.2.dp,
+            brush = Brush.horizontalGradient(listOf(theme.neonPrimary, theme.neonSecondary))
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items.forEachIndexed { index, (icon, title) ->
+                val isSelected = selectedScreen == index
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(
+                            if (isSelected) {
+                                Brush.horizontalGradient(listOf(theme.neonPrimary, theme.neonTertiary))
+                            } else {
+                                Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                            }
+                        )
+                        .clickable { onSelectScreen(index) }
+                        .padding(vertical = 9.dp, horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = icon, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = title,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                            color = if (isSelected) Color.White else theme.textSoft,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// REUSABLE CHIPS, UPTIME PILL & URI PARSER
+// -------------------------------------------------------------
+
+@Composable
+fun ChromaTag(label: String, color: Color) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = color.copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
+        color = color.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.5f))
     ) {
         Text(
             text = label,
             fontSize = 9.5.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Black,
             color = color,
             maxLines = 1,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -2940,8 +3018,8 @@ fun AetherChip(label: String, color: Color) {
 }
 
 @Composable
-fun AetherUptimePill(sessionStartMs: Long) {
-    val theme = LocalAetherTheme.current
+fun ChromaUptimePill(sessionStartMs: Long) {
+    val theme = LocalChromaTheme.current
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(sessionStartMs) {
         while (isActive) {
@@ -2957,13 +3035,13 @@ fun AetherUptimePill(sessionStartMs: Long) {
 
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = theme.statusLive.copy(alpha = 0.15f),
-        border = BorderStroke(1.dp, theme.statusLive.copy(alpha = 0.5f))
+        color = theme.statusOnline.copy(alpha = 0.16f),
+        border = BorderStroke(1.dp, theme.statusOnline)
     ) {
         Text(
             text = "⏱ $timeStr",
             fontSize = 10.sp,
-            color = theme.statusLive,
+            color = theme.statusOnline,
             fontWeight = FontWeight.Black,
             textAlign = TextAlign.Center,
             maxLines = 1,
@@ -2976,7 +3054,7 @@ private fun speedToLogFraction(bytesPerSec: Long, maxBytesPerSec: Long): Float {
     if (bytesPerSec <= 0L) return 0f
     val num = ln(bytesPerSec.toDouble() + 1.0)
     val den = ln(maxBytesPerSec.toDouble() + 1.0)
-    return (num / den).toFloat().coerceIn(0.04f, 1.0f)
+    return (num / den).toFloat().coerceIn(0.05f, 1.0f)
 }
 
 private fun parseProxyUri(rawUri: String): ProxySettings? {
