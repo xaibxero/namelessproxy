@@ -35,9 +35,6 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    // Dedicated kernel fwmark (0x1099 = 4249) so sing-box's own sockets never loop in iptables
-    const val SINGBOX_ROUTING_MARK = 4249
-
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
@@ -47,14 +44,14 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (Remote DNS routed through proxy tunnel + Direct bootstrap)
+        // 2. DNS Engine (Remote TCP DNS tunneled through proxy-out)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "8.8.8.8")
+            put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
         }
@@ -78,11 +75,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds:
-        //    - inboundPort (e.g. 10800): TCP Redirect (Apps + Private DNS Port 853 DoT)
-        //    - inboundPort + 1 (10801): Local SOCKS5 for GeoIP Telemetry
-        //    - inboundPort + 2 (10802): Dedicated UDP/TCP DNS Hijack Port (netd + Apps Port 53)
-        //    - inboundPort + 8 (10808): TPROXY TCP/UDP
+        // 3. Inbounds: TCP Redirect (inboundPort) + TCP/UDP TProxy (inboundPort + 8) + Local SOCKS5 (inboundPort + 1)
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK, IpMode.IPV6_ONLY -> "::"
@@ -95,17 +88,6 @@ object ConfigGenerator {
             put("tag", "redirect-in")
             put("listen", listenAddress)
             put("listen_port", inboundPort)
-        })
-
-        inbounds.put(JSONObject().apply {
-            put("type", "direct")
-            put("tag", "dns-in")
-            put("listen", listenAddress)
-            put("listen_port", inboundPort + 2)
-            put("network", JSONArray().apply {
-                put("udp")
-                put("tcp")
-            })
         })
 
         inbounds.put(JSONObject().apply {
@@ -128,12 +110,10 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds (Stamped with SINGBOX_ROUTING_MARK = 4249 to prevent iptables loops)
+        // 4. Outbounds (No routing_mark override so Android netd routing works natively)
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
-            put("routing_mark", SINGBOX_ROUTING_MARK)
-            put("domain_resolver", "dns-direct")
         }
 
         when (settings.type) {
@@ -220,33 +200,25 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
-            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (Handles Private DNS port 853 + Port 53 DNS Hijack)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-direct")
-            put("default_mark", SINGBOX_ROUTING_MARK)
+            put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
 
-        // Hijack anything entering dns-in or targeting port 53
         routeRules.put(JSONObject().apply {
-            put("inbound", JSONArray().apply { put("dns-in") })
-            put("action", "hijack-dns")
+            put("action", "sniff")
         })
 
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(53) })
             put("action", "hijack-dns")
-        })
-
-        routeRules.put(JSONObject().apply {
-            put("action", "sniff")
         })
 
         if (settings.transportMode == TransportMode.TCP_ONLY) {
