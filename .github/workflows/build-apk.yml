@@ -35,7 +35,7 @@ jobs:
           echo "Compiling static binary for Android arm64..."
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
             -v -trimpath \
-            -tags "with_quic,with_utls,with_ech,with_gvisor" \
+            -tags "with_quic,with_utls" \
             -ldflags "-X github.com/sagernet/sing-box/constant.Version=$LATEST_TAG -s -w -buildid=" \
             ./cmd/sing-box
           mv sing-box "$GITHUB_WORKSPACE/app/src/main/assets/sing-box"
