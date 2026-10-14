@@ -6,54 +6,136 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer Shield Armor -->
+    <!-- Back Flowing Anime Hair Silhouette -->
     <path
-        android:fillColor="#101829"
-        android:strokeWidth="2.8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M54,23 L76,32 C76,55 67.5,70 54,83 C40.5,70 32,55 32,32 Z">
-        <aapt:attr name="android:strokeColor">
+        android:pathData="M54,20 C34,20 23,35 21,58 C19,73 25,86 31,92 L38,84 C34,74 33,64 35,54 L73,54 C75,64 74,74 70,84 L77,92 C83,86 89,73 87,58 C85,35 74,20 54,20 Z">
+        <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="32"
-                android:startY="23"
-                android:endX="76"
-                android:endY="83"
+                android:startX="24"
+                android:startY="20"
+                android:endX="84"
+                android:endY="90"
                 android:type="linear">
-                <item android:color="#00F5A0" android:offset="0.0" />
-                <item android:color="#00D9F5" android:offset="1.0" />
+                <item android:color="#A855F7" android:offset="0.0" />
+                <item android:color="#6366F1" android:offset="0.55" />
+                <item android:color="#00E5FF" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Inner Core Shield -->
+    <!-- Shoulders & Cyber Jacket Collar -->
     <path
-        android:fillColor="#162238"
-        android:strokeColor="#4400D9F5"
+        android:fillColor="#111827"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M31,88 C36,77 44,73 54,73 C64,73 72,77 77,88 Z" />
+
+    <!-- Neck & Choker -->
+    <path
+        android:fillColor="#FFE4E6"
+        android:pathData="M49,65 L59,65 L60,75 L48,75 Z" />
+    <path
+        android:fillColor="#FF2E93"
+        android:pathData="M48.5,69.5 L59.5,69.5 L59.8,72 L48.2,72 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M54,69.5 A1.6,1.6 0 1,0 54,72.7 A1.6,1.6 0 1,0 54,69.5 Z" />
+
+    <!-- Anime Face Contour (Delicate Chin & Cheeks) -->
+    <path
+        android:fillColor="#FFF1F2"
+        android:pathData="M36,44 C36,56 43,66 54,68 C65,66 72,56 72,44 C72,33 64,27 54,27 C44,27 36,33 36,44 Z" />
+
+    <!-- Soft Cheek Blush -->
+    <path
+        android:fillColor="#44FF2E93"
+        android:pathData="M41,54 A3.2,1.8 0 1,0 41,57.6 A3.2,1.8 0 1,0 41,54 Z" />
+    <path
+        android:fillColor="#44FF2E93"
+        android:pathData="M67,54 A3.2,1.8 0 1,0 67,57.6 A3.2,1.8 0 1,0 67,54 Z" />
+
+    <!-- Left Anime Eye -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,47 C41,44 46,44 48,47 C47,51 41,51 40,47 Z" />
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M44.2,45.2 A3.1,3.4 0 1,0 44.2,52 A3.1,3.4 0 1,0 44.2,45.2 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M44.2,47.5 A2.0,2.0 0 1,0 44.2,51.5 A2.0,2.0 0 1,0 44.2,47.5 Z" />
+    <path
+        android:fillColor="#1E1B4B"
+        android:pathData="M44.2,47.2 A1.3,1.5 0 1,0 44.2,50.2 A1.3,1.5 0 1,0 44.2,47.2 Z" />
+    <!-- Eye Starlight Catchlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42.8,46.2 A1.1,1.1 0 1,0 42.8,48.4 A1.1,1.1 0 1,0 42.8,46.2 Z" />
+    <!-- Upper Eyelash -->
+    <path
+        android:strokeColor="#1E1B4B"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round"
+        android:pathData="M39.2,46.8 C41.5,43.6 46.2,43.8 48.5,46.5" />
+
+    <!-- Right Anime Eye -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,47 C62,44 67,44 68,47 C67,51 61,51 60,47 Z" />
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M63.8,45.2 A3.1,3.4 0 1,0 63.8,52 A3.1,3.4 0 1,0 63.8,45.2 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M63.8,47.5 A2.0,2.0 0 1,0 63.8,51.5 A2.0,2.0 0 1,0 63.8,47.5 Z" />
+    <path
+        android:fillColor="#1E1B4B"
+        android:pathData="M63.8,47.2 A1.3,1.5 0 1,0 63.8,50.2 A1.3,1.5 0 1,0 63.8,47.2 Z" />
+    <!-- Eye Starlight Catchlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62.4,46.2 A1.1,1.1 0 1,0 62.4,48.4 A1.1,1.1 0 1,0 62.4,46.2 Z" />
+    <!-- Upper Eyelash -->
+    <path
+        android:strokeColor="#1E1B4B"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round"
+        android:pathData="M59.5,46.5 C61.8,43.8 66.5,43.6 68.8,46.8" />
+
+    <!-- Subtle Nose & Gentle Smile -->
+    <path
+        android:strokeColor="#F43F5E"
         android:strokeWidth="1.2"
-        android:pathData="M54,30 L69,36.5 C69,53.5 62.5,64.5 54,74 C45.5,64.5 39,53.5 39,36.5 Z" />
-
-    <!-- Stylized "N" Quantum Tunnel Monogram -->
-    <path
-        android:strokeColor="#00F5A0"
-        android:strokeWidth="2.8"
         android:strokeLineCap="round"
-        android:pathData="M46.5,42.5 L46.5,62.5" />
-
+        android:pathData="M53.6,54.2 L54.2,55.2" />
     <path
-        android:strokeColor="#00D9F5"
-        android:strokeWidth="2.8"
+        android:strokeColor="#E11D48"
+        android:strokeWidth="1.4"
         android:strokeLineCap="round"
-        android:pathData="M61.5,42.5 L61.5,62.5" />
+        android:pathData="M51.2,59.5 Q54,61.6 56.8,59.5" />
 
+    <!-- Front Sweeping Anime Bangs & Side Locks -->
     <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.6"
+        android:pathData="M31,42 C31,26 42,20 54,20 C66,20 77,26 77,42 C77,52 74,62 70,70 C71,58 71,46 68,38 C65,43 62,46 59,41 C57,46 54,48 54,40 C51,47 47,46 45,40 C42,45 39,43 38,38 C36,46 37,58 38,70 C34,62 31,52 31,42 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="31"
+                android:startY="20"
+                android:endX="77"
+                android:endY="66"
+                android:type="linear">
+                <item android:color="#C084FC" android:offset="0.0" />
+                <item android:color="#8B5CF6" android:offset="0.5" />
+                <item android:color="#38BDF8" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Anime Hair Crown Gloss Highlight Ribbon -->
+    <path
+        android:strokeColor="#66FFFFFF"
+        android:strokeWidth="2.0"
         android:strokeLineCap="round"
-        android:pathData="M46.5,43.5 L61.5,61.5" />
-
-    <!-- Glowing Center Core Node -->
-    <path
-        android:fillColor="#00F5A0"
-        android:pathData="M54,50.5 A2.2,2.2 0 1,0 54,54.9 A2.2,2.2 0 1,0 54,50.5 Z" />
+        android:pathData="M38,32 Q46,28 54,31 Q62,28 70,32" />
 </vector>
