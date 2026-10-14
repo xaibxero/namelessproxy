@@ -1,50 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Cyber Shield Outer Silhouette -->
+    <!-- Outer Shield Armor -->
     <path
-        android:fillColor="#151926"
-        android:strokeColor="#00E676"
+        android:fillColor="#101829"
         android:strokeWidth="2.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M54,25 L75,33 C75,55 67,69 54,81 C41,69 33,55 33,33 Z" />
+        android:pathData="M54,23 L76,32 C76,55 67.5,70 54,83 C40.5,70 32,55 32,32 Z">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="32"
+                android:startY="23"
+                android:endX="76"
+                android:endY="83"
+                android:type="linear">
+                <item android:color="#00F5A0" android:offset="0.0" />
+                <item android:color="#00D9F5" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Shield Inner Geometric Core -->
+    <!-- Inner Core Shield -->
     <path
-        android:fillColor="#1B2133"
-        android:strokeColor="#00E5FF"
+        android:fillColor="#162238"
+        android:strokeColor="#4400D9F5"
         android:strokeWidth="1.2"
-        android:pathData="M54,32 L68,38 C68,54 62,64 54,73 C46,64 40,54 40,38 Z" />
+        android:pathData="M54,30 L69,36.5 C69,53.5 62.5,64.5 54,74 C45.5,64.5 39,53.5 39,36.5 Z" />
 
-    <!-- Stylized "N" Data Tunnel & Bypass Node -->
-    <!-- Left Pillar -->
+    <!-- Stylized "N" Quantum Tunnel Monogram -->
     <path
-        android:strokeColor="#00E676"
-        android:strokeWidth="2.4"
+        android:strokeColor="#00F5A0"
+        android:strokeWidth="2.8"
         android:strokeLineCap="round"
-        android:pathData="M47,44 L47,62" />
+        android:pathData="M46.5,42.5 L46.5,62.5" />
 
-    <!-- Right Pillar -->
     <path
-        android:strokeColor="#00E676"
-        android:strokeWidth="2.4"
+        android:strokeColor="#00D9F5"
+        android:strokeWidth="2.8"
         android:strokeLineCap="round"
-        android:pathData="M61,44 L61,62" />
+        android:pathData="M61.5,42.5 L61.5,62.5" />
 
-    <!-- Diagonal Data Stream -->
     <path
-        android:strokeColor="#00E5FF"
-        android:strokeWidth="2.4"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M47,45 L61,61" />
+        android:pathData="M46.5,43.5 L61.5,61.5" />
 
-    <!-- Pulse Packet Center Indicator -->
+    <!-- Glowing Center Core Node -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,51 A2,2 0 1,0 54,55 A2,2 0 1,0 54,51 Z" />
+        android:fillColor="#00F5A0"
+        android:pathData="M54,50.5 A2.2,2.2 0 1,0 54,54.9 A2.2,2.2 0 1,0 54,50.5 Z" />
 </vector>
