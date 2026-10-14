@@ -3,9 +3,7 @@ package com.nameless.proxy.core
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.DataOutputStream
-import java.io.InputStreamReader
 
 object PersistentStorage {
 
@@ -13,22 +11,17 @@ object PersistentStorage {
 
     private fun executeSuWithOutput(commands: List<String>): String {
         return try {
-            val process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            for (cmd in commands) {
-                os.writeBytes("$cmd\n")
+            val process = ProcessBuilder("su").redirectErrorStream(true).start()
+            DataOutputStream(process.outputStream).use { os ->
+                for (cmd in commands) {
+                    os.writeBytes("$cmd\n")
+                }
+                os.writeBytes("exit\n")
+                os.flush()
             }
-            os.writeBytes("exit\n")
-            os.flush()
-
-            val sb = StringBuilder()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                sb.append(line).append("\n")
-            }
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
             process.waitFor()
-            sb.toString().trim()
+            output
         } catch (e: Exception) {
             ""
         }
@@ -36,13 +29,14 @@ object PersistentStorage {
 
     private fun executeSu(commands: List<String>): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            for (cmd in commands) {
-                os.writeBytes("$cmd\n")
+            val process = ProcessBuilder("su").redirectErrorStream(true).start()
+            DataOutputStream(process.outputStream).use { os ->
+                for (cmd in commands) {
+                    os.writeBytes("$cmd\n")
+                }
+                os.writeBytes("exit\n")
+                os.flush()
             }
-            os.writeBytes("exit\n")
-            os.flush()
             process.waitFor() == 0
         } catch (e: Exception) {
             false
@@ -87,9 +81,10 @@ object PersistentStorage {
     fun loadBackup(slot: Int, userId: Int = ProfileManager.androidUserId): JSONObject? {
         val backupFile = "$ADB_DIR/backup_u${userId}_s${slot}.json"
         val raw = executeSuWithOutput(listOf("if [ -f $backupFile ]; then cat $backupFile; fi"))
-        return if (raw.isNotEmpty() && raw.startsWith("{")) {
+        val jsonStart = raw.indexOf('{')
+        return if (jsonStart >= 0) {
             try {
-                JSONObject(raw)
+                JSONObject(raw.substring(jsonStart))
             } catch (e: Exception) {
                 null
             }
