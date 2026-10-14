@@ -31,10 +31,10 @@ object IptablesManager {
         val appEnd = user * 100000 + 19999
         val isolatedStart = user * 100000 + 90000
         val isolatedEnd = user * 100000 + 99999
-        val uidNetdDns = user * 100000 + 1051
 
-        val tableId = 2080 + slot
-        val markHex = "0x" + Integer.toHexString(0x1080 + slot)
+        // Unique per-user AND per-slot routing table & fwmark so Multi-User profiles never collide
+        val tableId = 2080 + (user * 10) + slot
+        val markHex = "0x" + Integer.toHexString(0x1080 + (user * 0x10) + slot)
         val hsTableId = 2000 + slot
         val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
 
@@ -48,7 +48,7 @@ object IptablesManager {
         val hostIsIpv4 = isValidIpv4(settings.host)
         val commands = mutableListOf<String>()
 
-        // 1. Flush existing rules
+        // 1. Flush existing rules for this user & slot
         commands.addAll(generateDisableCommands(user, slot))
 
         // 2. Safe Loopback Settings
@@ -57,11 +57,11 @@ object IptablesManager {
         commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null")
 
         // 3. Policy Routing for TPROXY
-        commands.add("ip rule add fwmark $markHex table $tableId pref 100")
+        commands.add("ip rule add fwmark $markHex table $tableId pref ${100 + user}")
         commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
         if (settings.ipMode != IpMode.IPV4_ONLY) {
-            commands.add("ip -6 rule add fwmark $markHex table $tableId pref 100")
+            commands.add("ip -6 rule add fwmark $markHex table $tableId pref ${100 + user}")
             commands.add("ip -6 route add local ::/0 dev lo table $tableId")
         }
 
@@ -77,9 +77,8 @@ object IptablesManager {
             commands.add("iptables -t mangle -A $chainOutMangle -d ${settings.host.trim()} -j RETURN")
         }
 
-        // Intercept UDP port 53 DNS (including netd AID_DNS = 1051 and apps) BEFORE reservedV4
-        // so even router DNS IPs (e.g. 192.168.1.1:53) get hijacked by sing-box TPROXY!
-        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $uidNetdDns -j MARK --set-mark $markHex")
+        // Hijack UDP port 53 (DNS) for netd (UID 1051) and target apps before local subnet exemptions
+        commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner 1051 -j MARK --set-mark $markHex")
         if (selectedUids.isNullOrEmpty()) {
             commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $appStart-$appEnd -j MARK --set-mark $markHex")
             commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 53 -m owner --uid-owner $isolatedStart-$isolatedEnd -j MARK --set-mark $markHex")
@@ -107,12 +106,24 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE WEBRTC & DoQ SHIELD
+        // 5. PHONE WEBRTC & STUN LEAK SHIELD (Blocks UDP STUN 3478, 5349, 19300-19309 so WebRTC uses TCP proxy)
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
-        commands.add("iptables -A $chainFilter -p udp --dport 3478 -j DROP")
+
+        // Block all standard & Google Chrome STUN UDP ports for this user profile so WebRTC never leaks real IP
+        if (selectedUids.isNullOrEmpty()) {
+            commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
+            commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
+            commands.add("iptables -A $chainFilter -p udp --dport 19300:19309 -m owner --uid-owner $appStart-$isolatedEnd -j DROP")
+        } else {
+            for (uid in selectedUids) {
+                commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $uid -j DROP")
+                commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $uid -j DROP")
+                commands.add("iptables -A $chainFilter -p udp --dport 19300:19309 -m owner --uid-owner $uid -j DROP")
+            }
+        }
 
         if (settings.transportMode == TransportMode.TCP_ONLY) {
             if (selectedUids.isNullOrEmpty()) {
@@ -131,8 +142,6 @@ object IptablesManager {
         if (hostIsIpv4) {
             commands.add("iptables -t nat -A $chainNatV4 -d ${settings.host.trim()} -j RETURN")
         }
-        // Redirect TCP port 53 (DNS) and TCP port 853 (Android Private DNS: Cloudflare / Google DoT)
-        // before UID 0-9999 RETURN so netd Private DNS handshakes tunnel through sing-box!
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $inboundPort")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
@@ -151,10 +160,9 @@ object IptablesManager {
         }
         commands.add("iptables -t nat -I OUTPUT 1 -j $chainNatV4")
 
-        // 7. PHONE IPV6 LEAK & PRIVATE DNS IPV6 INSTANT FALLBACK SHIELD
+        // 7. PHONE IPV6 LEAK & PRIVATE DNS IPV6 FALLBACK SHIELD
         if (settings.ipMode == IpMode.IPV4_ONLY) {
             commands.add("ip6tables -N $chainV6Filter 2>/dev/null")
-            // Reject IPv6 port 853 & 53 before UID 0-9999 RETURN so netd Private DNS immediately uses IPv4
             commands.add("ip6tables -A $chainV6Filter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 853 -j DROP")
             commands.add("ip6tables -A $chainV6Filter -p tcp --dport 53 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 53 -j DROP")
             commands.add("ip6tables -A $chainV6Filter -p udp --dport 53 -j DROP")
@@ -188,7 +196,7 @@ object IptablesManager {
             commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6")
         }
 
-        // 8. HOTSPOT / TETHERING ROUTING
+        // 8. HOTSPOT / TETHERING ROUTING (Owner User 0)
         if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null")
 
@@ -210,7 +218,6 @@ object IptablesManager {
             }
             commands.add("ip6tables -I FORWARD 1 -j $chainHotspotV6Block")
 
-            // A. Hotspot NAT PREROUTING
             commands.add("iptables -t nat -N $chainHotspotNat")
             if (hostIsIpv4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d ${settings.host.trim()} -j RETURN")
@@ -220,6 +227,11 @@ object IptablesManager {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort")
             }
             for (range in reservedV4) {
+                commands.add("iptables -t nat -A $chainNatspotNat(chainHotspotNat, range)")
+            }
+            // Fix clean loop for reservedV4
+            commands.removeAt(commands.lastIndex)
+            for (range in reservedV4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
             }
             for (iface in tetherInterfaces) {
@@ -227,7 +239,6 @@ object IptablesManager {
             }
             commands.add("iptables -t nat -I PREROUTING 1 -j $chainHotspotNat")
 
-            // B. Hotspot Mangle PREROUTING (UDP & DNS TPROXY)
             commands.add("iptables -t mangle -N $chainHotspotMangle")
             commands.add("iptables -t mangle -A $chainHotspotMangle -i lo -j RETURN")
             for (iface in tetherInterfaces) {
@@ -246,16 +257,20 @@ object IptablesManager {
             }
             commands.add("iptables -t mangle -I PREROUTING 1 -j $chainHotspotMangle")
 
-            // C. Isolated Hotspot FORWARD Filter Chain
             commands.add("iptables -N $chainHotspotFwd 2>/dev/null")
             for (iface in tetherInterfaces) {
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 3478 -j DROP")
+                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 5349 -j DROP")
+                commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 19300:19309 -j DROP")
                 if (settings.transportMode == TransportMode.TCP_ONLY) {
                     commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 443 -j DROP")
                 }
             }
             commands.add("iptables -I FORWARD 1 -j $chainHotspotFwd")
         }
+
+        // Flush stale UDP conntrack entries so Chrome WebRTC immediately uses the tunnel
+        commands.add("conntrack -F 2>/dev/null || true")
 
         return commands
     }
@@ -276,8 +291,8 @@ object IptablesManager {
         val chainHotspotFwd = "NAMELESS_HS_FWD_$key"
         val chainHotspotV6Block = "NAMELESS_HS_V6_$key"
 
-        val tableId = 2080 + slot
-        val markHex = "0x" + Integer.toHexString(0x1080 + slot)
+        val tableId = 2080 + (user * 10) + slot
+        val markHex = "0x" + Integer.toHexString(0x1080 + (user * 0x10) + slot)
         val hsTableId = 2000 + slot
         val hsMarkHex = "0x" + Integer.toHexString(0x1000 + slot)
 
