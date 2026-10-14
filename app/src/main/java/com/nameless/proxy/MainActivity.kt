@@ -37,13 +37,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -54,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.ln
 import kotlin.math.sin
 
 data class AppItem(
@@ -77,7 +78,7 @@ data class AppItem(
     val uid: Int
 )
 
-private val ProxyType.displayName: String
+private val ProxyType.displayTitle: String
     get() = when (this) {
         ProxyType.SOCKS5 -> "SOCKS5"
         ProxyType.SOCKS4 -> "SOCKS4"
@@ -88,74 +89,99 @@ private val ProxyType.displayName: String
         ProxyType.HYSTERIA2 -> "Hysteria 2"
     }
 
-// Royal Violet + Mint Aqua + Soft Alabaster / Velvet Studio Palette
-data class StudioPalette(
+// -------------------------------------------------------------
+// 3 DISTINCT TACTICAL & STUDIO COLOR THEMES + DYNAMIC ENGINES
+// -------------------------------------------------------------
+
+data class AetherTheme(
+    val id: Int,
+    val name: String,
     val isLight: Boolean,
-    val bgCanvas: Color,
-    val bgSecondary: Color,
-    val cardSurface: Color,
-    val cardTintedViolet: Color,
-    val cardTintedMint: Color,
-    val fieldBackground: Color,
-    val primaryViolet: Color,
-    val deepViolet: Color,
-    val softLavender: Color,
-    val mintAqua: Color,
-    val mintDeep: Color,
-    val rosePink: Color,
-    val sunnyAmber: Color,
-    val coralRed: Color,
-    val textPrimary: Color,
-    val textSecondary: Color,
-    val textMuted: Color,
-    val borderSubtle: Color
+    val bgPrimary: Color,
+    val bgElevated: Color,
+    val cardBg: Color,
+    val cardHighlight: Color,
+    val inputBg: Color,
+    val accentPrimary: Color,
+    val accentSecondary: Color,
+    val accentTertiary: Color,
+    val statusLive: Color,
+    val statusWarn: Color,
+    val statusDanger: Color,
+    val textMain: Color,
+    val textSub: Color,
+    val textDim: Color,
+    val strokeSubtle: Color
 )
 
-private val LightStudioPalette = StudioPalette(
-    isLight = true,
-    bgCanvas = Color(0xFFF3F0FF),
-    bgSecondary = Color(0xFFE9E3FF),
-    cardSurface = Color(0xFFFFFFFF),
-    cardTintedViolet = Color(0xFFEDE7FF),
-    cardTintedMint = Color(0xFFDFFBF5),
-    fieldBackground = Color(0xFFF7F5FF),
-    primaryViolet = Color(0xFF6C47FF),
-    deepViolet = Color(0xFF532EE8),
-    softLavender = Color(0xFFA78BFA),
-    mintAqua = Color(0xFF2DD4BF),
-    mintDeep = Color(0xFF0D9488),
-    rosePink = Color(0xFFFF5E99),
-    sunnyAmber = Color(0xFFF59E0B),
-    coralRed = Color(0xFFF43F5E),
-    textPrimary = Color(0xFF1E1638),
-    textSecondary = Color(0xFF635985),
-    textMuted = Color(0xFF968CB5),
-    borderSubtle = Color(0xFFE2DAFF)
-)
-
-private val VelvetStudioPalette = StudioPalette(
+// Theme 0: Cyber Acid-Lime & Electric Cyan on Deep Carbon Onyx
+private val AcidOnyxTheme = AetherTheme(
+    id = 0,
+    name = "ACID ONYX",
     isLight = false,
-    bgCanvas = Color(0xFF120D24),
-    bgSecondary = Color(0xFF1D1538),
-    cardSurface = Color(0xFF1E163B),
-    cardTintedViolet = Color(0xFF2B1F52),
-    cardTintedMint = Color(0xFF15383C),
-    fieldBackground = Color(0xFF16102C),
-    primaryViolet = Color(0xFF8B5CF6),
-    deepViolet = Color(0xFF6C47FF),
-    softLavender = Color(0xFFC4B5FD),
-    mintAqua = Color(0xFF2DD4BF),
-    mintDeep = Color(0xFF5EEAD4),
-    rosePink = Color(0xFFFF6B9E),
-    sunnyAmber = Color(0xFFFBBF24),
-    coralRed = Color(0xFFFB7185),
-    textPrimary = Color(0xFFF8F6FF),
-    textSecondary = Color(0xFFB8AEE0),
-    textMuted = Color(0xFF7D72A6),
-    borderSubtle = Color(0xFF332661)
+    bgPrimary = Color(0xFF06080E),
+    bgElevated = Color(0xFF0D111C),
+    cardBg = Color(0xFF101624),
+    cardHighlight = Color(0xFF172034),
+    inputBg = Color(0xFF0B0F1A),
+    accentPrimary = Color(0xFFB8FF01),   // Neon Acid Lime
+    accentSecondary = Color(0xFF00F0FF), // Electric Cyan
+    accentTertiary = Color(0xFF7000FF),  // Hyper Violet
+    statusLive = Color(0xFFB8FF01),
+    statusWarn = Color(0xFFFFB800),
+    statusDanger = Color(0xFFFF2E54),
+    textMain = Color(0xFFF8FAFC),
+    textSub = Color(0xFF94A3B8),
+    textDim = Color(0xFF526077),
+    strokeSubtle = Color(0xFF1E293B)
 )
 
-val LocalStudioPalette = compositionLocalOf { VelvetStudioPalette }
+// Theme 1: Solar Titanium & Molten Orange on Obsidian Carbon
+private val SolarTitaniumTheme = AetherTheme(
+    id = 1,
+    name = "SOLAR TITAN",
+    isLight = false,
+    bgPrimary = Color(0xFF0B0908),
+    bgElevated = Color(0xFF15110F),
+    cardBg = Color(0xFF1A1412),
+    cardHighlight = Color(0xFF261D1A),
+    inputBg = Color(0xFF110D0C),
+    accentPrimary = Color(0xFFFF9E00),   // Molten Gold
+    accentSecondary = Color(0xFFFF3D00), // Laser Orange-Red
+    accentTertiary = Color(0xFF00E5FF),  // Cyan Contrast
+    statusLive = Color(0xFF00E676),
+    statusWarn = Color(0xFFFFAB00),
+    statusDanger = Color(0xFFFF1744),
+    textMain = Color(0xFFFFF8F5),
+    textSub = Color(0xFFBFA89E),
+    textDim = Color(0xFF7A655C),
+    strokeSubtle = Color(0xFF2E221E)
+)
+
+// Theme 2: Frost Alabaster & Sapphire Cobalt (Crisp Daylight Mode)
+private val FrostCobaltTheme = AetherTheme(
+    id = 2,
+    name = "FROST COBALT",
+    isLight = true,
+    bgPrimary = Color(0xFFF2F5FA),
+    bgElevated = Color(0xFFE6ECF5),
+    cardBg = Color(0xFFFFFFFF),
+    cardHighlight = Color(0xFFEEF4FF),
+    inputBg = Color(0xFFF7F9FC),
+    accentPrimary = Color(0xFF0052FF),   // Deep Cobalt Blue
+    accentSecondary = Color(0xFF00B87C), // Emerald Mint
+    accentTertiary = Color(0xFF7C3AED),  // Royal Violet
+    statusLive = Color(0xFF00A86B),
+    statusWarn = Color(0xFFD97706),
+    statusDanger = Color(0xFFE11D48),
+    textMain = Color(0xFF0F172A),
+    textSub = Color(0xFF475569),
+    textDim = Color(0xFF94A3B8),
+    strokeSubtle = Color(0xFFDCE4F0)
+)
+
+private val AllThemes = listOf(AcidOnyxTheme, SolarTitaniumTheme, FrostCobaltTheme)
+val LocalAetherTheme = compositionLocalOf { AcidOnyxTheme }
 
 class MainActivity : ComponentActivity() {
 
@@ -199,34 +225,34 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            var useLightStudio by remember {
-                mutableStateOf(globalPrefs.getBoolean("studio_light_theme", false))
+            var themeIndex by remember {
+                mutableIntStateOf(globalPrefs.getInt("aether_theme_idx", 0).coerceIn(0, AllThemes.lastIndex))
             }
-            val palette = if (useLightStudio) LightStudioPalette else VelvetStudioPalette
+            val theme = AllThemes[themeIndex]
 
-            val colorScheme = if (useLightStudio) {
+            val colorScheme = if (theme.isLight) {
                 lightColorScheme(
-                    primary = palette.primaryViolet,
-                    secondary = palette.mintDeep,
-                    background = palette.bgCanvas,
-                    surface = palette.cardSurface,
+                    primary = theme.accentPrimary,
+                    secondary = theme.accentSecondary,
+                    background = theme.bgPrimary,
+                    surface = theme.cardBg,
                     onPrimary = Color.White,
-                    onSurface = palette.textPrimary,
-                    error = palette.coralRed
+                    onSurface = theme.textMain,
+                    error = theme.statusDanger
                 )
             } else {
                 darkColorScheme(
-                    primary = palette.primaryViolet,
-                    secondary = palette.mintAqua,
-                    background = palette.bgCanvas,
-                    surface = palette.cardSurface,
-                    onPrimary = Color.White,
-                    onSurface = palette.textPrimary,
-                    error = palette.coralRed
+                    primary = theme.accentPrimary,
+                    secondary = theme.accentSecondary,
+                    background = theme.bgPrimary,
+                    surface = theme.cardBg,
+                    onPrimary = Color(0xFF06080E),
+                    onSurface = theme.textMain,
+                    error = theme.statusDanger
                 )
             }
 
-            CompositionLocalProvider(LocalStudioPalette provides palette) {
+            CompositionLocalProvider(LocalAetherTheme provides theme) {
                 MaterialTheme(colorScheme = colorScheme) {
                     MainScreen(
                         rootState = rootState,
@@ -235,10 +261,9 @@ class MainActivity : ComponentActivity() {
                         isTransitioning = isTransitioningState,
                         runningSlot = runningSlotState,
                         activePid = activePidState,
-                        useLightStudio = useLightStudio,
-                        onToggleTheme = {
-                            useLightStudio = !useLightStudio
-                            globalPrefs.edit().putBoolean("studio_light_theme", useLightStudio).apply()
+                        onCycleTheme = {
+                            themeIndex = (themeIndex + 1) % AllThemes.size
+                            globalPrefs.edit().putInt("aether_theme_idx", themeIndex).apply()
                         },
                         onRecheckRoot = { refreshRootStatus() },
                         installedApps = installedApps,
@@ -295,7 +320,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshRootStatus() {
         lifecycleScope.launch {
             rootState = RootState.CHECKING
-            rootLabel = "CHECKING"
+            rootLabel = "WAIT"
             val (state, label) = RootChecker.verifyRoot()
             rootState = state
             rootLabel = label
@@ -333,15 +358,14 @@ fun MainScreen(
     isTransitioning: Boolean,
     runningSlot: Int?,
     activePid: String?,
-    useLightStudio: Boolean,
-    onToggleTheme: () -> Unit,
+    onCycleTheme: () -> Unit,
     onRecheckRoot: () -> Unit,
     installedApps: List<AppItem>,
     onSyncStatus: () -> Unit,
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
-    val palette = LocalStudioPalette.current
+    val theme = LocalAetherTheme.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -351,15 +375,17 @@ fun MainScreen(
     var routeHotspot by remember { mutableStateOf(globalPrefs.getBoolean("route_hotspot", true)) }
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
-    var selectedNavTab by remember { mutableIntStateOf(0) }
+    // 4 Dedicated Screens via Floating Bottom Dock: 0 = Cockpit, 1 = Node Config, 2 = Split Tunnel, 3 = Live Logs
+    var selectedScreen by remember { mutableIntStateOf(0) }
 
-    // Hoisted live session telemetry so switching tabs never resets data
+    // Hoisted Live Telemetry & Spectrum History
     var sessionStartMs by remember { mutableLongStateOf(0L) }
-    var rxHistory by remember { mutableStateOf(List(32) { 0L }) }
-    var txHistory by remember { mutableStateOf(List(32) { 0L }) }
+    var rxSpectrum by remember { mutableStateOf(List(24) { 0L }) }
+    var txSpectrum by remember { mutableStateOf(List(24) { 0L }) }
     var currentRxRate by remember { mutableLongStateOf(0L) }
     var currentTxRate by remember { mutableLongStateOf(0L) }
     var peakRxRate by remember { mutableLongStateOf(0L) }
+    var peakTxRate by remember { mutableLongStateOf(0L) }
     var totalRxBytes by remember { mutableLongStateOf(0L) }
     var totalTxBytes by remember { mutableLongStateOf(0L) }
 
@@ -373,7 +399,7 @@ fun MainScreen(
             var prevTime = System.currentTimeMillis()
 
             while (isActive) {
-                delay(1000)
+                delay(650) // Faster 650ms sampling for snappy gauge & spectrum motion
                 val currRx = TrafficStats.getTotalRxBytes().coerceAtLeast(prevRx)
                 val currTx = TrafficStats.getTotalTxBytes().coerceAtLeast(prevTx)
                 val currTime = System.currentTimeMillis()
@@ -385,11 +411,12 @@ fun MainScreen(
                 currentRxRate = rxRate
                 currentTxRate = txRate
                 if (rxRate > peakRxRate) peakRxRate = rxRate
+                if (txRate > peakTxRate) peakTxRate = txRate
                 totalRxBytes = (currRx - startRx).coerceAtLeast(0L)
                 totalTxBytes = (currTx - startTx).coerceAtLeast(0L)
 
-                rxHistory = (rxHistory.drop(1) + rxRate)
-                txHistory = (txHistory.drop(1) + txRate)
+                rxSpectrum = rxSpectrum.drop(1) + rxRate
+                txSpectrum = txSpectrum.drop(1) + txRate
 
                 prevRx = currRx
                 prevTx = currTx
@@ -400,10 +427,11 @@ fun MainScreen(
             currentRxRate = 0L
             currentTxRate = 0L
             peakRxRate = 0L
+            peakTxRate = 0L
             totalRxBytes = 0L
             totalTxBytes = 0L
-            rxHistory = List(32) { 0L }
-            txHistory = List(32) { 0L }
+            rxSpectrum = List(24) { 0L }
+            txSpectrum = List(24) { 0L }
         }
     }
 
@@ -423,14 +451,18 @@ fun MainScreen(
     var routeWholeProfile by remember { mutableStateOf(true) }
     var selectedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    var configuredSlots by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    fun refreshConfiguredSlots() {
-        val set = mutableSetOf<Int>()
+    var slotProtocols by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    fun refreshSlotMetadata() {
+        val map = mutableMapOf<Int, String>()
         for (i in 0 until ProfileManager.MAX_SLOTS) {
-            val h = getSlotPrefs(i).getString("host", "") ?: ""
-            if (h.isNotBlank()) set.add(i)
+            val sp = getSlotPrefs(i)
+            val h = sp.getString("host", "") ?: ""
+            if (h.isNotBlank()) {
+                val pName = sp.getString("proxy_type", "SOCKS5") ?: "SOCKS5"
+                map[i] = pName
+            }
         }
-        configuredSlots = set
+        slotProtocols = map
     }
 
     fun applySettingsToState(
@@ -474,7 +506,7 @@ fun MainScreen(
                 pRouteWhole = prefs.getBoolean("route_whole_profile", true),
                 pPkgs = (prefs.getStringSet("selected_packages", emptySet()) ?: emptySet()).toSet()
             )
-            refreshConfiguredSlots()
+            refreshSlotMetadata()
         } else {
             coroutineScope.launch(Dispatchers.IO) {
                 val backup = PersistentStorage.loadBackup(slot, ProfileManager.androidUserId)
@@ -510,12 +542,12 @@ fun MainScreen(
                             .putString("ip_mode", bIp.name).putBoolean("route_whole_profile", bRoute)
                             .putStringSet("selected_packages", bPkgs.toSet())
                             .apply()
-                        refreshConfiguredSlots()
+                        refreshSlotMetadata()
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         applySettingsToState("", "1080", "", "", "", "2022-blake3-aes-128-gcm", "", "", ProxyType.SOCKS5, TransportMode.TCP_AND_UDP, IpMode.IPV4_ONLY, true, emptySet())
-                        refreshConfiguredSlots()
+                        refreshSlotMetadata()
                     }
                 }
             }
@@ -569,7 +601,7 @@ fun MainScreen(
             .putBoolean("route_hotspot", routeHotspot)
             .apply()
 
-        refreshConfiguredSlots()
+        refreshSlotMetadata()
 
         val settingsSnapshot = getCurrentSettings()
         val uidsSnapshot = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
@@ -612,8 +644,7 @@ fun MainScreen(
     var testStatus by remember { mutableStateOf<String?>(null) }
     var testLatencyMs by remember { mutableStateOf<Long?>(null) }
     var isTesting by remember { mutableStateOf(false) }
-    var showLogsDialog by remember { mutableStateOf(false) }
-    var currentLogs by remember { mutableStateOf("") }
+    var currentLogs by remember { mutableStateOf("Tap Refresh to load kernel daemon telemetry...") }
 
     var publicIpInfo by remember { mutableStateOf<GeoIpResult?>(null) }
     var isFetchingIp by remember { mutableStateOf(false) }
@@ -623,7 +654,7 @@ fun MainScreen(
         isFetchingIp = true
         ipFetchFailed = false
         coroutineScope.launch(Dispatchers.IO) {
-            delay(550)
+            delay(500)
             val currentRunning = ProxyController.getRunningSlot(ProfileManager.androidUserId) ?: activeSlot
             val socksPort = 10800 + (ProfileManager.androidUserId * 100) + (currentRunning * 10) + 1
             var result = IpFetcher.getPublicIpInfo(socksPort)
@@ -652,19 +683,32 @@ fun MainScreen(
         }
     }
 
-    val animatedBgCanvas by animateColorAsState(
-        targetValue = palette.bgCanvas,
-        animationSpec = tween(400),
-        label = "bgCanvasColor"
+    LaunchedEffect(selectedScreen, runningSlot, activeSlot) {
+        if (selectedScreen == 3) {
+            withContext(Dispatchers.IO) {
+                val targetSlot = runningSlot ?: activeSlot
+                val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, targetSlot)
+                withContext(Dispatchers.Main) {
+                    currentLogs = logs.ifEmpty { "No kernel logs recorded yet." }
+                }
+            }
+        }
+    }
+
+    val animatedBg by animateColorAsState(
+        targetValue = theme.bgPrimary,
+        animationSpec = tween(450),
+        label = "aetherBg"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(animatedBgCanvas)
+            .background(animatedBg)
     ) {
-        // 1. LIVE ROYAL VIOLET + MINT AQUA STUDIO BACKGROUND CANVAS
-        StudioLivingBackground(
+        // 1. MULTI-MODE DYNAMIC GEOMETRIC & RADAR BACKGROUND
+        AetherDynamicBackdrop(
+            themeId = theme.id,
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning || isTesting
         )
@@ -674,73 +718,64 @@ fun MainScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            // 2. SPACIOUS COLLISION-FREE TOP BAR + HORIZONTAL NODE CAROUSEL
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                AetherTopCommandBar(
+                    isProxyActive = isProxyActive,
+                    runningSlot = runningSlot,
+                    activeSlot = activeSlot,
+                    rootState = rootState,
+                    onCycleTheme = onCycleTheme,
+                    onRecheckRoot = onRecheckRoot
+                )
 
-            // 2. TOP STUDIO HEADER WITH THEME TOGGLE & ROOT PILL
-            StudioTopHeader(
-                activeSlot = activeSlot,
-                runningSlot = runningSlot,
-                isProxyActive = isProxyActive,
-                useLightStudio = useLightStudio,
-                onToggleTheme = onToggleTheme,
-                rootState = rootState,
-                rootLabel = rootLabel,
-                onRecheckRoot = onRecheckRoot
-            )
+                Spacer(modifier = Modifier.height(10.dp))
 
-            Spacer(modifier = Modifier.height(12.dp))
+                AetherNodeCarousel(
+                    activeSlot = activeSlot,
+                    runningSlot = runningSlot,
+                    isProxyActive = isProxyActive,
+                    startOnBoot = startOnBoot,
+                    bootSlot = bootSlot,
+                    slotProtocols = slotProtocols,
+                    onSelectSlot = { switchSlot(it) }
+                )
+            }
 
-            // 3. INTERACTIVE NODE SLOT MATRIX (P0 - P4)
-            StudioSlotRibbon(
-                activeSlot = activeSlot,
-                runningSlot = runningSlot,
-                isProxyActive = isProxyActive,
-                startOnBoot = startOnBoot,
-                bootSlot = bootSlot,
-                configuredSlots = configuredSlots,
-                onSelectSlot = { switchSlot(it) }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 4. SEGMENTED STUDIO TABS
-            StudioPillTabs(
-                selectedTab = selectedNavTab,
-                onTabSelected = { selectedNavTab = it },
-                selectedAppsCount = if (routeWholeProfile) null else selectedPackages.size
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 5. ANIMATED VIEWPORT WITH DIRECTIONAL SLIDE & SCALE TRANSITIONS
-            Box(modifier = Modifier.weight(1f)) {
+            // 3. MAIN VIEWPORT (4 DEDICATED SCREENS)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
                 AnimatedContent(
-                    targetState = selectedNavTab,
+                    targetState = selectedScreen,
                     transitionSpec = {
-                        val direction = if (targetState > initialState) 1 else -1
-                        (slideInHorizontally(
+                        val forward = targetState > initialState
+                        (slideInVertically(
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetX = { fullWidth -> direction * (fullWidth / 4) }
-                        ) + fadeIn(animationSpec = tween(220)) + scaleIn(
-                            initialScale = 0.96f,
-                            animationSpec = tween(220)
-                        )).togetherWith(
-                            slideOutHorizontally(
-                                animationSpec = tween(180),
-                                targetOffsetX = { fullWidth -> -direction * (fullWidth / 5) }
-                            ) + fadeOut(animationSpec = tween(160))
+                            initialOffsetY = { fullHeight -> if (forward) fullHeight / 6 else -fullHeight / 6 }
+                        ) + fadeIn(tween(220))).togetherWith(
+                            slideOutVertically(
+                                animationSpec = tween(160),
+                                targetOffsetY = { fullHeight -> if (forward) -fullHeight / 8 else fullHeight / 8 }
+                            ) + fadeOut(tween(150))
                         )
                     },
-                    label = "studioTabTransition"
-                ) { tabIndex ->
-                    when (tabIndex) {
+                    label = "screenTransition"
+                ) { screenIdx ->
+                    when (screenIdx) {
                         0 -> {
-                            ConsoleHudView(
+                            AetherCockpitScreen(
                                 isProxyActive = isProxyActive,
                                 isTransitioning = isTransitioning,
                                 runningSlot = runningSlot,
@@ -761,27 +796,28 @@ fun MainScreen(
                                 currentRxRate = currentRxRate,
                                 currentTxRate = currentTxRate,
                                 peakRxRate = peakRxRate,
+                                peakTxRate = peakTxRate,
                                 totalRxBytes = totalRxBytes,
                                 totalTxBytes = totalTxBytes,
-                                rxHistory = rxHistory,
-                                txHistory = txHistory,
+                                rxSpectrum = rxSpectrum,
+                                txSpectrum = txSpectrum,
                                 onRefreshIp = { triggerPublicIpCheck() },
                                 onToggleProxy = {
                                     if (isProxyActive && runningSlot == activeSlot) {
                                         onStopProxy { }
                                     } else {
                                         if (host.trim().isEmpty()) {
-                                            testStatus = "Configure Server Host/IP in Config Deck first"
+                                            testStatus = "Enter Server Host/IP in Nodes tab first"
                                             testLatencyMs = null
-                                            selectedNavTab = 1
-                                            return@ConsoleHudView
+                                            selectedScreen = 1
+                                            return@AetherCockpitScreen
                                         }
                                         saveConfigForSlot(activeSlot, immediateRootSync = true)
                                         val settings = getCurrentSettings()
                                         val targets = if (routeWholeProfile) null else installedApps.filter { selectedPackages.contains(it.packageName) }.map { it.uid }
                                         onStartProxy(settings, targets) { success, error ->
                                             if (!success) {
-                                                testStatus = "Launch Failed: ${error?.lines()?.lastOrNull() ?: "Check Core Logs"}"
+                                                testStatus = "Error: ${error?.lines()?.lastOrNull() ?: "See Terminal tab"}"
                                                 testLatencyMs = null
                                             } else {
                                                 testStatus = null
@@ -794,45 +830,35 @@ fun MainScreen(
                                 testLatencyMs = testLatencyMs,
                                 onTestUpstream = {
                                     if (host.trim().isEmpty()) {
-                                        testStatus = "Enter Server Host/IP first"
+                                        testStatus = "Configure Server Host/IP first"
                                         testLatencyMs = null
-                                        selectedNavTab = 1
-                                        return@ConsoleHudView
+                                        selectedScreen = 1
+                                        return@AetherCockpitScreen
                                     }
                                     saveConfigForSlot(activeSlot)
                                     isTesting = true
-                                    testStatus = "Probing ${host.trim()}:${port.trim()}..."
+                                    testStatus = "Pinging ${host.trim()}:${port.trim()}..."
                                     testLatencyMs = null
                                     val settings = getCurrentSettings()
                                     coroutineScope.launch {
                                         when (val res = ProxyTester.testProxy(settings)) {
                                             is TestResult.Success -> {
                                                 testLatencyMs = res.latencyMs
-                                                testStatus = "Node Reachable • ${res.latencyMs} ms"
+                                                testStatus = "ONLINE • ${res.latencyMs} ms RTT"
                                             }
                                             is TestResult.Failure -> {
                                                 testLatencyMs = null
-                                                testStatus = "Unreachable: ${res.error}"
+                                                testStatus = "FAILED • ${res.error}"
                                             }
                                         }
                                         isTesting = false
-                                    }
-                                },
-                                onViewLogs = {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        val targetSlot = runningSlot ?: activeSlot
-                                        val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, targetSlot)
-                                        withContext(Dispatchers.Main) {
-                                            currentLogs = logs.ifEmpty { "No logs recorded." }
-                                            showLogsDialog = true
-                                        }
                                     }
                                 }
                             )
                         }
 
                         1 -> {
-                            ServerConfigView(
+                            AetherNodeConfigScreen(
                                 activeSlot = activeSlot,
                                 host = host,
                                 port = port,
@@ -873,7 +899,7 @@ fun MainScreen(
                                     val targetSlot = activeSlot
                                     getSlotPrefs(targetSlot).edit().clear().apply()
                                     applySettingsToState("", "1080", "", "", "", "2022-blake3-aes-128-gcm", "", "", ProxyType.SOCKS5, TransportMode.TCP_AND_UDP, IpMode.IPV4_ONLY, true, emptySet())
-                                    refreshConfiguredSlots()
+                                    refreshSlotMetadata()
                                     coroutineScope.launch(Dispatchers.IO) {
                                         PersistentStorage.clearBackup(targetSlot, ProfileManager.androidUserId)
                                     }
@@ -884,7 +910,7 @@ fun MainScreen(
                         }
 
                         2 -> {
-                            AppsMasterView(
+                            AetherRoutingScreen(
                                 startOnBoot = startOnBoot,
                                 bootSlot = bootSlot,
                                 activeSlot = activeSlot,
@@ -910,7 +936,7 @@ fun MainScreen(
                                     bootSlot = s
                                     globalPrefs.edit().putInt("boot_slot", s).apply()
                                     saveConfigForSlot(activeSlot, immediateRootSync = true)
-                                    Toast.makeText(context, "Node P$s designated as Boot Target", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Node P$s set as Boot Target", Toast.LENGTH_SHORT).show()
                                 },
                                 onRouteHotspotChange = {
                                     routeHotspot = it
@@ -935,359 +961,289 @@ fun MainScreen(
                                 }
                             )
                         }
-                    }
-                }
-            }
-        }
-    }
 
-    if (showLogsDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogsDialog = false },
-            confirmButton = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row {
-                        TextButton(onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", currentLogs))
-                            Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Text("Copy", color = palette.primaryViolet, fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(onClick = {
-                            val targetSlot = runningSlot ?: activeSlot
-                            currentLogs = "Logs cleared."
-                            coroutineScope.launch(Dispatchers.IO) {
-                                ProxyController.clearLogs(ProfileManager.androidUserId, targetSlot)
-                            }
-                        }) {
-                            Text("Clear", color = palette.coralRed, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Row {
-                        TextButton(onClick = {
-                            coroutineScope.launch(Dispatchers.IO) {
-                                val targetSlot = runningSlot ?: activeSlot
-                                val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, targetSlot)
-                                withContext(Dispatchers.Main) {
-                                    currentLogs = logs.ifEmpty { "No logs recorded." }
+                        3 -> {
+                            AetherTerminalScreen(
+                                activeSlot = activeSlot,
+                                runningSlot = runningSlot,
+                                currentLogs = currentLogs,
+                                onRefreshLogs = {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val targetSlot = runningSlot ?: activeSlot
+                                        val logs = ProxyController.getDiagnosticsAndLogs(ProfileManager.androidUserId, targetSlot)
+                                        withContext(Dispatchers.Main) {
+                                            currentLogs = logs.ifEmpty { "No logs recorded." }
+                                        }
+                                    }
+                                },
+                                onClearLogs = {
+                                    val targetSlot = runningSlot ?: activeSlot
+                                    currentLogs = "Logs cleared."
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        ProxyController.clearLogs(ProfileManager.androidUserId, targetSlot)
+                                    }
                                 }
-                            }
-                        }) {
-                            Text("Refresh", color = palette.mintDeep, fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(onClick = { showLogsDialog = false }) {
-                            Text("Close", color = palette.textSecondary)
+                            )
                         }
                     }
-                }
-            },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(8.dp).background(palette.mintAqua, CircleShape))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "KERNEL CORE TELEMETRY & LOGS",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp,
-                        color = palette.textPrimary
-                    )
-                }
-            },
-            containerColor = palette.cardSurface,
-            text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(380.dp)
-                        .background(palette.fieldBackground, RoundedCornerShape(14.dp))
-                        .border(1.dp, palette.borderSubtle, RoundedCornerShape(14.dp))
-                        .padding(12.dp)
-                ) {
-                    Text(
-                        text = currentLogs,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        color = palette.textPrimary,
-                        modifier = Modifier.verticalScroll(rememberScrollState())
-                    )
                 }
             }
-        )
+
+            // 4. FLOATING BOTTOM GLASS NAVIGATION DOCK
+            AetherBottomDock(
+                selectedScreen = selectedScreen,
+                onSelectScreen = { selectedScreen = it },
+                splitAppsCount = if (routeWholeProfile) null else selectedPackages.size
+            )
+        }
     }
 }
 
 // -------------------------------------------------------------
-// 1. LIVE STUDIO AURORA & PARTICLE CANVAS BACKGROUND
+// MULTI-MODE DYNAMIC BACKGROUND (RADAR SWEEP / HEXAGON PULSE)
 // -------------------------------------------------------------
 
 @Composable
-fun StudioLivingBackground(
+fun AetherDynamicBackdrop(
+    themeId: Int,
     isProxyActive: Boolean,
     isTransitioning: Boolean
 ) {
-    val palette = LocalStudioPalette.current
-    val infiniteTransition = rememberInfiniteTransition(label = "studioBgEngine")
+    val theme = LocalAetherTheme.current
+    val infiniteTransition = rememberInfiniteTransition(label = "aetherBackdrop")
 
-    val orbitAngle by infiniteTransition.animateFloat(
+    val radarSweep by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(24000, easing = LinearEasing), RepeatMode.Restart),
-        label = "orbitAngle"
-    )
-
-    val streamOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
         animationSpec = infiniteRepeatable(
-            tween(if (isProxyActive) 7000 else 16000, easing = LinearEasing),
+            tween(if (isProxyActive) 6000 else 16000, easing = LinearEasing),
             RepeatMode.Restart
         ),
-        label = "streamOffset"
+        label = "radarSweep"
     )
 
-    val orbPrimaryColor by animateColorAsState(
-        targetValue = when {
-            isTransitioning -> palette.sunnyAmber.copy(alpha = if (palette.isLight) 0.20f else 0.24f)
-            isProxyActive -> palette.mintAqua.copy(alpha = if (palette.isLight) 0.25f else 0.24f)
-            else -> palette.primaryViolet.copy(alpha = if (palette.isLight) 0.16f else 0.20f)
-        },
-        animationSpec = tween(600),
-        label = "orbPrimary"
+    val wavePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            tween(if (isProxyActive) 4000 else 10000, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "wavePhase"
     )
 
-    val orbSecondaryColor by animateColorAsState(
+    val glowColor by animateColorAsState(
         targetValue = when {
-            isTransitioning -> palette.rosePink.copy(alpha = 0.18f)
-            isProxyActive -> palette.primaryViolet.copy(alpha = if (palette.isLight) 0.20f else 0.24f)
-            else -> palette.rosePink.copy(alpha = if (palette.isLight) 0.12f else 0.14f)
+            isTransitioning -> theme.statusWarn
+            isProxyActive -> theme.statusLive
+            else -> theme.accentSecondary
         },
         animationSpec = tween(600),
-        label = "orbSecondary"
+        label = "backdropGlow"
     )
 
     Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
         val w = size.width
         val h = size.height
-        val rad = Math.toRadians(orbitAngle.toDouble())
 
-        // Subtle Studio Dot / Grid Matrix
-        val gridSpacing = 46.dp.toPx()
-        val gridAlpha = if (palette.isLight) 0.06f else 0.045f
-        val gridColor = palette.primaryViolet
-
-        var gx = 0f
-        while (gx < w) {
-            drawLine(
-                color = gridColor.copy(alpha = gridAlpha),
-                start = Offset(gx, 0f),
-                end = Offset(gx, h),
-                strokeWidth = 1f
-            )
-            gx += gridSpacing
-        }
-
-        var gy = (streamOffset % gridSpacing)
-        while (gy < h) {
-            drawLine(
-                color = gridColor.copy(alpha = gridAlpha),
-                start = Offset(0f, gy),
-                end = Offset(w, gy),
-                strokeWidth = 1f
-            )
-            gy += gridSpacing
-        }
-
-        // Soft Drifting Studio Spheres
-        val orb1X = (w * 0.75f) - (sin(rad) * w * 0.18f).toFloat()
-        val orb1Y = (h * 0.25f) + (cos(rad) * h * 0.10f).toFloat()
-
-        val orb2X = (w * 0.24f) + (cos(rad * 1.2) * w * 0.16f).toFloat()
-        val orb2Y = (h * 0.68f) + (sin(rad * 1.2) * h * 0.12f).toFloat()
-
+        // Top-Right & Bottom-Left Ambient Glow Fields
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(orbPrimaryColor, Color.Transparent),
-                center = Offset(orb1X, orb1Y),
-                radius = w * 0.85f
+                colors = listOf(
+                    glowColor.copy(alpha = if (theme.isLight) 0.14f else 0.18f),
+                    Color.Transparent
+                ),
+                center = Offset(w * 0.85f, h * 0.16f),
+                radius = w * 0.75f
             ),
-            center = Offset(orb1X, orb1Y),
-            radius = w * 0.85f
+            center = Offset(w * 0.85f, h * 0.16f),
+            radius = w * 0.75f
         )
 
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(orbSecondaryColor, Color.Transparent),
-                center = Offset(orb2X, orb2Y),
-                radius = w * 0.80f
+                colors = listOf(
+                    theme.accentTertiary.copy(alpha = if (theme.isLight) 0.10f else 0.15f),
+                    Color.Transparent
+                ),
+                center = Offset(w * 0.15f, h * 0.78f),
+                radius = w * 0.70f
             ),
-            center = Offset(orb2X, orb2Y),
-            radius = w * 0.80f
+            center = Offset(w * 0.15f, h * 0.78f),
+            radius = w * 0.70f
         )
 
-        // Floating Studio Data Motes
-        val particleCount = 24
-        for (i in 0 until particleCount) {
-            val px = (w * ((i * 41 + 9) % 100) / 100f)
-            val baseY = (h * ((i * 59 + 15) % 100) / 100f)
-            val speed = 0.45f + (i % 4) * 0.2f
-            val py = (baseY - (streamOffset * speed)) % h
-            val actualY = if (py < 0) py + h else py
-            val radius = (1.4f + (i % 3) * 1.1f).dp.toPx()
-
-            val pColor = when {
-                isProxyActive -> if (i % 2 == 0) palette.mintAqua else palette.primaryViolet
-                else -> if (i % 2 == 0) palette.primaryViolet else palette.rosePink
+        when (themeId) {
+            0 -> {
+                // Mode 0: Tactical Radar Concentric Rings + Scanning Sweep
+                val radarCenter = Offset(w * 0.5f, h * 0.32f)
+                for (rIdx in 1..4) {
+                    val radius = (w * 0.16f) * rIdx
+                    drawCircle(
+                        color = glowColor.copy(alpha = 0.05f),
+                        radius = radius,
+                        center = radarCenter,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                }
+                rotate(degrees = radarSweep, pivot = radarCenter) {
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            colors = listOf(glowColor.copy(alpha = 0.22f), Color.Transparent),
+                            start = radarCenter,
+                            end = Offset(radarCenter.x + w * 0.55f, radarCenter.y)
+                        ),
+                        start = radarCenter,
+                        end = Offset(radarCenter.x + w * 0.55f, radarCenter.y),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                }
             }
-
-            drawCircle(
-                color = pColor,
-                radius = radius,
-                center = Offset(px, actualY),
-                alpha = if (isProxyActive) 0.40f else 0.18f
-            )
+            1 -> {
+                // Mode 1: Solar Horizon Perspective Laser Lines
+                val lines = 12
+                for (i in 0 until lines) {
+                    val y = (h * 0.1f) + (i * (h * 0.075f)) + (sin(wavePhase + i * 0.5f) * 8f).toFloat()
+                    drawLine(
+                        color = glowColor.copy(alpha = 0.055f),
+                        start = Offset(0f, y),
+                        end = Offset(w, y - 24f),
+                        strokeWidth = 1.2.dp.toPx()
+                    )
+                }
+            }
+            else -> {
+                // Mode 2: Precision Isometric Dot Matrix
+                val step = 36.dp.toPx()
+                var x = step / 2f
+                while (x < w) {
+                    var y = step / 2f
+                    while (y < h) {
+                        drawCircle(
+                            color = theme.accentPrimary.copy(alpha = 0.08f),
+                            radius = 1.5.dp.toPx(),
+                            center = Offset(x, y)
+                        )
+                        y += step
+                    }
+                    x += step
+                }
+            }
         }
     }
 }
 
 // -------------------------------------------------------------
-// 2. TOP STUDIO HEADER WITH THEME TOGGLE & ROOT STATUS
+// SPACIOUS TOP COMMAND BAR (ZERO TEXT COLLISIONS)
 // -------------------------------------------------------------
 
 @Composable
-fun StudioTopHeader(
-    activeSlot: Int,
-    runningSlot: Int?,
+fun AetherTopCommandBar(
     isProxyActive: Boolean,
-    useLightStudio: Boolean,
-    onToggleTheme: () -> Unit,
+    runningSlot: Int?,
+    activeSlot: Int,
     rootState: RootState,
-    rootLabel: String,
+    onCycleTheme: () -> Unit,
     onRecheckRoot: () -> Unit
 ) {
-    val palette = LocalStudioPalette.current
-    val infiniteTransition = rememberInfiniteTransition(label = "headerPulse")
-    val badgePulse by infiniteTransition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "badgePulse"
-    )
-
-    val statusColor = if (isProxyActive) palette.mintDeep else palette.primaryViolet
+    val theme = LocalAetherTheme.current
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
+        // Brand & Subtitle Stack
+        Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "NAMELESS",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = palette.textPrimary,
-                    letterSpacing = 2.2.sp
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (isProxyActive) theme.statusLive else theme.accentPrimary)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isProxyActive) palette.cardTintedMint else palette.cardTintedViolet,
-                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .graphicsLayer { alpha = if (isProxyActive) badgePulse else 1f }
-                                .background(statusColor, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isProxyActive) "P${runningSlot ?: activeSlot} LIVE" else "STUDIO",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black,
-                            color = statusColor,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
+                Text(
+                    text = "NAMELESS // CORE",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    color = theme.textMain,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "USER ${ProfileManager.androidUserId} • SLOT P$activeSlot • PORT ${ProfileManager.localInboundPort}",
-                fontSize = 10.sp,
-                color = palette.textSecondary,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 0.6.sp
+                text = if (isProxyActive) {
+                    "TUNNEL ACTIVE • NODE P${runningSlot ?: activeSlot} • PORT ${ProfileManager.localInboundPort}"
+                } else {
+                    "KERNEL STANDBY • USER ${ProfileManager.androidUserId} • ${theme.name}"
+                },
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isProxyActive) theme.statusLive else theme.textSub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Action Pills (Theme Switcher + Root Status)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Light / Velvet Theme Switcher Pill
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = palette.cardSurface,
-                border = BorderStroke(1.dp, palette.borderSubtle),
+                shape = RoundedCornerShape(10.dp),
+                color = theme.cardBg,
+                border = BorderStroke(1.dp, theme.strokeSubtle),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onToggleTheme() }
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onCycleTheme() }
             ) {
                 Text(
-                    text = if (useLightStudio) "☀️" else "🌙",
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    text = "🎨 ${theme.name.substringBefore(" ")}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = theme.accentPrimary,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
                 )
             }
 
-            // Root Verification Pill
             val rootColor = when (rootState) {
-                RootState.GRANTED -> palette.mintDeep
-                RootState.DENIED -> palette.coralRed
-                RootState.CHECKING -> palette.sunnyAmber
+                RootState.GRANTED -> theme.statusLive
+                RootState.DENIED -> theme.statusDanger
+                RootState.CHECKING -> theme.statusWarn
             }
 
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = palette.cardSurface,
-                border = BorderStroke(1.2.dp, rootColor.copy(alpha = 0.65f)),
+                shape = RoundedCornerShape(10.dp),
+                color = theme.cardBg,
+                border = BorderStroke(1.dp, rootColor.copy(alpha = 0.6f)),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .clickable { onRecheckRoot() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(6.dp)
                             .background(rootColor, CircleShape)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = when (rootState) {
-                            RootState.GRANTED -> "ROOT ON"
-                            RootState.DENIED -> "NO ROOT"
-                            RootState.CHECKING -> "WAIT..."
+                            RootState.GRANTED -> "SU"
+                            RootState.DENIED -> "NO SU"
+                            RootState.CHECKING -> "..."
                         },
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
-                        color = palette.textPrimary,
-                        fontFamily = FontFamily.Monospace
+                        color = theme.textMain
                     )
                 }
             }
@@ -1296,181 +1252,160 @@ fun StudioTopHeader(
 }
 
 // -------------------------------------------------------------
-// 3. INTERACTIVE NODE SLOT RIBBON (P0 - P4)
+// NODE SLOT CAROUSEL (P0 - P4 WITH PROTOCOL TAGS)
 // -------------------------------------------------------------
 
 @Composable
-fun StudioSlotRibbon(
+fun AetherNodeCarousel(
     activeSlot: Int,
     runningSlot: Int?,
     isProxyActive: Boolean,
     startOnBoot: Boolean,
     bootSlot: Int,
-    configuredSlots: Set<Int>,
+    slotProtocols: Map<Int, String>,
     onSelectSlot: (Int) -> Unit
 ) {
-    val palette = LocalStudioPalette.current
+    val theme = LocalAetherTheme.current
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         (0 until ProfileManager.MAX_SLOTS).forEach { slotIdx ->
             val isSelected = slotIdx == activeSlot
             val isRunning = isProxyActive && (runningSlot == slotIdx)
-            val isBootTarget = startOnBoot && (slotIdx == bootSlot)
-            val isConfigured = configuredSlots.contains(slotIdx)
-
-            val scale by animateFloatAsState(
-                targetValue = if (isSelected) 1.04f else 1f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-                label = "slotScale"
-            )
+            val isBoot = startOnBoot && (bootSlot == slotIdx)
+            val proto = slotProtocols[slotIdx]
 
             val bg by animateColorAsState(
                 targetValue = when {
-                    isRunning -> palette.cardTintedMint
-                    isSelected -> palette.primaryViolet
-                    else -> palette.cardSurface
+                    isRunning -> theme.statusLive.copy(alpha = 0.16f)
+                    isSelected -> theme.accentPrimary.copy(alpha = if (theme.isLight) 0.14f else 0.20f)
+                    else -> theme.cardBg
                 },
-                animationSpec = tween(240),
-                label = "slotBg"
+                animationSpec = tween(220),
+                label = "nodeBg"
             )
 
             val borderCol by animateColorAsState(
                 targetValue = when {
-                    isRunning -> palette.mintAqua
-                    isSelected -> palette.deepViolet
-                    isConfigured -> palette.softLavender.copy(alpha = 0.55f)
-                    else -> palette.borderSubtle
+                    isRunning -> theme.statusLive
+                    isSelected -> theme.accentPrimary
+                    proto != null -> theme.strokeSubtle
+                    else -> theme.strokeSubtle.copy(alpha = 0.5f)
                 },
-                animationSpec = tween(240),
-                label = "slotBorder"
+                animationSpec = tween(220),
+                label = "nodeBorder"
             )
 
-            val titleCol = when {
-                isRunning -> palette.mintDeep
-                isSelected -> Color.White
-                isConfigured -> palette.textPrimary
-                else -> palette.textMuted
-            }
-
-            val subCol = when {
-                isRunning -> palette.mintDeep
-                isSelected -> Color.White.copy(alpha = 0.9f)
-                isBootTarget -> palette.sunnyAmber
-                isConfigured -> palette.primaryViolet
-                else -> palette.textMuted
-            }
-
-            Box(
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    }
-                    .shadow(if (isSelected || isRunning) 4.dp else 1.dp, RoundedCornerShape(14.dp))
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(bg)
-                    .border(1.2.dp, borderCol, RoundedCornerShape(14.dp))
+                    .border(if (isSelected || isRunning) 1.5.dp else 1.dp, borderCol, RoundedCornerShape(12.dp))
                     .clickable { onSelectSlot(slotIdx) }
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                contentAlignment = Alignment.Center
+                    .padding(vertical = 7.dp, horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "P$slotIdx",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            color = titleCol,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        if (isConfigured && !isRunning) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(4.5.dp)
-                                    .background(if (isSelected) Color.White else palette.primaryViolet, CircleShape)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = when {
-                            isRunning -> "LIVE"
-                            isBootTarget -> "BOOT"
-                            isSelected -> "ACTIVE"
-                            isConfigured -> "READY"
-                            else -> "EMPTY"
-                        },
-                        fontSize = 7.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = subCol,
-                        letterSpacing = 0.5.sp
-                    )
-                }
+                Text(
+                    text = "NODE $slotIdx",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = when {
+                        isRunning -> theme.statusLive
+                        isSelected -> theme.accentPrimary
+                        proto != null -> theme.textMain
+                        else -> theme.textDim
+                    },
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = when {
+                        isRunning -> "ONLINE"
+                        isBoot -> "BOOT"
+                        proto != null -> proto.take(6)
+                        else -> "EMPTY"
+                    },
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = when {
+                        isRunning -> theme.statusLive
+                        isBoot -> theme.statusWarn
+                        proto != null -> theme.textSub
+                        else -> theme.textDim
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
 }
 
 // -------------------------------------------------------------
-// 4. SEGMENTED STUDIO PILL TABS
+// FLOATING BOTTOM GLASS NAVIGATION DOCK
 // -------------------------------------------------------------
 
 @Composable
-fun StudioPillTabs(
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit,
-    selectedAppsCount: Int?
+fun AetherBottomDock(
+    selectedScreen: Int,
+    onSelectScreen: (Int) -> Unit,
+    splitAppsCount: Int?
 ) {
-    val palette = LocalStudioPalette.current
-    val tabs = listOf(
-        "Command HUD",
-        "Config Deck",
-        if (selectedAppsCount == null) "App Routing" else "Routing ($selectedAppsCount)"
+    val theme = LocalAetherTheme.current
+    val items = listOf(
+        Pair("⚡", "Cockpit"),
+        Pair("🛰️", "Nodes"),
+        Pair("🛡️", if (splitAppsCount == null) "Routing" else "Split ($splitAppsCount)"),
+        Pair("📟", "Terminal")
     )
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = palette.cardSurface,
-        border = BorderStroke(1.dp, palette.borderSubtle),
-        modifier = Modifier.fillMaxWidth()
+        shape = RoundedCornerShape(20.dp),
+        color = theme.cardBg,
+        border = BorderStroke(1.dp, theme.strokeSubtle),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Row(
-            modifier = Modifier.padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            tabs.forEachIndexed { index, title ->
-                val isSelected = selectedTab == index
-
-                val bg by animateColorAsState(
-                    targetValue = if (isSelected) palette.primaryViolet else Color.Transparent,
+            items.forEachIndexed { index, (icon, title) ->
+                val isSelected = selectedScreen == index
+                val pillBg by animateColorAsState(
+                    targetValue = if (isSelected) theme.accentPrimary else Color.Transparent,
                     animationSpec = tween(220),
-                    label = "tabBg"
+                    label = "dockPillBg"
                 )
-                val textCol by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else palette.textSecondary,
-                    animationSpec = tween(220),
-                    label = "tabText"
-                )
+                val contentCol = if (isSelected) {
+                    if (theme.isLight) Color.White else Color(0xFF06080E)
+                } else {
+                    theme.textSub
+                }
 
-                Box(
+                Row(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(bg)
-                        .clickable { onTabSelected(index) }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(pillBg)
+                        .clickable { onSelectScreen(index) }
+                        .padding(vertical = 9.dp, horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text(text = icon, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = title,
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                        color = textCol,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                        color = contentCol,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1481,11 +1416,11 @@ fun StudioPillTabs(
 }
 
 // -------------------------------------------------------------
-// VIEW 1: COMMAND HUD VIEW
+// SCREEN 0: TACTICAL COCKPIT (BENTO DECK + TWIN SPEEDOMETERS)
 // -------------------------------------------------------------
 
 @Composable
-fun ConsoleHudView(
+fun AetherCockpitScreen(
     isProxyActive: Boolean,
     isTransitioning: Boolean,
     runningSlot: Int?,
@@ -1506,29 +1441,29 @@ fun ConsoleHudView(
     currentRxRate: Long,
     currentTxRate: Long,
     peakRxRate: Long,
+    peakTxRate: Long,
     totalRxBytes: Long,
     totalTxBytes: Long,
-    rxHistory: List<Long>,
-    txHistory: List<Long>,
+    rxSpectrum: List<Long>,
+    txSpectrum: List<Long>,
     onRefreshIp: () -> Unit,
     onToggleProxy: () -> Unit,
     isTesting: Boolean,
     testStatus: String?,
     testLatencyMs: Long?,
-    onTestUpstream: () -> Unit,
-    onViewLogs: () -> Unit
+    onTestUpstream: () -> Unit
 ) {
-    val palette = LocalStudioPalette.current
+    val theme = LocalAetherTheme.current
     val isCurrentSlotRunning = isProxyActive && (runningSlot == activeSlot)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // 1. INTERACTIVE STUDIO REACTOR HERO CARD
-        StudioReactorHeroCard(
+        // 1. SPLIT BENTO HERO DECK (LEFT: HEXAGON POWER CORE | RIGHT: EXIT PASSPORT & TELEMETRY)
+        AetherBentoHeroDeck(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning,
             runningSlot = runningSlot,
@@ -1545,149 +1480,134 @@ fun ConsoleHudView(
             onToggleProxy = onToggleProxy
         )
 
-        // 2. REAL-TIME 32-SAMPLE BEZIER TELEMETRY OSCILLOSCOPE
-        StudioTelemetryOscilloscope(
+        // 2. TWIN-TURBINE 240° RADIAL SPEEDOMETER GAUGES + 24-BAR SPECTRUM ANALYZER
+        AetherTwinSpeedometerCluster(
             isProxyActive = isProxyActive,
             currentRxRate = currentRxRate,
             currentTxRate = currentTxRate,
             peakRxRate = peakRxRate,
+            peakTxRate = peakTxRate,
             totalRxBytes = totalRxBytes,
             totalTxBytes = totalTxBytes,
-            rxHistory = rxHistory,
-            txHistory = txHistory
+            rxSpectrum = rxSpectrum,
+            txSpectrum = txSpectrum
         )
 
-        // 3. ACTIVE PIPELINE CHIPS
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // 3. PIPELINE TELEMETRY CHIPS + PING ACTION
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = theme.cardBg,
+            border = BorderStroke(1.dp, theme.strokeSubtle),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            StudioStatusBadge(label = proxyType.displayName, color = palette.primaryViolet)
-            StudioStatusBadge(
-                label = if (transportMode == TransportMode.TCP_AND_UDP) "TCP + UDP (TPROXY)" else "TCP ONLY (QUIC BLOCK)",
-                color = if (transportMode == TransportMode.TCP_AND_UDP) palette.mintDeep else palette.sunnyAmber
-            )
-            StudioStatusBadge(
-                label = when (ipMode) {
-                    IpMode.IPV4_ONLY -> "IPv4 ONLY"
-                    IpMode.DUAL_STACK -> "DUAL-STACK"
-                    IpMode.IPV6_ONLY -> "IPv6 ONLY"
-                },
-                color = palette.primaryViolet
-            )
-            StudioStatusBadge(
-                label = if (routeWholeProfile) "GLOBAL PROFILE" else "$selectedAppsCount APPS TUNNELED",
-                color = palette.rosePink
-            )
-            if (routeHotspot) {
-                StudioStatusBadge(label = "HOTSPOT BRIDGE", color = palette.mintDeep)
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AetherChip(label = proxyType.displayTitle, color = theme.accentPrimary)
+                    AetherChip(
+                        label = if (transportMode == TransportMode.TCP_AND_UDP) "TPROXY TCP+UDP" else "TCP ONLY",
+                        color = theme.accentSecondary
+                    )
+                    AetherChip(
+                        label = "DoT 853 + DNS 53 TUNNELED",
+                        color = theme.statusLive
+                    )
+                    AetherChip(
+                        label = when (ipMode) {
+                            IpMode.IPV4_ONLY -> "IPv4 ONLY"
+                            IpMode.DUAL_STACK -> "DUAL-STACK"
+                            IpMode.IPV6_ONLY -> "IPv6 ONLY"
+                        },
+                        color = theme.textSub
+                    )
+                    if (routeHotspot) {
+                        AetherChip(label = "HOTSPOT READY", color = theme.accentPrimary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onTestUpstream,
+                        enabled = !isTesting && !isTransitioning,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, theme.accentSecondary.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Text(
+                            text = if (isTesting) "Probing Socket..." else "⚡ Test Node P$activeSlot Latency",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = theme.accentSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = testStatus != null,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    val statusColor = when {
+                        isTesting -> theme.statusWarn
+                        testLatencyMs != null -> theme.statusLive
+                        else -> theme.statusDanger
+                    }
+                    Text(
+                        text = testStatus ?: "",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
 
-        // 4. QUICK DIAGNOSTICS & LOGS BAR
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Button(
-                onClick = onTestUpstream,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(46.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = palette.cardTintedViolet,
-                    contentColor = palette.primaryViolet
-                ),
-                border = BorderStroke(1.dp, palette.primaryViolet.copy(alpha = 0.45f)),
-                enabled = !isTesting && !isTransitioning
-            ) {
-                Text(
-                    text = if (isTesting) "Probing Node..." else "⚡ Ping Node P$activeSlot",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
-
-            OutlinedButton(
-                onClick = onViewLogs,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(46.dp),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, palette.borderSubtle),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = palette.cardSurface,
-                    contentColor = palette.textPrimary
-                )
-            ) {
-                Text("Kernel Telemetry", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        AnimatedVisibility(
-            visible = testStatus != null,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            val isOk = testLatencyMs != null
-            val statusColor = when {
-                isTesting -> palette.sunnyAmber
-                isOk -> palette.mintDeep
-                else -> palette.coralRed
-            }
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = statusColor.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = testStatus ?: "",
-                    color = statusColor,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
-                )
-            }
-        }
-
-        // 5. MASTER TUNNEL LAUNCH BUTTON WITH SPRING PRESS FEEDBACK
+        // 4. MASTER IGNITION TRIGGER BAR
         val interactionSource = remember { MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
-        val btnScale by animateFloatAsState(
+        val scale by animateFloatAsState(
             targetValue = if (isPressed) 0.97f else 1f,
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "launchBtnScale"
+            label = "ignitionScale"
         )
 
-        val buttonText = when {
-            isTransitioning -> "SYNCHRONIZING KERNEL NETFILTER..."
-            !isProxyActive -> "ENGAGE KERNEL TUNNEL • NODE P$activeSlot"
-            isCurrentSlotRunning -> "TERMINATE TUNNEL • DISCONNECT P$activeSlot"
-            else -> "HOT-SWAP TO NODE P$activeSlot & ENGAGE"
+        val btnBg = when {
+            isTransitioning -> theme.statusWarn
+            isCurrentSlotRunning -> theme.statusDanger
+            else -> theme.accentPrimary
         }
 
-        val buttonBrush = when {
-            isTransitioning -> Brush.horizontalGradient(listOf(palette.sunnyAmber, palette.primaryViolet))
-            isCurrentSlotRunning -> Brush.horizontalGradient(listOf(palette.coralRed, palette.rosePink))
-            else -> Brush.horizontalGradient(listOf(palette.primaryViolet, palette.deepViolet, palette.mintDeep))
+        val btnTextCol = when {
+            isCurrentSlotRunning -> Color.White
+            theme.isLight -> Color.White
+            else -> Color(0xFF06080E)
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp)
+                .height(52.dp)
                 .graphicsLayer {
-                    scaleX = btnScale
-                    scaleY = btnScale
+                    scaleX = scale
+                    scaleY = scale
                 }
-                .shadow(6.dp, RoundedCornerShape(16.dp))
                 .clip(RoundedCornerShape(16.dp))
-                .background(buttonBrush)
+                .background(btnBg)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -1696,24 +1616,28 @@ fun ConsoleHudView(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = buttonText,
+                text = when {
+                    isTransitioning -> "APPLYING KERNEL NETFILTER..."
+                    !isProxyActive -> "IGNITE KERNEL TUNNEL • NODE P$activeSlot"
+                    isCurrentSlotRunning -> "DISENGAGE TUNNEL • STOP P$activeSlot"
+                    else -> "SWITCH TO NODE P$activeSlot & IGNITE"
+                },
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Black,
-                color = Color.White,
-                letterSpacing = 1.sp
+                color = btnTextCol,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
 // -------------------------------------------------------------
-// INTERACTIVE STUDIO REACTOR HERO CARD
+// SPLIT BENTO HERO DECK (HEXAGON POWER CORE + EXIT PASSPORT)
 // -------------------------------------------------------------
 
 @Composable
-fun StudioReactorHeroCard(
+fun AetherBentoHeroDeck(
     isProxyActive: Boolean,
     isTransitioning: Boolean,
     runningSlot: Int?,
@@ -1729,313 +1653,285 @@ fun StudioReactorHeroCard(
     onRefreshIp: () -> Unit,
     onToggleProxy: () -> Unit
 ) {
-    val palette = LocalStudioPalette.current
+    val theme = LocalAetherTheme.current
     val context = LocalContext.current
-    val infiniteTransition = rememberInfiniteTransition(label = "studioReactor")
 
-    val outerRotation by infiniteTransition.animateFloat(
+    val infiniteTransition = rememberInfiniteTransition(label = "hexCore")
+    val hexAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             tween(
                 durationMillis = when {
-                    isTransitioning -> 1800
-                    isProxyActive -> 4200
-                    else -> 14000
+                    isTransitioning -> 1600
+                    isProxyActive -> 5000
+                    else -> 16000
                 },
                 easing = LinearEasing
             ),
             RepeatMode.Restart
         ),
-        label = "outerRot"
+        label = "hexAngle"
     )
 
-    val innerRotation by infiniteTransition.animateFloat(
-        initialValue = 360f,
-        targetValue = 0f,
+    val sonarRipple by infiniteTransition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            tween(
-                durationMillis = when {
-                    isTransitioning -> 1200
-                    isProxyActive -> 2800
-                    else -> 10000
-                },
-                easing = LinearEasing
-            ),
+            tween(1600, easing = FastOutSlowInEasing),
             RepeatMode.Restart
         ),
-        label = "innerRot"
+        label = "sonarRipple"
     )
 
-    val corePulse by infiniteTransition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "corePulse"
-    )
-
-    val activeAccent by animateColorAsState(
+    val coreColor by animateColorAsState(
         targetValue = when {
-            isTransitioning -> palette.sunnyAmber
-            isProxyActive -> palette.mintAqua
-            else -> palette.primaryViolet
+            isTransitioning -> theme.statusWarn
+            isProxyActive -> theme.statusLive
+            else -> theme.accentSecondary
         },
         animationSpec = tween(400),
-        label = "reactorAccent"
+        label = "coreColor"
     )
 
-    Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = palette.cardSurface,
-        border = BorderStroke(
-            width = 1.4.dp,
-            color = if (isProxyActive) palette.mintAqua.copy(alpha = 0.7f) else palette.borderSubtle
-        ),
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(if (palette.isLight) 6.dp else 2.dp, RoundedCornerShape(22.dp))
+            .height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // LEFT BENTO: INTERACTIVE HEXAGON SONAR POWER CORE
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = theme.cardBg,
+            border = BorderStroke(1.2.dp, if (isProxyActive) coreColor.copy(alpha = 0.65f) else theme.strokeSubtle),
+            modifier = Modifier
+                .weight(0.42f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(20.dp))
+                .clickable(enabled = !isTransitioning) { onToggleProxy() }
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(activeAccent, CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = when {
-                            isTransitioning -> "SYNCHRONIZING TUNNEL..."
-                            isProxyActive -> "TUNNEL LIVE • NODE P$runningSlot"
-                            else -> "STANDBY • NODE P$activeSlot"
-                        },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        color = if (isProxyActive) palette.mintDeep else palette.primaryViolet,
-                        letterSpacing = 0.8.sp
-                    )
-                    if (isProxyActive && activePid != null) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isProxyActive) "CORE ONLINE" else "TAP TO START",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = coreColor,
+                    maxLines = 1
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(92.dp)
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        val r = size.minDimension / 2f
+
+                        // Expanding Sonar Shockwave Ring when Active
+                        if (isProxyActive || isTransitioning) {
+                            drawCircle(
+                                color = coreColor.copy(alpha = (1f - sonarRipple) * 0.55f),
+                                radius = r * sonarRipple,
+                                center = Offset(cx, cy),
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                        }
+
+                        // Rotating Tactical Hexagon
+                        rotate(degrees = hexAngle, pivot = Offset(cx, cy)) {
+                            val hexPath = Path()
+                            for (i in 0 until 6) {
+                                val deg = i * 60.0
+                                val rad = Math.toRadians(deg)
+                                val px = cx + (r * 0.78f * cos(rad)).toFloat()
+                                val py = cy + (r * 0.78f * sin(rad)).toFloat()
+                                if (i == 0) hexPath.moveTo(px, py) else hexPath.lineTo(px, py)
+                            }
+                            hexPath.close()
+                            drawPath(
+                                path = hexPath,
+                                color = coreColor,
+                                style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+
+                        // Counter-Rotating Inner Triangle/Hex Core
+                        rotate(degrees = -hexAngle * 1.4f, pivot = Offset(cx, cy)) {
+                            drawCircle(
+                                color = coreColor.copy(alpha = 0.18f),
+                                radius = r * 0.48f,
+                                center = Offset(cx, cy)
+                            )
+                        }
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "PID $activePid",
-                            fontSize = 10.sp,
-                            color = palette.textMuted,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
+                            text = if (isProxyActive) "P${runningSlot ?: activeSlot}" else "P$activeSlot",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            color = theme.textMain
+                        )
+                        Text(
+                            text = if (isProxyActive) "LIVE" else "IDLE",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = coreColor
                         )
                     }
                 }
 
+                // Bottom Uptime or Protocol Label (Stacked cleanly, zero collision)
                 if (isProxyActive && sessionStartMs > 0L) {
-                    StudioUptimeCounter(sessionStartMs = sessionStartMs)
+                    AetherUptimePill(sessionStartMs = sessionStartMs)
                 } else {
                     Text(
-                        text = if (host.isNotBlank()) "${proxyType.displayName} • :$port" else "UNCONFIGURED",
+                        text = proxyType.displayTitle,
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = palette.textMuted
+                        color = theme.textSub,
+                        maxLines = 1
                     )
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Interactive Orbital Reactor Core (Tap to Start/Stop)
-            Box(
-                modifier = Modifier
-                    .size(116.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = !isTransitioning) { onToggleProxy() },
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val radius = size.width / 2f
-
-                    // Soft Radial Halo
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                activeAccent.copy(alpha = if (isProxyActive) 0.28f else 0.14f),
-                                Color.Transparent
-                            ),
-                            center = center,
-                            radius = radius * corePulse
-                        ),
-                        radius = radius,
-                        center = center
-                    )
-
-                    // Outer Rotating Ring
-                    rotate(degrees = outerRotation, pivot = center) {
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(activeAccent, palette.primaryViolet, Color.Transparent, activeAccent)
-                            ),
-                            startAngle = 0f,
-                            sweepAngle = 270f,
-                            useCenter = false,
-                            style = Stroke(width = 3.4.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-
-                    // Inner Counter-Rotating Dashed Ring
-                    rotate(degrees = innerRotation, pivot = center) {
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(palette.rosePink, palette.primaryViolet, Color.Transparent, palette.rosePink)
-                            ),
-                            startAngle = 30f,
-                            sweepAngle = 220f,
-                            useCenter = false,
-                            topLeft = Offset(radius * 0.22f, radius * 0.22f),
-                            size = Size(radius * 1.56f, radius * 1.56f),
-                            style = Stroke(
-                                width = 2.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
-                            )
-                        )
-                    }
-
-                    // Core Sphere
-                    drawCircle(
-                        color = activeAccent.copy(alpha = if (isProxyActive) 0.22f else 0.12f),
-                        radius = (radius * 0.48f) * if (isProxyActive) corePulse else 1f,
-                        center = center
-                    )
-                    drawCircle(
-                        color = activeAccent,
-                        radius = radius * 0.30f,
-                        center = center,
-                        style = Stroke(width = 1.8.dp.toPx())
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = when {
-                            isTransitioning -> "SYNC"
-                            isProxyActive -> "LIVE"
-                            else -> "START"
-                        },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        color = palette.textPrimary,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = "P${if (isProxyActive) (runningSlot ?: activeSlot) else activeSlot}",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isProxyActive) palette.mintDeep else palette.primaryViolet,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Exit Node GeoIP Telemetry Bar
+        // RIGHT BENTO STACK: EXIT NODE PASSPORT + KERNEL PID / DNS STATUS
+        Column(
+            modifier = Modifier
+                .weight(0.58f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Top Right Card: Exit IP & Geo Location Passport
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = if (isProxyActive) palette.cardTintedMint else palette.fieldBackground,
-                border = BorderStroke(1.dp, if (isProxyActive) palette.mintAqua.copy(alpha = 0.5f) else palette.borderSubtle),
+                shape = RoundedCornerShape(20.dp),
+                color = theme.cardBg,
+                border = BorderStroke(1.dp, theme.strokeSubtle),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .clickable {
                         if (isProxyActive && publicIpInfo != null) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("ExitNodeIP", publicIpInfo.ip))
-                            Toast.makeText(context, "Exit IP Copied: ${publicIpInfo.ip}", Toast.LENGTH_SHORT).show()
+                            clipboard.setPrimaryClip(ClipData.newPlainText("ExitIP", publicIpInfo.ip))
+                            Toast.makeText(context, "Copied: ${publicIpInfo.ip}", Toast.LENGTH_SHORT).show()
                         } else if (isProxyActive) {
                             onRefreshIp()
                         }
                     }
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "🛡️",
-                            fontSize = 22.sp
+                            text = if (isProxyActive) "EXIT NODE IP" else "TARGET ENDPOINT",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Black,
+                            color = theme.textSub
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
+                        if (isProxyActive) {
                             Text(
-                                text = if (isProxyActive) {
-                                    when {
-                                        isFetchingIp -> "Verifying exit tunnel..."
-                                        publicIpInfo != null -> publicIpInfo.ip
-                                        ipFetchFailed -> "Exit check timed out"
-                                        else -> "Resolving exit IP..."
-                                    }
-                                } else {
-                                    if (host.isNotBlank()) "${host.trim()}:${port.trim()}" else "No Upstream Configured"
-                                },
-                                fontSize = 14.5.sp,
+                                text = if (isFetchingIp) "..." else "↻ Verify",
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Black,
-                                color = palette.textPrimary,
-                                fontFamily = FontFamily.Monospace,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (isProxyActive) {
-                                    when {
-                                        isFetchingIp -> "Routing through local SOCKS5 telemetry port..."
-                                        publicIpInfo != null -> "${publicIpInfo.country} • Tap to copy"
-                                        ipFetchFailed -> "Tap Verify to re-check exit node"
-                                        else -> "Synchronizing..."
-                                    }
-                                } else "Direct Kernel Interface • Tap Reactor Core to Engage",
-                                fontSize = 10.5.sp,
-                                color = when {
-                                    ipFetchFailed && isProxyActive -> palette.coralRed
-                                    isProxyActive -> palette.mintDeep
-                                    else -> palette.textSecondary
-                                },
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = theme.accentSecondary,
+                                modifier = Modifier.clickable { onRefreshIp() }
                             )
                         }
                     }
 
-                    if (isProxyActive) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = palette.cardSurface,
-                            border = BorderStroke(1.dp, palette.mintDeep.copy(alpha = 0.5f)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onRefreshIp() }
-                        ) {
-                            Text(
-                                text = if (isFetchingIp) "..." else "Verify",
-                                fontSize = 10.5.sp,
-                                color = palette.mintDeep,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
-                            )
-                        }
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (isProxyActive) (publicIpInfo?.flagEmoji ?: "🌐") else "🛰️",
+                            fontSize = 18.sp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isProxyActive) {
+                                when {
+                                    isFetchingIp -> "Checking..."
+                                    publicIpInfo != null -> publicIpInfo.ip
+                                    ipFetchFailed -> "Tap Verify"
+                                    else -> "Resolving..."
+                                }
+                            } else {
+                                if (host.isNotBlank()) host.trim() else "Not Configured"
+                            },
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            color = theme.textMain,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = if (isProxyActive) {
+                            when {
+                                isFetchingIp -> "Querying through tunnel..."
+                                publicIpInfo != null -> publicIpInfo.country
+                                ipFetchFailed -> "Timeout • Tap to retry"
+                                else -> "Synchronizing..."
+                            }
+                        } else {
+                            if (host.isNotBlank()) "Port ${port.trim()} • ${proxyType.displayTitle}" else "Open Nodes tab to configure"
+                        },
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (ipFetchFailed && isProxyActive) theme.statusDanger else theme.accentSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Bottom Right Card: Private DNS Shield & Kernel PID Status
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = theme.cardHighlight,
+                border = BorderStroke(1.dp, theme.strokeSubtle),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Text(
+                        text = if (isProxyActive) "PRIVATE DNS (DoT 853) TUNNELED" else "DNS HIJACK ENGINE READY",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (isProxyActive) theme.statusLive else theme.textSub,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (isProxyActive) {
+                            "PID ${activePid ?: "Active"} • Cloudflare / Google DoT Ready"
+                        } else {
+                            "Supports Cloudflare, Google & Custom DoT"
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = theme.textMain,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -2043,212 +1939,273 @@ fun StudioReactorHeroCard(
 }
 
 // -------------------------------------------------------------
-// REAL-TIME 32-SAMPLE BEZIER TELEMETRY OSCILLOSCOPE
+// TWIN-TURBINE 240° RADIAL SPEEDOMETER GAUGES + 24-BAR SPECTRUM
 // -------------------------------------------------------------
 
 @Composable
-fun StudioTelemetryOscilloscope(
+fun AetherTwinSpeedometerCluster(
     isProxyActive: Boolean,
     currentRxRate: Long,
     currentTxRate: Long,
     peakRxRate: Long,
+    peakTxRate: Long,
     totalRxBytes: Long,
     totalTxBytes: Long,
-    rxHistory: List<Long>,
-    txHistory: List<Long>
+    rxSpectrum: List<Long>,
+    txSpectrum: List<Long>
 ) {
-    val palette = LocalStudioPalette.current
-    val infiniteTransition = rememberInfiniteTransition(label = "carrierWave")
-    val carrierPhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            tween(if (isProxyActive) 1800 else 5000, easing = LinearEasing),
-            RepeatMode.Restart
-        ),
-        label = "carrierPhase"
-    )
+    val theme = LocalAetherTheme.current
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = palette.cardSurface,
-        border = BorderStroke(1.dp, palette.borderSubtle),
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(if (palette.isLight) 4.dp else 1.dp, RoundedCornerShape(18.dp))
+        shape = RoundedCornerShape(20.dp),
+        color = theme.cardBg,
+        border = BorderStroke(1.dp, theme.strokeSubtle),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // Twin Radial Gauges Row (Downlink Left | Uplink Right)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // DOWNLOAD METRIC CARD
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = palette.cardTintedMint,
-                    border = BorderStroke(1.dp, palette.mintAqua.copy(alpha = 0.45f)),
+                AetherRadialSpeedGauge(
+                    title = "DOWNLINK",
+                    bytesPerSec = currentRxRate,
+                    peakBytesPerSec = peakRxRate,
+                    totalBytes = totalRxBytes,
+                    gaugeColor = theme.accentPrimary,
+                    isProxyActive = isProxyActive,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("DOWNLINK (RX)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = palette.mintDeep, letterSpacing = 0.8.sp)
-                            Text("Peak ${formatCompactRate(peakRxRate)}", fontSize = 8.5.sp, color = palette.textSecondary, fontFamily = FontFamily.Monospace)
-                        }
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                text = splitSpeedValue(currentRxRate),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = palette.textPrimary,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = splitSpeedUnit(currentRxRate),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = palette.mintDeep,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Text(
-                            text = "Session: ${formatBytes(totalRxBytes)}",
-                            fontSize = 9.5.sp,
-                            color = palette.textSecondary,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
+                )
 
-                // UPLOAD METRIC CARD
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = palette.cardTintedViolet,
-                    border = BorderStroke(1.dp, palette.primaryViolet.copy(alpha = 0.35f)),
+                AetherRadialSpeedGauge(
+                    title = "UPLINK",
+                    bytesPerSec = currentTxRate,
+                    peakBytesPerSec = peakTxRate,
+                    totalBytes = totalTxBytes,
+                    gaugeColor = theme.accentSecondary,
+                    isProxyActive = isProxyActive,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text("UPLINK (TX)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = palette.primaryViolet, letterSpacing = 0.8.sp)
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                text = splitSpeedValue(currentTxRate),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = palette.textPrimary,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = splitSpeedUnit(currentTxRate),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = palette.primaryViolet,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Text(
-                            text = "Session: ${formatBytes(totalTxBytes)}",
-                            fontSize = 9.5.sp,
-                            color = palette.textSecondary,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
+                )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 32-Point Real-Time Bezier Graph Canvas
-            Box(
+            // 24-Bar Vertical LED Packet Spectrum Equalizer
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(66.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(palette.fieldBackground)
-                    .border(1.dp, palette.borderSubtle, RoundedCornerShape(12.dp))
+                    .background(theme.inputBg)
+                    .border(1.dp, theme.strokeSubtle, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
-                    val w = size.width
-                    val h = size.height
-                    val maxSample = (rxHistory.maxOrNull() ?: 0L)
-                        .coerceAtLeast(txHistory.maxOrNull() ?: 0L)
-                        .coerceAtLeast(64 * 1024L)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "LIVE PACKET SPECTRUM",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        color = theme.textSub
+                    )
+                    Text(
+                        text = "TOTAL ${formatBytes(totalRxBytes + totalTxBytes)}",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.accentPrimary
+                    )
+                }
 
-                    val count = rxHistory.size.coerceAtLeast(2)
-                    val stepX = w / (count - 1).toFloat()
+                Spacer(modifier = Modifier.height(6.dp))
 
-                    val rxPath = Path()
-                    val rxFill = Path()
-                    val txPath = Path()
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .graphicsLayer()
+                ) {
+                    val barCount = rxSpectrum.size.coerceAtLeast(1)
+                    val maxVal = (rxSpectrum.maxOrNull() ?: 0L)
+                        .coerceAtLeast(txSpectrum.maxOrNull() ?: 0L)
+                        .coerceAtLeast(32 * 1024L)
 
-                    rxFill.moveTo(0f, h)
+                    val spacing = 4.dp.toPx()
+                    val totalSpacing = spacing * (barCount - 1)
+                    val barWidth = ((size.width - totalSpacing) / barCount).coerceAtLeast(2f)
 
-                    for (i in 0 until count) {
-                        val x = i * stepX
-                        val normalizedRx = (rxHistory[i].toFloat() / maxSample.toFloat()).coerceIn(0f, 1f)
-                        val normalizedTx = (txHistory[i].toFloat() / maxSample.toFloat()).coerceIn(0f, 1f)
+                    for (i in 0 until barCount) {
+                        val rxNorm = speedToLogFraction(rxSpectrum[i], maxVal)
+                        val txNorm = speedToLogFraction(txSpectrum[i], maxVal)
+                        val combined = (rxNorm * 0.7f + txNorm * 0.3f).coerceIn(0.08f, 1f)
+                        val barH = if (isProxyActive) size.height * combined else size.height * 0.10f
+                        val x = i * (barWidth + spacing)
+                        val y = size.height - barH
 
-                        val carrier = (sin((i * 0.35f) + carrierPhase) * if (isProxyActive) 3.5f else 1.8f)
-                        val ry = (h * 0.84f) - (normalizedRx * (h * 0.68f)) + carrier
-                        val ty = (h * 0.86f) - (normalizedTx * (h * 0.65f)) - (carrier * 0.7f)
-
-                        if (i == 0) {
-                            rxPath.moveTo(x, ry)
-                            rxFill.lineTo(x, ry)
-                            txPath.moveTo(x, ty)
-                        } else {
-                            val prevX = (i - 1) * stepX
-                            val midX = (prevX + x) / 2f
-                            rxPath.quadraticTo(midX, ry, x, ry)
-                            rxFill.quadraticTo(midX, ry, x, ry)
-                            txPath.quadraticTo(midX, ty, x, ty)
-                        }
-                    }
-
-                    rxFill.lineTo(w, h)
-                    rxFill.close()
-
-                    if (isProxyActive) {
-                        drawPath(
-                            path = rxFill,
+                        drawRoundRect(
                             brush = Brush.verticalGradient(
-                                listOf(palette.mintAqua.copy(alpha = 0.28f), Color.Transparent)
-                            )
+                                colors = if (isProxyActive) {
+                                    listOf(theme.accentPrimary, theme.accentSecondary)
+                                } else {
+                                    listOf(theme.textDim.copy(alpha = 0.35f), theme.textDim.copy(alpha = 0.15f))
+                                }
+                            ),
+                            topLeft = Offset(x, y),
+                            size = Size(barWidth, barH),
+                            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                         )
                     }
-
-                    drawPath(
-                        path = txPath,
-                        color = if (isProxyActive) palette.primaryViolet.copy(alpha = 0.80f) else palette.textMuted.copy(alpha = 0.35f),
-                        style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
-                    )
-
-                    drawPath(
-                        path = rxPath,
-                        brush = Brush.horizontalGradient(
-                            if (isProxyActive) listOf(palette.mintDeep, palette.primaryViolet)
-                            else listOf(palette.textMuted.copy(alpha = 0.45f), palette.textMuted.copy(alpha = 0.45f))
-                        ),
-                        style = Stroke(width = if (isProxyActive) 2.3.dp.toPx() else 1.2.dp.toPx(), cap = StrokeCap.Round)
-                    )
                 }
             }
         }
     }
 }
 
+@Composable
+fun AetherRadialSpeedGauge(
+    title: String,
+    bytesPerSec: Long,
+    peakBytesPerSec: Long,
+    totalBytes: Long,
+    gaugeColor: Color,
+    isProxyActive: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val theme = LocalAetherTheme.current
+    // Logarithmic gauge fraction (0.0 .. 1.0) so both KB/s and MB/s animate smoothly
+    val targetFraction = if (isProxyActive) speedToLogFraction(bytesPerSec, 50L * 1024L * 1024L) else 0f
+    val animatedFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "gaugeArcFraction"
+    )
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(theme.inputBg)
+            .border(1.dp, theme.strokeSubtle, RoundedCornerShape(14.dp))
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = title,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Black,
+            color = gaugeColor,
+            maxLines = 1
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // 240° Sweeping Speedometer Dial
+        Box(
+            modifier = Modifier.size(92.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize().graphicsLayer()) {
+                val strokeW = 7.dp.toPx()
+                val pad = strokeW / 2f + 4.dp.toPx()
+                val arcSize = Size(size.width - pad * 2, size.height - pad * 2)
+                val topLeft = Offset(pad, pad)
+
+                // Background Track Arc (150° to +240°)
+                drawArc(
+                    color = theme.strokeSubtle,
+                    startAngle = 150f,
+                    sweepAngle = 240f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                )
+
+                // Active Speed Sweep Arc
+                val sweep = (240f * animatedFraction).coerceIn(2f, 240f)
+                if (isProxyActive && bytesPerSec > 0) {
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            colors = listOf(gaugeColor.copy(alpha = 0.5f), gaugeColor, theme.accentSecondary)
+                        ),
+                        startAngle = 150f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                }
+
+                // Outer Scale Tick Marks
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val outerR = size.width / 2f - 1.dp.toPx()
+                for (t in 0..8) {
+                    val deg = 150.0 + (t * 30.0)
+                    val rad = Math.toRadians(deg)
+                    val sx = cx + ((outerR - 3.dp.toPx()) * cos(rad)).toFloat()
+                    val sy = cy + ((outerR - 3.dp.toPx()) * sin(rad)).toFloat()
+                    val ex = cx + (outerR * cos(rad)).toFloat()
+                    val ey = cy + (outerR * sin(rad)).toFloat()
+                    drawLine(
+                        color = if (t / 8f <= animatedFraction && isProxyActive) gaugeColor else theme.textDim.copy(alpha = 0.4f),
+                        start = Offset(sx, sy),
+                        end = Offset(ex, ey),
+                        strokeWidth = 1.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            // Center Digital Speed Readout (Stacked vertically so unit never collides)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = splitSpeedValue(bytesPerSec),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    color = theme.textMain,
+                    maxLines = 1
+                )
+                Text(
+                    text = splitSpeedUnit(bytesPerSec),
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = gaugeColor,
+                    maxLines = 1
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Clean Stacked Footer (No Side-by-Side Collisions!)
+        Text(
+            text = "Peak: ${formatCompactRate(peakBytesPerSec)}",
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = theme.textSub,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = "Total: ${formatBytes(totalBytes)}",
+            fontSize = 9.sp,
+            color = theme.textDim,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 // -------------------------------------------------------------
-// VIEW 2: NODE CONFIG DECK (WITH 1-TAP CLIPBOARD URI IMPORTER)
+// SCREEN 1: NODE CONFIGURATION & URI IMPORT
 // -------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServerConfigView(
+fun AetherNodeConfigScreen(
     activeSlot: Int,
     host: String,
     port: String,
@@ -2277,7 +2234,7 @@ fun ServerConfigView(
     onResetSlot: () -> Unit,
     getCurrentSettings: () -> ProxySettings
 ) {
-    val palette = LocalStudioPalette.current
+    val theme = LocalAetherTheme.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isCheckingAlive by remember { mutableStateOf(false) }
@@ -2289,68 +2246,78 @@ fun ServerConfigView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. DIRECT SOCKET HEALTH PROBE & CLIPBOARD URI IMPORT CARD
+        // 1. SPACIOUS STACKED QUICK IMPORT & SOCKET PROBE CARD (NO COLLISION)
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = palette.cardSurface,
-            border = BorderStroke(1.dp, palette.borderSubtle),
+            color = theme.cardBg,
+            border = BorderStroke(1.dp, theme.strokeSubtle),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(15.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "QUICK IMPORT & SOCKET DIAGNOSTICS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = theme.accentPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Import vless://, trojan://, ss://, hy2://, socks5:// or test node reachability",
+                    fontSize = 10.5.sp,
+                    color = theme.textSub
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Node Diagnostics & Quick Import", fontSize = 13.sp, fontWeight = FontWeight.Black, color = palette.textPrimary)
-                        Text("Probe TCP/QUIC socket or paste URI from clipboard", fontSize = 10.5.sp, color = palette.textSecondary)
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val rawClip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
+                            val parsed = parseProxyUri(rawClip)
+                            if (parsed != null) {
+                                onImportUri(parsed)
+                                Toast.makeText(context, "Imported ${parsed.type.displayTitle}", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Clipboard does not contain a supported proxy URI", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, theme.accentSecondary.copy(alpha = 0.6f))
+                    ) {
+                        Text("📋 Paste URI", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.accentSecondary)
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val rawClip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
-                                val parsed = parseProxyUri(rawClip)
-                                if (parsed != null) {
-                                    onImportUri(parsed)
-                                    Toast.makeText(context, "Imported ${parsed.type.displayName} (${parsed.host}:${parsed.port})", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "No valid vless/trojan/ss/hy2/socks5/http URI in clipboard", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, palette.primaryViolet.copy(alpha = 0.6f))
-                        ) {
-                            Text("Import URI", fontSize = 11.sp, fontWeight = FontWeight.Black, color = palette.primaryViolet)
-                        }
-
-                        Button(
-                            onClick = {
-                                if (host.trim().isEmpty()) {
-                                    aliveResult = TestResult.Failure("Host is empty")
-                                    return@Button
-                                }
-                                isCheckingAlive = true
-                                aliveResult = null
-                                coroutineScope.launch {
-                                    aliveResult = ProxyTester.testProxy(getCurrentSettings())
-                                    isCheckingAlive = false
-                                }
-                            },
-                            enabled = !isCheckingAlive,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = palette.primaryViolet, contentColor = Color.White)
-                        ) {
-                            Text(
-                                text = if (isCheckingAlive) "..." else "Probe",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
+                    Button(
+                        onClick = {
+                            if (host.trim().isEmpty()) {
+                                aliveResult = TestResult.Failure("Host is empty")
+                                return@Button
+                            }
+                            isCheckingAlive = true
+                            aliveResult = null
+                            coroutineScope.launch {
+                                aliveResult = ProxyTester.testProxy(getCurrentSettings())
+                                isCheckingAlive = false
+                            }
+                        },
+                        enabled = !isCheckingAlive,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.accentPrimary,
+                            contentColor = if (theme.isLight) Color.White else Color(0xFF06080E)
+                        )
+                    ) {
+                        Text(
+                            text = if (isCheckingAlive) "Probing..." else "⚡ Probe Socket",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Black
+                        )
                     }
                 }
 
@@ -2360,41 +2327,23 @@ fun ServerConfigView(
                     exit = shrinkVertically() + fadeOut()
                 ) {
                     Column {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         when (val res = aliveResult) {
                             is TestResult.Success -> {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = palette.cardTintedMint,
-                                    border = BorderStroke(1.dp, palette.mintDeep),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = "ONLINE • HANDSHAKE VERIFIED (${res.latencyMs} ms)",
-                                        color = palette.mintDeep,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    )
-                                }
+                                Text(
+                                    text = "✓ HANDSHAKE VERIFIED (${res.latencyMs} ms)",
+                                    color = theme.statusLive,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                             is TestResult.Failure -> {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = palette.coralRed.copy(alpha = 0.14f),
-                                    border = BorderStroke(1.dp, palette.coralRed),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = "UNREACHABLE • ${res.error}",
-                                        color = palette.coralRed,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    )
-                                }
+                                Text(
+                                    text = "✕ UNREACHABLE: ${res.error}",
+                                    color = theme.statusDanger,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                             null -> {}
                         }
@@ -2403,47 +2352,37 @@ fun ServerConfigView(
             }
         }
 
-        // 2. SLOT PARAMETERS CARD
+        // 2. NODE PARAMETERS CARD
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = palette.cardSurface,
-            border = BorderStroke(1.dp, palette.borderSubtle),
+            color = theme.cardBg,
+            border = BorderStroke(1.dp, theme.strokeSubtle),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "NODE P$activeSlot CONFIGURATION",
-                        fontSize = 11.5.sp,
+                        text = "NODE P$activeSlot PARAMETERS",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = palette.primaryViolet,
-                        letterSpacing = 1.sp
+                        color = theme.accentPrimary
                     )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = palette.coralRed.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, palette.coralRed.copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onResetSlot() }
-                    ) {
-                        Text(
-                            text = "Clear P$activeSlot",
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Black,
-                            color = palette.coralRed,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
-                        )
-                    }
+                    Text(
+                        text = "Reset Node",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.statusDanger,
+                        modifier = Modifier.clickable { onResetSlot() }
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Text("TUNNEL PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
+                Text("PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSub)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
@@ -2455,71 +2394,70 @@ fun ServerConfigView(
                         FilterChip(
                             selected = proxyType == t,
                             onClick = { onProxyTypeChange(t); onConfigChanged() },
-                            label = { Text(t.displayName, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text(t.displayTitle, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = palette.primaryViolet,
-                                selectedLabelColor = Color.White
+                                selectedContainerColor = theme.accentPrimary,
+                                selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
                             )
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Text("TRANSPORT & WEBRTC MODE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
+                Text("TRANSPORT & WEBRTC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSub)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = transportMode == TransportMode.TCP_AND_UDP,
                         onClick = { onTransportModeChange(TransportMode.TCP_AND_UDP); onConfigChanged() },
-                        label = { Text("TCP + UDP (Full TProxy)", fontSize = 11.sp) },
+                        label = { Text("TCP + UDP (TProxy)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = palette.mintDeep,
-                            selectedLabelColor = Color.White
+                            selectedContainerColor = theme.accentPrimary,
+                            selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
                         )
                     )
                     FilterChip(
                         selected = transportMode == TransportMode.TCP_ONLY,
                         onClick = { onTransportModeChange(TransportMode.TCP_ONLY); onConfigChanged() },
-                        label = { Text("TCP Only (Block QUIC)", fontSize = 11.sp) },
+                        label = { Text("TCP Only", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = palette.primaryViolet,
-                            selectedLabelColor = Color.White
+                            selectedContainerColor = theme.accentPrimary,
+                            selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
                         )
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Text("IP STACK STRATEGY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
+                Text("IP STACK STRATEGY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textSub)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val ipModes = listOf(
+                    listOf(
                         Pair(IpMode.IPV4_ONLY, "IPv4 Only"),
                         Pair(IpMode.DUAL_STACK, "Dual-Stack"),
                         Pair(IpMode.IPV6_ONLY, "IPv6 Only")
-                    )
-                    ipModes.forEach { (mode, lbl) ->
+                    ).forEach { (mode, lbl) ->
                         FilterChip(
                             selected = ipMode == mode,
                             onClick = { onIpModeChange(mode); onConfigChanged() },
                             label = { Text(lbl, fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = palette.primaryViolet,
-                                selectedLabelColor = Color.White
+                                selectedContainerColor = theme.accentPrimary,
+                                selectedLabelColor = if (theme.isLight) Color.White else Color(0xFF06080E)
                             )
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = host,
                         onValueChange = { onHostChange(it); onConfigChanged() },
                         label = { Text("Server Host / IP") },
-                        placeholder = { Text("e.g. 45.76.12.90") },
+                        placeholder = { Text("48.45.153.215") },
                         modifier = Modifier.weight(0.68f),
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true
@@ -2539,13 +2477,10 @@ fun ServerConfigView(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Smooth Animated Protocol-Specific Fields
                 AnimatedContent(
                     targetState = proxyType,
-                    transitionSpec = {
-                        fadeIn(tween(200)) togetherWith fadeOut(tween(150))
-                    },
-                    label = "protocolFieldsTransition"
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+                    label = "protocolFields"
                 ) { targetProtocol ->
                     Column {
                         when (targetProtocol) {
@@ -2556,7 +2491,6 @@ fun ServerConfigView(
                                         value = username,
                                         onValueChange = { onUsernameChange(it); onConfigChanged() },
                                         label = { Text("Username") },
-                                        placeholder = { Text("Optional") },
                                         modifier = Modifier.weight(1f),
                                         shape = RoundedCornerShape(12.dp),
                                         singleLine = true
@@ -2565,13 +2499,12 @@ fun ServerConfigView(
                                         value = password,
                                         onValueChange = { onPasswordChange(it); onConfigChanged() },
                                         label = { Text("Password") },
-                                        placeholder = { Text("Optional") },
                                         visualTransformation = if (passVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                         trailingIcon = {
                                             Text(
                                                 text = if (passVisible) "Hide" else "Show",
                                                 fontSize = 11.sp,
-                                                color = palette.primaryViolet,
+                                                color = theme.accentPrimary,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier
                                                     .clickable { passVisible = !passVisible }
@@ -2590,8 +2523,7 @@ fun ServerConfigView(
                                 OutlinedTextField(
                                     value = ssMethod,
                                     onValueChange = { onSsMethodChange(it); onConfigChanged() },
-                                    label = { Text("AEAD / 2022 Cipher Method") },
-                                    placeholder = { Text("2022-blake3-aes-128-gcm or aes-256-gcm") },
+                                    label = { Text("Cipher Method") },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     singleLine = true
@@ -2600,13 +2532,13 @@ fun ServerConfigView(
                                 OutlinedTextField(
                                     value = password,
                                     onValueChange = { onPasswordChange(it); onConfigChanged() },
-                                    label = { Text("Password / Pre-Shared Key") },
+                                    label = { Text("Password / PSK") },
                                     visualTransformation = if (passVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                     trailingIcon = {
                                         Text(
                                             text = if (passVisible) "Hide" else "Show",
                                             fontSize = 11.sp,
-                                            color = palette.primaryViolet,
+                                            color = theme.accentPrimary,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .clickable { passVisible = !passVisible }
@@ -2624,7 +2556,6 @@ fun ServerConfigView(
                                     value = password,
                                     onValueChange = { onPasswordChange(it); onConfigChanged() },
                                     label = { Text("VLESS UUID") },
-                                    placeholder = { Text("e.g. 550e8400-e29b-41d4-a716-446655440000") },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     singleLine = true
@@ -2633,8 +2564,7 @@ fun ServerConfigView(
                                 OutlinedTextField(
                                     value = sni,
                                     onValueChange = { onSniChange(it); onConfigChanged() },
-                                    label = { Text("TLS SNI / Handshake Server Name") },
-                                    placeholder = { Text("e.g. www.microsoft.com") },
+                                    label = { Text("TLS SNI") },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     singleLine = true
@@ -2645,7 +2575,6 @@ fun ServerConfigView(
                                         value = realityPublicKey,
                                         onValueChange = { onRealityPublicKeyChange(it); onConfigChanged() },
                                         label = { Text("REALITY Public Key") },
-                                        placeholder = { Text("Optional (uTLS Chrome)") },
                                         modifier = Modifier.weight(1f),
                                         shape = RoundedCornerShape(12.dp),
                                         singleLine = true
@@ -2653,9 +2582,8 @@ fun ServerConfigView(
                                     OutlinedTextField(
                                         value = realityShortId,
                                         onValueChange = { onRealityShortIdChange(it); onConfigChanged() },
-                                        label = { Text("Short ID (SID)") },
-                                        placeholder = { Text("Optional") },
-                                        modifier = Modifier.weight(0.6f),
+                                        label = { Text("Short ID") },
+                                        modifier = Modifier.weight(0.55f),
                                         shape = RoundedCornerShape(12.dp),
                                         singleLine = true
                                     )
@@ -2667,13 +2595,13 @@ fun ServerConfigView(
                                 OutlinedTextField(
                                     value = password,
                                     onValueChange = { onPasswordChange(it); onConfigChanged() },
-                                    label = { Text("${targetProtocol.displayName} Auth Password") },
+                                    label = { Text("${targetProtocol.displayTitle} Password") },
                                     visualTransformation = if (passVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                     trailingIcon = {
                                         Text(
                                             text = if (passVisible) "Hide" else "Show",
                                             fontSize = 11.sp,
-                                            color = palette.primaryViolet,
+                                            color = theme.accentPrimary,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .clickable { passVisible = !passVisible }
@@ -2688,8 +2616,7 @@ fun ServerConfigView(
                                 OutlinedTextField(
                                     value = sni,
                                     onValueChange = { onSniChange(it); onConfigChanged() },
-                                    label = { Text("TLS SNI / Server Name") },
-                                    placeholder = { Text("e.g. cdn.yourdomain.com") },
+                                    label = { Text("TLS SNI") },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     singleLine = true
@@ -2702,18 +2629,16 @@ fun ServerConfigView(
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
     }
 }
 
 // -------------------------------------------------------------
-// VIEW 3: SPLIT TUNNELING & KERNEL BOOT AUTOMATION
+// SCREEN 2: SPLIT TUNNELING & KERNEL BOOT AUTOMATION
 // -------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppsMasterView(
+fun AetherRoutingScreen(
     startOnBoot: Boolean,
     bootSlot: Int,
     activeSlot: Int,
@@ -2729,42 +2654,35 @@ fun AppsMasterView(
     onSelectAll: () -> Unit,
     onClearAll: () -> Unit
 ) {
-    val palette = LocalStudioPalette.current
+    val theme = LocalAetherTheme.current
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = palette.cardSurface,
-            border = BorderStroke(1.dp, palette.borderSubtle),
+            color = theme.cardBg,
+            border = BorderStroke(1.dp, theme.strokeSubtle),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("KERNEL AUTOMATION & TETHERING", fontSize = 11.5.sp, fontWeight = FontWeight.Black, color = palette.primaryViolet, letterSpacing = 1.sp)
-                Spacer(modifier = Modifier.height(10.dp))
-
+            Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Engage on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                        Text("Auto-Start on System Boot", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textMain)
                         Text(
-                            text = if (startOnBoot) "Service script active (/data/adb/service.d) • Node P$bootSlot" else "Disabled — manual launch only",
-                            fontSize = 11.sp,
-                            color = if (startOnBoot) palette.mintDeep else palette.textSecondary
+                            text = if (startOnBoot) "Armed for Node P$bootSlot (/data/adb/service.d)" else "Manual launch only",
+                            fontSize = 10.5.sp,
+                            color = if (startOnBoot) theme.statusLive else theme.textSub
                         )
                     }
                     Switch(
                         checked = startOnBoot,
-                        onCheckedChange = onStartOnBootChange,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = palette.mintDeep
-                        )
+                        onCheckedChange = onStartOnBootChange
                     )
                 }
 
@@ -2773,30 +2691,23 @@ fun AppsMasterView(
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    Column {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text("DESIGNATED BOOT NODE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = palette.textSecondary, letterSpacing = 0.8.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            (0 until ProfileManager.MAX_SLOTS).forEach { s ->
-                                FilterChip(
-                                    selected = bootSlot == s,
-                                    onClick = { onBootSlotChange(s) },
-                                    label = { Text("P$s", fontSize = 11.sp, fontWeight = FontWeight.Black) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = palette.primaryViolet,
-                                        selectedLabelColor = Color.White
-                                    )
-                                )
-                            }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        (0 until ProfileManager.MAX_SLOTS).forEach { s ->
+                            FilterChip(
+                                selected = bootSlot == s,
+                                onClick = { onBootSlotChange(s) },
+                                label = { Text("P$s", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
                         }
                     }
                 }
 
-                HorizontalDivider(color = palette.borderSubtle, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
+                HorizontalDivider(color = theme.strokeSubtle, modifier = Modifier.padding(vertical = 8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2804,20 +2715,16 @@ fun AppsMasterView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Hotspot & USB Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                        Text("Hotspot & USB Tethering Bridge", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textMain)
                         Text(
-                            text = "Tunnel Wi-Fi Hotspot (wlan+/ap+) & RNDIS/USB clients",
-                            fontSize = 11.sp,
-                            color = if (routeHotspot) palette.primaryViolet else palette.textSecondary
+                            text = "Route connected Wi-Fi & RNDIS clients through proxy",
+                            fontSize = 10.5.sp,
+                            color = if (routeHotspot) theme.accentSecondary else theme.textSub
                         )
                     }
                     Switch(
                         checked = routeHotspot,
-                        onCheckedChange = onRouteHotspotChange,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = palette.primaryViolet
-                        )
+                        onCheckedChange = onRouteHotspotChange
                     )
                 }
             }
@@ -2825,33 +2732,29 @@ fun AppsMasterView(
 
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = palette.cardSurface,
-            border = BorderStroke(1.dp, palette.borderSubtle),
+            color = theme.cardBg,
+            border = BorderStroke(1.dp, theme.strokeSubtle),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Route Entire Android User Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                        Text("Global Profile Tunneling", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = theme.textMain)
                         Text(
-                            text = if (routeWholeProfile) "All apps in User ${ProfileManager.androidUserId} tunneled" else "Per-UID Split Tunnel (${selectedPackages.size} apps selected)",
-                            fontSize = 11.sp,
-                            color = if (routeWholeProfile) palette.primaryViolet else palette.mintDeep
+                            text = if (routeWholeProfile) "All apps in User ${ProfileManager.androidUserId} routed" else "Split Tunneling (${selectedPackages.size} apps active)",
+                            fontSize = 10.5.sp,
+                            color = theme.textSub
                         )
                     }
                     Switch(
                         checked = routeWholeProfile,
-                        onCheckedChange = onRouteWholeProfileChange,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = palette.primaryViolet
-                        )
+                        onCheckedChange = onRouteWholeProfileChange
                     )
                 }
 
@@ -2861,7 +2764,7 @@ fun AppsMasterView(
                     exit = shrinkVertically() + fadeOut()
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         var query by remember { mutableStateOf("") }
                         val filtered = remember(query, installedApps, selectedPackages) {
@@ -2874,32 +2777,21 @@ fun AppsMasterView(
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
-                            placeholder = { Text("Search apps or package names...") },
+                            placeholder = { Text("Search installed apps...") },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             singleLine = true
                         )
-
-                        Spacer(modifier = Modifier.height(4.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${selectedPackages.size} / ${installedApps.size} selected",
-                                fontSize = 11.sp,
-                                color = palette.textSecondary,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Text("${selectedPackages.size} selected", fontSize = 10.5.sp, color = theme.textSub)
                             Row {
-                                TextButton(onClick = onSelectAll) {
-                                    Text("Select All", color = palette.primaryViolet, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                }
-                                TextButton(onClick = onClearAll) {
-                                    Text("Clear", color = palette.coralRed, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                }
+                                TextButton(onClick = onSelectAll) { Text("Select All", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                TextButton(onClick = onClearAll) { Text("Clear", fontSize = 11.sp, color = theme.statusDanger, fontWeight = FontWeight.Bold) }
                             }
                         }
 
@@ -2910,63 +2802,146 @@ fun AppsMasterView(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isChecked) palette.cardTintedViolet else Color.Transparent)
+                                        .background(if (isChecked) theme.cardHighlight else Color.Transparent)
                                         .clickable { onToggleAppSelection(app.packageName) }
-                                        .padding(vertical = 7.dp, horizontal = 8.dp),
+                                        .padding(vertical = 6.dp, horizontal = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(app.name, color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                        Text("${app.packageName} • UID ${app.uid}", color = palette.textSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                        Text(app.name, color = theme.textMain, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${app.packageName} • UID ${app.uid}", color = theme.textSub, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     Checkbox(
                                         checked = isChecked,
-                                        onCheckedChange = { onToggleAppSelection(app.packageName) },
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = palette.primaryViolet,
-                                            checkmarkColor = Color.White
-                                        )
+                                        onCheckedChange = { onToggleAppSelection(app.packageName) }
                                     )
                                 }
-                                HorizontalDivider(color = palette.borderSubtle.copy(alpha = 0.5f), thickness = 0.5.dp)
                             }
                         }
                     }
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
 // -------------------------------------------------------------
-// REUSABLE STUDIO BADGES, UPTIME COUNTER & URI PARSER
+// SCREEN 3: FULL-SCREEN KERNEL TERMINAL & TELEMETRY LOGS
 // -------------------------------------------------------------
 
 @Composable
-fun StudioStatusBadge(label: String, color: Color) {
+fun AetherTerminalScreen(
+    activeSlot: Int,
+    runningSlot: Int?,
+    currentLogs: String,
+    onRefreshLogs: () -> Unit,
+    onClearLogs: () -> Unit
+) {
+    val theme = LocalAetherTheme.current
+    val context = LocalContext.current
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = theme.cardBg,
+        border = BorderStroke(1.dp, theme.strokeSubtle),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "KERNEL TELEMETRY CONSOLE",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        color = theme.accentPrimary
+                    )
+                    Text(
+                        text = "Slot P${runningSlot ?: activeSlot} • sing-box & netfilter stream",
+                        fontSize = 10.5.sp,
+                        color = theme.textSub
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", currentLogs))
+                        Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Copy", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.accentSecondary)
+                    }
+                    TextButton(onClick = onClearLogs) {
+                        Text("Clear", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = theme.statusDanger)
+                    }
+                    Button(
+                        onClick = onRefreshLogs,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Refresh", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(theme.inputBg)
+                    .border(1.dp, theme.strokeSubtle, RoundedCornerShape(14.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = currentLogs,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    color = theme.textMain,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                )
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// HELPERS, CHIPS, UPTIME PILL & URI PARSER
+// -------------------------------------------------------------
+
+@Composable
+fun AetherChip(label: String, color: Color) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = color.copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.40f))
+        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
     ) {
         Text(
             text = label,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
             color = color,
-            fontFamily = FontFamily.Monospace,
-            letterSpacing = 0.5.sp,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
 }
 
 @Composable
-fun StudioUptimeCounter(sessionStartMs: Long) {
-    val palette = LocalStudioPalette.current
+fun AetherUptimePill(sessionStartMs: Long) {
+    val theme = LocalAetherTheme.current
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(sessionStartMs) {
         while (isActive) {
@@ -2981,19 +2956,27 @@ fun StudioUptimeCounter(sessionStartMs: Long) {
     val timeStr = if (hrs > 0) String.format("%02d:%02d:%02d", hrs, mins, secs) else String.format("%02d:%02d", mins, secs)
 
     Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = palette.cardTintedMint,
-        border = BorderStroke(0.8.dp, palette.mintDeep.copy(alpha = 0.5f))
+        shape = RoundedCornerShape(8.dp),
+        color = theme.statusLive.copy(alpha = 0.15f),
+        border = BorderStroke(1.dp, theme.statusLive.copy(alpha = 0.5f))
     ) {
         Text(
             text = "⏱ $timeStr",
-            fontFamily = FontFamily.Monospace,
-            fontSize = 10.5.sp,
-            color = palette.mintDeep,
+            fontSize = 10.sp,
+            color = theme.statusLive,
             fontWeight = FontWeight.Black,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
         )
     }
+}
+
+private fun speedToLogFraction(bytesPerSec: Long, maxBytesPerSec: Long): Float {
+    if (bytesPerSec <= 0L) return 0f
+    val num = ln(bytesPerSec.toDouble() + 1.0)
+    val den = ln(maxBytesPerSec.toDouble() + 1.0)
+    return (num / den).toFloat().coerceIn(0.04f, 1.0f)
 }
 
 private fun parseProxyUri(rawUri: String): ProxySettings? {
