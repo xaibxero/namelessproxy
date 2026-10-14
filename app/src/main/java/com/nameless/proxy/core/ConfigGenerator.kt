@@ -2,6 +2,7 @@ package com.nameless.proxy.core
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.InetAddress
 
 enum class ProxyType(val label: String) {
     SOCKS5("SOCKS5"),
@@ -40,8 +41,20 @@ data class ProxySettings(
 )
 
 object ConfigGenerator {
+
+    fun resolveHostToIpIfNeeded(host: String): String {
+        val clean = host.trim()
+        if (clean.isEmpty()) return clean
+        return try {
+            InetAddress.getByName(clean).hostAddress ?: clean
+        } catch (_: Exception) {
+            clean
+        }
+    }
+
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
+        val serverIp = resolveHostToIpIfNeeded(settings.host)
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -49,26 +62,18 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (Bootstrap direct + Remote tunnel DNS)
+        // 2. Pure Tunnel-Only DNS Engine (Zero direct local DNS servers)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
         val remoteDns = JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "1.1.1.1")
+            put("server", "8.8.8.8")
             put("server_port", 53)
             put("detour", "proxy-out")
         }
         dnsServers.put(remoteDns)
-
-        val directDns = JSONObject().apply {
-            put("tag", "dns-direct")
-            put("type", "udp")
-            put("server", "1.1.1.1")
-            put("server_port", 53)
-        }
-        dnsServers.put(directDns)
         dns.put("servers", dnsServers)
 
         when (settings.ipMode) {
@@ -80,7 +85,7 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds: Redirect (TCP) + TProxy (TCP/UDP) + Local SOCKS5 (Telemetry)
+        // 3. Inbounds: Redirect (TCP) + TProxy (TCP/UDP) + Local SOCKS5
         val listenAddress = when (settings.ipMode) {
             IpMode.IPV4_ONLY -> "0.0.0.0"
             IpMode.DUAL_STACK, IpMode.IPV6_ONLY -> "::"
@@ -119,14 +124,12 @@ object ConfigGenerator {
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
-            // Resolve proxy server domain name via direct DNS to prevent circular deadlock
-            put("domain_resolver", "dns-direct")
         }
 
         when (settings.type) {
             ProxyType.SOCKS5 -> {
                 proxyOutbound.put("type", "socks")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("version", "5")
                 if (settings.username.isNotEmpty()) {
@@ -136,13 +139,13 @@ object ConfigGenerator {
             }
             ProxyType.SOCKS4 -> {
                 proxyOutbound.put("type", "socks")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("version", "4")
             }
             ProxyType.HTTP -> {
                 proxyOutbound.put("type", "http")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 if (settings.username.isNotEmpty()) {
                     proxyOutbound.put("username", settings.username)
@@ -151,14 +154,14 @@ object ConfigGenerator {
             }
             ProxyType.SHADOWSOCKS -> {
                 proxyOutbound.put("type", "shadowsocks")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("method", settings.ssMethod.ifEmpty { "2022-blake3-aes-128-gcm" })
                 proxyOutbound.put("password", settings.password)
             }
             ProxyType.VLESS -> {
                 proxyOutbound.put("type", "vless")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
                 if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
@@ -183,7 +186,7 @@ object ConfigGenerator {
             }
             ProxyType.TROJAN -> {
                 proxyOutbound.put("type", "trojan")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
@@ -193,7 +196,7 @@ object ConfigGenerator {
             }
             ProxyType.HYSTERIA2 -> {
                 proxyOutbound.put("type", "hysteria2")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverIp)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
@@ -210,10 +213,10 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (sing-box 1.12 / 1.13+ compliant)
+        // 5. Routing Rules (All DNS & Sniffed domains resolve strictly via dns-remote)
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-direct")
+            put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
 
