@@ -22,14 +22,17 @@ android {
 
     buildTypes {
         release {
-            // Sign with debug key by default so GitHub Actions produces an installable Release APK
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
+            isCrunchPngs = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            isCrunchPngs = false
         }
     }
 
