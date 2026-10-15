@@ -36,6 +36,9 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
+    // Kernel fwmark stamped on sing-box's own outbound sockets so iptables never loops sing-box traffic
+    const val SINGBOX_ROUTING_MARK = 0x2026
+
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
 
@@ -45,14 +48,16 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (Remote TCP DNS tunneled through proxy-out)
+        // 2. DNS Engine
+        // - dns-remote: TCP DNS tunneled through proxy-out so DNS IP always matches Proxy Exit IP
+        // - dns-direct: Bootstrap resolver used strictly if the proxy host itself is a domain name
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "8.8.8.8")
+            put("server", "1.1.1.1")
             put("server_port", 53)
             put("detour", "proxy-out")
         })
@@ -75,8 +80,7 @@ object ConfigGenerator {
         dns.put("independent_cache", true)
         root.put("dns", dns)
 
-        // 3. Inbounds:
-        // Bind to "::" (dual-stack) so both IPv4 and IPv6 NAT REDIRECT work on Wi-Fi & Cellular LTE
+        // 3. Inbounds (Dual-stack "::" listens on both IPv4 0.0.0.0 and IPv6 :: for Wi-Fi & Cellular LTE)
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -102,7 +106,7 @@ object ConfigGenerator {
                 put("tcp")
                 put("udp")
             })
-            put("override_address", "8.8.8.8")
+            put("override_address", "1.1.1.1")
             put("override_port", 53)
         })
 
@@ -123,6 +127,8 @@ object ConfigGenerator {
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
+            put("domain_resolver", "dns-direct")
+            put("routing_mark", SINGBOX_ROUTING_MARK)
         }
 
         when (settings.type) {
@@ -209,40 +215,55 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
+            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         root.put("outbounds", outbounds)
 
         // 5. Routing Rules
         val route = JSONObject().apply {
-            put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-remote")
+            put("auto_detect_interface", true)
+            put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
 
         val routeRules = JSONArray()
 
-        // Hijack DNS queries arriving on dns-in BEFORE sniff so UDP DNS is answered immediately
+        // 1) Immediately hijack all DNS traffic arriving on dns-in or targeting port 53
         routeRules.put(JSONObject().apply {
             put("inbound", JSONArray().apply { put("dns-in") })
             put("action", "hijack-dns")
         })
-
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(53) })
             put("action", "hijack-dns")
         })
 
+        // 2) Reject WebRTC STUN/TURN UDP ports and QUIC/DoT UDP ports
+        val isTcpCentricProtocol = settings.transportMode == TransportMode.TCP_ONLY ||
+            settings.type == ProxyType.SOCKS5 ||
+            settings.type == ProxyType.SOCKS4 ||
+            settings.type == ProxyType.HTTP
+
         routeRules.put(JSONObject().apply {
-            put("action", "sniff")
+            put("network", "udp")
+            put("port", JSONArray().apply {
+                put(3478)
+                put(5349)
+                put(19302)
+                put(853)
+                if (isTcpCentricProtocol) {
+                    put(80)
+                    put(443)
+                }
+            })
+            put("action", "reject")
         })
 
-        if (settings.transportMode == TransportMode.TCP_ONLY) {
-            routeRules.put(JSONObject().apply {
-                put("network", "udp")
-                put("port", JSONArray().apply { put(443); put(853); put(3478) })
-                put("action", "reject")
-            })
-        }
+        // 3) Sniff TLS SNI & HTTP Host with short timeout so non-HTTP protocols never stall
+        routeRules.put(JSONObject().apply {
+            put("action", "sniff")
+            put("timeout", "300ms")
+        })
 
         route.put("rules", routeRules)
         root.put("route", route)
