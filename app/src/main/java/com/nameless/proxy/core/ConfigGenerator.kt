@@ -74,22 +74,13 @@ object ConfigGenerator {
         dns.put("final", "dns-remote")
         root.put("dns", dns)
 
-        // 3. Inbounds:
-        // - redirect-in (inboundPort): TCP NAT REDIRECT
-        // - internal-socks-in (inboundPort + 1): Local SOCKS5 for GeoIP check
-        // - dns-in (inboundPort + 2): Dedicated UDP/TCP NAT REDIRECT DNS listener (Works on all Cellular/Hotspot kernels)
-        // - tproxy-in (inboundPort + 8): UDP/TCP TPROXY for WebRTC STUN & general UDP
-        val listenAddress = when (settings.ipMode) {
-            IpMode.IPV4_ONLY -> "0.0.0.0"
-            IpMode.DUAL_STACK, IpMode.IPV6_ONLY -> "::"
-        }
-
+        // 3. Inbounds (Always listen on "::" dual-stack locally so both IPv4 & cellular IPv6 redirected packets are accepted)
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
-            put("listen", listenAddress)
+            put("listen", "::")
             put("listen_port", inboundPort)
         })
 
@@ -100,10 +91,11 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
+        // Dedicated UDP/TCP NAT DNS listener on inboundPort + 2
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
-            put("listen", listenAddress)
+            put("listen", "::")
             put("listen_port", inboundPort + 2)
             put("network", JSONArray().apply {
                 put("tcp")
@@ -116,7 +108,7 @@ object ConfigGenerator {
         inbounds.put(JSONObject().apply {
             put("type", "tproxy")
             put("tag", "tproxy-in")
-            put("listen", listenAddress)
+            put("listen", "::")
             put("listen_port", inboundPort + 8)
             put("network", JSONArray().apply {
                 put("tcp")
