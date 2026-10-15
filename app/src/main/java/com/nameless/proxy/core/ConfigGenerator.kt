@@ -36,7 +36,6 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    // Kernel fwmark stamped on sing-box's own outbound sockets so iptables never loops sing-box traffic
     const val SINGBOX_ROUTING_MARK = 0x2026
 
     fun cleanHost(rawHost: String): String =
@@ -233,7 +232,6 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // 1) Immediately hijack all DNS traffic arriving on dns-in or targeting port 53
         routeRules.put(JSONObject().apply {
             put("inbound", JSONArray().apply { put("dns-in") })
             put("action", "hijack-dns")
@@ -243,8 +241,6 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // 2) Reject WebRTC STUN/TURN UDP ports (3478, 5349, 19302), DoT UDP 853,
-        // and reject QUIC UDP 443/80 on TCP_ONLY or SOCKS5/SOCKS4/HTTP so browsers never stall on QUIC
         val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
@@ -265,7 +261,6 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // 3) Sniff TLS SNI & HTTP Host with short timeout
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
             put("timeout", "300ms")
