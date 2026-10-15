@@ -57,12 +57,10 @@ object IptablesManager {
         )
         val reservedV6 = listOf("::1/128", "fe80::/10", "fc00::/7", "ff00::/8")
 
-        // SOCKS4 and HTTP have no UDP protocol support; all other protocols support UDP when TCP_AND_UDP is chosen
         val supportsUdp = settings.transportMode == TransportMode.TCP_AND_UDP &&
             settings.type != ProxyType.SOCKS4 &&
             settings.type != ProxyType.HTTP
 
-        // Block QUIC (UDP 443/80) on TCP_ONLY or SOCKS5/SOCKS4/HTTP so browsers never stall if a SOCKS5 server lacks UDP
         val blockQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
@@ -139,7 +137,6 @@ object IptablesManager {
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -p tcp --dport 53 -j RETURN")
 
-        // Block Private DNS (DoT Port 853) so Android netd falls back to Port 53 (which we hijack into sing-box!)
         if (user == 0 && selectedUids.isNullOrEmpty()) {
             commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 853 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 853 -j DROP")
@@ -148,7 +145,6 @@ object IptablesManager {
         for (uRange in uidRanges) {
             commands.add("iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 853 -m owner --uid-owner $uRange -j DROP")
-            // Always block WebRTC STUN/TURN UDP ports (3478, 5349, 19302) so real IP never leaks via WebRTC
             commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 19302 -m owner --uid-owner $uRange -j DROP")
@@ -158,7 +154,6 @@ object IptablesManager {
                 commands.add("iptables -A $chainFilter -p udp --dport 80 -m owner --uid-owner $uRange -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 80 -m owner --uid-owner $uRange -j DROP")
             }
 
-            // If UDP is not supported (TCP_ONLY / HTTP / SOCKS4), drop any remaining non-DNS UDP
             if (!supportsUdp) {
                 commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uRange -j DROP")
             }
@@ -173,11 +168,9 @@ object IptablesManager {
         }
 
         if (user == 0 && selectedUids.isNullOrEmpty()) {
-            // Whole-device Owner profile: intercept all UDP/TCP 53 (including netd UID 0/1052)
             commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
             commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
         } else {
-            // Per-app split-tunnel or Secondary Android User Profile (User 10+): strictly isolate to target UIDs
             for (uRange in uidRanges) {
                 commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -m owner --uid-owner $uRange -j REDIRECT --to-ports $dnsPort")
                 commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -m owner --uid-owner $uRange -j REDIRECT --to-ports $dnsPort")
