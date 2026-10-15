@@ -52,7 +52,7 @@ object ConfigGenerator {
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "1.1.1.1")
+            put("server", "8.8.8.8")
             put("server_port", 53)
             put("detour", "proxy-out")
         })
@@ -72,9 +72,11 @@ object ConfigGenerator {
         }
 
         dns.put("final", "dns-remote")
+        dns.put("independent_cache", true)
         root.put("dns", dns)
 
-        // 3. Inbounds (Always listen on "::" dual-stack locally so both IPv4 & cellular IPv6 redirected packets are accepted)
+        // 3. Inbounds:
+        // Bind to "::" (dual-stack) so both IPv4 and IPv6 NAT REDIRECT work on Wi-Fi & Cellular LTE
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -91,7 +93,6 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Dedicated UDP/TCP NAT DNS listener on inboundPort + 2
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -101,7 +102,7 @@ object ConfigGenerator {
                 put("tcp")
                 put("udp")
             })
-            put("override_address", "1.1.1.1")
+            put("override_address", "8.8.8.8")
             put("override_port", 53)
         })
 
@@ -220,10 +221,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        routeRules.put(JSONObject().apply {
-            put("action", "sniff")
-        })
-
+        // Hijack DNS queries arriving on dns-in BEFORE sniff so UDP DNS is answered immediately
         routeRules.put(JSONObject().apply {
             put("inbound", JSONArray().apply { put("dns-in") })
             put("action", "hijack-dns")
@@ -232,6 +230,10 @@ object ConfigGenerator {
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(53) })
             put("action", "hijack-dns")
+        })
+
+        routeRules.put(JSONObject().apply {
+            put("action", "sniff")
         })
 
         if (settings.transportMode == TransportMode.TCP_ONLY) {
