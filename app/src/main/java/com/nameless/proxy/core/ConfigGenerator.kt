@@ -39,8 +39,12 @@ object ConfigGenerator {
     // Kernel fwmark stamped on sing-box's own outbound sockets so iptables never loops sing-box traffic
     const val SINGBOX_ROUTING_MARK = 0x2026
 
+    fun cleanHost(rawHost: String): String =
+        rawHost.trim().removePrefix("[").removeSuffix("]")
+
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
+        val serverHost = cleanHost(settings.host)
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -48,16 +52,17 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine
-        // - dns-remote: TCP DNS tunneled through proxy-out so DNS IP always matches Proxy Exit IP
-        // - dns-direct: Bootstrap resolver used strictly if the proxy host itself is a domain name
+        // 2. DNS Engine (Supports IPv4, Dual-Stack, and IPv6-Only)
         val dns = JSONObject()
         val dnsServers = JSONArray()
+
+        val remoteDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
+        val directDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2001:4860:4860::8888" else "8.8.8.8"
 
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
             put("type", "tcp")
-            put("server", "1.1.1.1")
+            put("server", remoteDnsServer)
             put("server_port", 53)
             put("detour", "proxy-out")
         })
@@ -65,7 +70,7 @@ object ConfigGenerator {
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-direct")
             put("type", "udp")
-            put("server", "8.8.8.8")
+            put("server", directDnsServer)
             put("server_port", 53)
         })
         dns.put("servers", dnsServers)
@@ -80,7 +85,7 @@ object ConfigGenerator {
         dns.put("independent_cache", true)
         root.put("dns", dns)
 
-        // 3. Inbounds (Dual-stack "::" listens on both IPv4 0.0.0.0 and IPv6 :: for Wi-Fi & Cellular LTE)
+        // 3. Inbounds (Dual-stack "::" listens on both IPv4 and IPv6)
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -106,7 +111,7 @@ object ConfigGenerator {
                 put("tcp")
                 put("udp")
             })
-            put("override_address", "1.1.1.1")
+            put("override_address", remoteDnsServer)
             put("override_port", 53)
         })
 
@@ -134,7 +139,7 @@ object ConfigGenerator {
         when (settings.type) {
             ProxyType.SOCKS5 -> {
                 proxyOutbound.put("type", "socks")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("version", "5")
                 if (settings.username.isNotEmpty()) {
@@ -144,13 +149,13 @@ object ConfigGenerator {
             }
             ProxyType.SOCKS4 -> {
                 proxyOutbound.put("type", "socks")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("version", "4")
             }
             ProxyType.HTTP -> {
                 proxyOutbound.put("type", "http")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 if (settings.username.isNotEmpty()) {
                     proxyOutbound.put("username", settings.username)
@@ -159,14 +164,14 @@ object ConfigGenerator {
             }
             ProxyType.SHADOWSOCKS -> {
                 proxyOutbound.put("type", "shadowsocks")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("method", settings.ssMethod.ifEmpty { "2022-blake3-aes-128-gcm" })
                 proxyOutbound.put("password", settings.password)
             }
             ProxyType.VLESS -> {
                 proxyOutbound.put("type", "vless")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
                 if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
@@ -174,7 +179,7 @@ object ConfigGenerator {
                 }
                 val tlsObj = JSONObject().apply {
                     put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { settings.host })
+                    put("server_name", settings.sni.ifEmpty { serverHost })
                     if (settings.realityPublicKey.isNotEmpty()) {
                         put("utls", JSONObject().apply {
                             put("enabled", true)
@@ -191,22 +196,22 @@ object ConfigGenerator {
             }
             ProxyType.TROJAN -> {
                 proxyOutbound.put("type", "trojan")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
                     put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { settings.host })
+                    put("server_name", settings.sni.ifEmpty { serverHost })
                 })
             }
             ProxyType.HYSTERIA2 -> {
                 proxyOutbound.put("type", "hysteria2")
-                proxyOutbound.put("server", settings.host)
+                proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
                     put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { settings.host })
+                    put("server_name", settings.sni.ifEmpty { serverHost })
                 })
             }
         }
@@ -238,8 +243,9 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // 2) Reject WebRTC STUN/TURN UDP ports and QUIC/DoT UDP ports
-        val isTcpCentricProtocol = settings.transportMode == TransportMode.TCP_ONLY ||
+        // 2) Reject WebRTC STUN/TURN UDP ports (3478, 5349, 19302), DoT UDP 853,
+        // and reject QUIC UDP 443/80 on TCP_ONLY or SOCKS5/SOCKS4/HTTP so browsers never stall on QUIC
+        val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
             settings.type == ProxyType.HTTP
@@ -251,7 +257,7 @@ object ConfigGenerator {
                 put(5349)
                 put(19302)
                 put(853)
-                if (isTcpCentricProtocol) {
+                if (rejectQuicUdp) {
                     put(80)
                     put(443)
                 }
@@ -259,7 +265,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // 3) Sniff TLS SNI & HTTP Host with short timeout so non-HTTP protocols never stall
+        // 3) Sniff TLS SNI & HTTP Host with short timeout
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
             put("timeout", "300ms")
