@@ -577,8 +577,6 @@ fun MainScreen(
         configuredSlots = set
     }
 
-    // Builds the target UID list for Per-App mode (Always includes Nameless Proxy's own UID
-    // so the built-in IPFighter tab always tests the active proxy tunnel!)
     fun buildTargetUids(): List<Int>? {
         if (routeWholeProfile) return null
         val uids = installedApps
@@ -1969,6 +1967,10 @@ private fun TurbineGaugeCard(
     }
 }
 
+// -------------------------------------------------------------
+// TAB 1: LIVE EMBEDDED IPFIGHTER.COM (NO BLACK SCREEN UNMOUNTING)
+// -------------------------------------------------------------
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun EmbeddedIpFighterWebViewScreen(
@@ -1977,9 +1979,7 @@ fun EmbeddedIpFighterWebViewScreen(
     publicIpInfo: GeoIpResult?
 ) {
     val palette = LocalCosmicPalette.current
-    val scope = rememberCoroutineScope()
-    var reloadNonce by remember { mutableIntStateOf(0) }
-    var isFlushingSockets by remember { mutableStateOf(true) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var loadProgress by remember { mutableIntStateOf(0) }
 
     val targetTz = remember(isProxyActive, publicIpInfo?.country) {
@@ -2015,28 +2015,29 @@ fun EmbeddedIpFighterWebViewScreen(
         """.trimIndent()
     }
 
-    fun triggerFreshLiveLoad() {
-        isFlushingSockets = true
-        scope.launch(Dispatchers.IO) {
-            try {
-                ProcessBuilder(
-                    "su", "-c",
-                    "ss -K dport = :443 2>/dev/null; ss -K dport = :80 2>/dev/null; ss -K dport = :853 2>/dev/null; ss -K dport = :53 2>/dev/null; conntrack -F 2>/dev/null"
-                ).start().waitFor()
-            } catch (_: Exception) {}
-            delay(250)
-            withContext(Dispatchers.Main) {
-                WebStorage.getInstance().deleteAllData()
-                CookieManager.getInstance().removeAllCookies(null)
-                CookieManager.getInstance().flush()
-                reloadNonce++
-                isFlushingSockets = false
-            }
-        }
+    val noCacheHeaders = remember {
+        mapOf(
+            "Cache-Control" to "no-cache, no-store, must-revalidate",
+            "Pragma" to "no-cache",
+            "Expires" to "0",
+            "Connection" to "close"
+        )
+    }
+
+    fun reloadWebViewLive(wv: WebView?) {
+        if (wv == null) return
+        wv.stopLoading()
+        WebStorage.getInstance().deleteAllData()
+        CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().flush()
+        wv.clearCache(true)
+        wv.clearHistory()
+        wv.loadUrl("https://ipfighter.com/?live=${System.currentTimeMillis()}", noCacheHeaders)
     }
 
     LaunchedEffect(isProxyActive, runningSlot) {
-        triggerFreshLiveLoad()
+        delay(350)
+        reloadWebViewLive(webViewRef)
     }
 
     DisposableEffect(Unit) {
@@ -2079,7 +2080,7 @@ fun EmbeddedIpFighterWebViewScreen(
             }
 
             Button(
-                onClick = { triggerFreshLiveLoad() },
+                onClick = { reloadWebViewLive(webViewRef) },
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -2107,74 +2108,70 @@ fun EmbeddedIpFighterWebViewScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF0A3D91))
                 .border(1.dp, palette.glassRimBright, RoundedCornerShape(18.dp))
         ) {
-            if (!isFlushingSockets) {
-                key(reloadNonce) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                clearCache(true)
-                                clearHistory()
-                                settings.apply {
-                                    javaScriptEnabled = true
-                                    domStorageEnabled = true
-                                    databaseEnabled = false
-                                    cacheMode = WebSettings.LOAD_NO_CACHE
-                                    useWideViewPort = true
-                                    loadWithOverviewMode = true
-                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                    userAgentString =
-                                        "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
-                                }
-                                webChromeClient = object : WebChromeClient() {
-                                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                        loadProgress = newProgress
-                                        view?.evaluateJavascript(liveCacheBustAndTzScript, null)
-                                    }
-                                }
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                        super.onPageStarted(view, url, favicon)
-                                        view?.evaluateJavascript(liveCacheBustAndTzScript, null)
-                                    }
-
-                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                        super.onPageFinished(view, url)
-                                        loadProgress = 100
-                                        view?.evaluateJavascript(liveCacheBustAndTzScript, null)
-                                    }
-
-                                    override fun shouldOverrideUrlLoading(
-                                        view: WebView?,
-                                        request: WebResourceRequest?
-                                    ): Boolean = false
-                                }
-                                val noCacheHeaders = mapOf(
-                                    "Cache-Control" to "no-cache, no-store, must-revalidate",
-                                    "Pragma" to "no-cache",
-                                    "Expires" to "0",
-                                    "Connection" to "close"
-                                )
-                                loadUrl("https://ipfighter.com/?live=${System.currentTimeMillis()}", noCacheHeaders)
-                            }
-                        },
-                        onRelease = { wv ->
-                            wv.stopLoading()
-                            wv.loadUrl("about:blank")
-                            wv.clearHistory()
-                            wv.clearCache(true)
-                            wv.removeAllViews()
-                            wv.destroy()
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setBackgroundColor(android.graphics.Color.parseColor("#0A3D91"))
+                        WebStorage.getInstance().deleteAllData()
+                        CookieManager.getInstance().removeAllCookies(null)
+                        clearCache(true)
+                        clearHistory()
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            databaseEnabled = false
+                            cacheMode = WebSettings.LOAD_NO_CACHE
+                            useWideViewPort = true
+                            loadWithOverviewMode = true
+                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            userAgentString =
+                                "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
                         }
-                    )
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                loadProgress = newProgress
+                                view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                            }
+                        }
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                super.onPageStarted(view, url, favicon)
+                                view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                loadProgress = 100
+                                view?.evaluateJavascript(liveCacheBustAndTzScript, null)
+                            }
+
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): Boolean = false
+                        }
+                        webViewRef = this
+                        loadUrl("https://ipfighter.com/?live=${System.currentTimeMillis()}", noCacheHeaders)
+                    }
+                },
+                onRelease = { wv ->
+                    webViewRef = null
+                    wv.stopLoading()
+                    wv.loadUrl("about:blank")
+                    wv.clearHistory()
+                    wv.clearCache(true)
+                    wv.removeAllViews()
+                    wv.destroy()
                 }
-            }
+            )
         }
     }
 }
@@ -2670,7 +2667,6 @@ fun SolarRoutingTab(
             }
         }
 
-        // Full 5-Slot Backup Export & Import Card
         CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = "FULL 5-SLOT CONFIG BACKUP (/SDCARD/DOWNLOAD)",
@@ -2703,7 +2699,6 @@ fun SolarRoutingTab(
             }
         }
 
-        // Per-App Split Tunneling Card
         CrystalGlassCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3029,7 +3024,7 @@ private fun parseProxyUri(rawUri: String): ProxySettings? {
 
 private fun splitSpeedValue(b: Long) = when {
     b >= 1024 * 1024 -> String.format("%.1f", b / (1024.0 * 1024.0))
-    b >= 1024 -> String.format("%.1f", b / 1024.0)
+    b >= 1024 -> String.format("%.1f", b / (1024.0 * 1024.0))
     else -> "$b"
 }
 
