@@ -12,7 +12,8 @@ data class GeoIpResult(
     val ip: String,
     val country: String,
     val flagEmoji: String,
-    val isp: String = ""
+    val isp: String = "",
+    val timezone: String = ""
 )
 
 object IpFetcher {
@@ -34,7 +35,7 @@ object IpFetcher {
         } else null
 
         val jsonProviders = listOf(
-            "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,query",
+            "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,timezone,query",
             "https://ipwho.is/",
             "https://ipinfo.io/json",
             "https://freeipapi.com/api/json",
@@ -90,6 +91,12 @@ object IpFetcher {
                         ?.ifEmpty { json.optString("isp", json.optString("org", "")) }
                         ?: json.optString("isp", json.optString("org", ""))
 
+                    val tz = json.optJSONObject("timezone")?.optString("id", "")
+                        ?.ifEmpty { json.optString("timezone", "") }
+                        ?: json.optString("timezone", "").ifEmpty {
+                            json.optJSONArray("timeZones")?.optString(0, "") ?: ""
+                        }
+
                     if (ip.isNotEmpty() && countryCode.length == 2) {
                         val locationLabel = if (city.isNotEmpty() && !city.equals(countryName, ignoreCase = true)) {
                             "$countryName • $city"
@@ -100,7 +107,8 @@ object IpFetcher {
                             ip = ip,
                             country = locationLabel,
                             flagEmoji = countryCodeToFlag(countryCode),
-                            isp = isp
+                            isp = isp,
+                            timezone = tz.trim()
                         )
                     }
                 }
@@ -110,7 +118,6 @@ object IpFetcher {
             }
         }
 
-        // Fallback: get raw IP, then resolve its country & flag via ip-api.com
         val rawEndpoints = listOf(
             "https://api.ipify.org",
             "https://icanhazip.com",
@@ -130,7 +137,7 @@ object IpFetcher {
                     val ip = conn.inputStream.bufferedReader().use { it.readText().trim() }
                     if (ip.isNotEmpty()) {
                         try {
-                            val geoUrl = URL("http://ip-api.com/json/$ip?fields=status,country,countryCode,city")
+                            val geoUrl = URL("http://ip-api.com/json/$ip?fields=status,country,countryCode,city,timezone")
                             val geoConn = (if (proxy != null) geoUrl.openConnection(proxy) else geoUrl.openConnection()) as HttpURLConnection
                             geoConn.connectTimeout = 2500
                             geoConn.readTimeout = 2500
@@ -139,12 +146,14 @@ object IpFetcher {
                                 val cc = gj.optString("countryCode", "")
                                 val cn = gj.optString("country", "")
                                 val ct = gj.optString("city", "")
+                                val tz = gj.optString("timezone", "")
                                 if (cc.length == 2) {
                                     val loc = if (ct.isNotEmpty()) "$cn • $ct" else cn
                                     return@withContext GeoIpResult(
                                         ip = ip,
                                         country = loc,
-                                        flagEmoji = countryCodeToFlag(cc)
+                                        flagEmoji = countryCodeToFlag(cc),
+                                        timezone = tz
                                     )
                                 }
                             }
@@ -152,7 +161,7 @@ object IpFetcher {
 
                         return@withContext GeoIpResult(
                             ip = ip,
-                            country = "United States",
+                            country = "Exit Tunnel Active",
                             flagEmoji = "🌐"
                         )
                     }
