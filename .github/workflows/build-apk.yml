@@ -16,7 +16,9 @@ jobs:
       - name: Fix gojo_icon.png Format for AAPT2
         run: |
           if [ -f app/src/main/res/drawable/gojo_icon.png ]; then
-            python3 -c "from PIL import Image; img = Image.open('app/src/main/res/drawable/gojo_icon.png').convert('RGBA'); img.save('app/src/main/res/drawable/gojo_icon.png', 'PNG')"
+            ffmpeg -y -i app/src/main/res/drawable/gojo_icon.png -pix_fmt rgba /tmp/fixed_icon.png
+            mv /tmp/fixed_icon.png app/src/main/res/drawable/gojo_icon.png
+            file app/src/main/res/drawable/gojo_icon.png
           fi
 
       - name: Setup Java 17
