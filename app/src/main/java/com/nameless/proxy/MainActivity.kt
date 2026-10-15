@@ -16,7 +16,6 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
-import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -83,7 +82,6 @@ private val ProxyType.displayTitle: String
         ProxyType.HYSTERIA2 -> "Hysteria 2"
     }
 
-// Clean Pure Black (Dark) & Pure White (Light) System Theme Palette
 data class CleanThemePalette(
     val isDark: Boolean,
     val bg: Color,
@@ -1084,7 +1082,6 @@ fun StatusDashboardTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. CONNECTION STATUS & EXIT IP CARD
         SimpleCard(
             modifier = Modifier.fillMaxWidth(),
             borderColor = if (isProxyActive) palette.statusActive else palette.border
@@ -1198,7 +1195,6 @@ fun StatusDashboardTab(
             }
         }
 
-        // 2. DOWNLOAD & UPLOAD THROUGHPUT CARDS
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1242,7 +1238,6 @@ fun StatusDashboardTab(
             }
         }
 
-        // 3. ACTIVE CONFIGURATION SUMMARY
         SimpleCard(modifier = Modifier.fillMaxWidth()) {
             Text("ACTIVE RULESET", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
             Spacer(modifier = Modifier.height(8.dp))
@@ -1261,7 +1256,6 @@ fun StatusDashboardTab(
             }
         }
 
-        // 4. PING & START/STOP ACTION BUTTONS
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1341,10 +1335,6 @@ private fun InfoChip(text: String) {
     }
 }
 
-// -------------------------------------------------------------
-// TAB 1: BUILT-IN IPFIGHTER WEBVIEW (FIXED BLUE SCREEN & TIMEZONE SYNC)
-// -------------------------------------------------------------
-
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun EmbeddedIpFighterWebViewScreen(
@@ -1372,7 +1362,6 @@ fun EmbeddedIpFighterWebViewScreen(
         }
     }
 
-    // Injected ONCE per page load (does NOT wipe localStorage during onProgressChanged!)
     val tzAndWebRtcShieldScript = remember(targetTz, isProxyActive) {
         """
         (function() {
