@@ -30,8 +30,7 @@ data class ProxySettings(
     val sni: String = "",
     val ssMethod: String = "2022-blake3-aes-128-gcm",
     val realityPublicKey: String = "",
-    val realityShortId: String = "",
-    val enableKillSwitch: Boolean = true
+    val realityShortId: String = ""
 )
 
 object ConfigGenerator {
@@ -48,8 +47,6 @@ object ConfigGenerator {
         val root = JSONObject()
         val serverHost = cleanHost(settings.host)
         val hostIsIpv4 = IPV4_SIMPLE_REGEX.matches(serverHost)
-        val user = ProfileManager.androidUserId
-        val slot = ProfileManager.activeSlot
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -57,18 +54,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. Experimental Cache File (REQUIRED by sing-box 1.12-1.14 for FakeIP domain mapping!)
-        root.put("experimental", JSONObject().apply {
-            put("cache_file", JSONObject().apply {
-                put("enabled", true)
-                put("path", "/data/adb/nameless_proxy/fakeip_u${user}_s${slot}.db")
-                put("store_fakeip", true)
-            })
-        })
-
-        // 3. Official sing-box 1.14 FakeIP + Remote DNS Engine
-        // FakeIP returns 198.18.x.x locally in 0ms and passes the actual DOMAIN NAME to proxy-out
-        // so the remote proxy server resolves all domains using its own native residential ISP DNS!
+        // 2. DNS Engine (FakeIP primary so remote proxy resolves all domains using its own ISP DNS)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -99,24 +85,19 @@ object ConfigGenerator {
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
-        // Block HTTPS/SVCB (type 65) DNS queries so Chrome doesn't use ECH/DoH hints
-        dnsRules.put(JSONObject().apply {
-            put("query_type", JSONArray().apply {
-                put("HTTPS")
-                put("SVCB")
-                if (settings.ipMode == IpMode.IPV4_ONLY) {
-                    put("AAAA")
-                }
+        if (settings.ipMode == IpMode.IPV4_ONLY) {
+            dnsRules.put(JSONObject().apply {
+                put("query_type", JSONArray().apply { put("AAAA"); put("HTTPS"); put("SVCB") })
+                put("action", "predefined")
+                put("rcode", "NOERROR")
             })
-            put("action", "predefined")
-            put("rcode", "NOERROR")
-        })
-
-        // Route all A and AAAA lookups to FakeIP so the proxy server itself resolves the domain!
+        }
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("A")
-                put("AAAA")
+                if (settings.ipMode != IpMode.IPV4_ONLY) {
+                    put("AAAA")
+                }
             })
             put("action", "route")
             put("server", "dns-fakeip")
@@ -139,7 +120,7 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds
+        // 3. Inbounds
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -165,8 +146,6 @@ object ConfigGenerator {
                 put("tcp")
                 put("udp")
             })
-            put("override_address", remoteDnsServer)
-            put("override_port", 53)
         })
 
         inbounds.put(JSONObject().apply {
@@ -182,7 +161,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 5. Outbounds
+        // 4. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -276,7 +255,7 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 6. Routing Rules
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -285,7 +264,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // 1) Hijack all DNS entering dns-in or targeting port 53
+        // 1) Hijack all DNS entering dns-in or port 53
         routeRules.put(JSONObject().apply {
             put("inbound", JSONArray().apply { put("dns-in") })
             put("action", "hijack-dns")
@@ -295,16 +274,13 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // 2) CRITICAL: Sniff TLS SNI & HTTP Host AND set override_destination = true!
-        // This guarantees that even if an app connects to a raw IP, sing-box overwrites the destination
-        // with the sniffed domain name (ATYP 0x03) so the remote proxy server resolves DNS with its own ISP!
+        // 2)Sniff protocol, TLS SNI, HTTP Host, and restore FakeIP domain mapping
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("override_destination", true)
             put("timeout", "300ms")
         })
 
-        // 3) Reject STUN protocol on any port & reject all STUN/TURN port ranges
+        // 3) Reject STUN protocol & all STUN/TURN ports (TCP & UDP) so WebRTC never leaks
         routeRules.put(JSONObject().apply {
             put("protocol", JSONArray().apply { put("stun") })
             put("action", "reject")
@@ -318,7 +294,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // 4) Reject Browser DoH (DNS-over-HTTPS) so Chrome is forced to use system DNS -> FakeIP
+        // 4) Reject Browser DoH (DNS-over-HTTPS) to public resolvers so browsers use FakeIP
         routeRules.put(JSONObject().apply {
             put("ip_cidr", JSONArray().apply {
                 put("8.8.8.8/32")
@@ -348,7 +324,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // 5) Reject UDP 853 (DoT) and QUIC UDP 443/80 on TCP_ONLY or SOCKS5/SOCKS4/HTTP
+        // 5) Reject UDP 853 and QUIC UDP 443/80 when appropriate
         val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
