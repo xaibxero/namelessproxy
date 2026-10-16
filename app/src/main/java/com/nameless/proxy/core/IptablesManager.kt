@@ -24,7 +24,6 @@ object IptablesManager {
         val socksPort = inboundPort + 1
         val dnsPort = inboundPort + 2
         val tproxyPort = inboundPort + 8
-        val bypassMarkHex = "0x" + Integer.toHexString(ConfigGenerator.SINGBOX_ROUTING_MARK)
 
         val chainNatV4 = "NAMELESS_U${user}_S$slot"
         val chainNatV6 = "NAMELESS_U${user}_S${slot}_V6"
@@ -85,12 +84,14 @@ object IptablesManager {
         commands.add("for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > \$f 2>/dev/null; done")
         commands.add("for f in /proc/sys/net/ipv4/conf/*/route_localnet; do echo 1 > \$f 2>/dev/null; done")
 
-        // 3. Policy Routing for TPROXY (IPv4 + IPv6)
-        commands.add("ip rule add fwmark $markHex table $tableId pref ${100 + user}")
+        // 3. Policy Routing for TPROXY
+        // IMPORTANT: Use pref 18000+ so we NEVER override Android netd's cellular/464XLAT rules (which live at pref 9000-16000)!
+        val rulePref = 18000 + (user * 10) + slot
+        commands.add("ip rule add fwmark $markHex table $tableId pref $rulePref")
         commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
         if (settings.ipMode != IpMode.IPV4_ONLY) {
-            commands.add("ip -6 rule add fwmark $markHex table $tableId pref ${100 + user}")
+            commands.add("ip -6 rule add fwmark $markHex table $tableId pref $rulePref")
             commands.add("ip -6 route add local ::/0 dev lo table $tableId")
         }
 
@@ -102,7 +103,8 @@ object IptablesManager {
 
         // 4. PHONE OUTBOUND MANGLE (IPv4 UDP TPROXY)
         commands.add("iptables -t mangle -N $chainOutMangle")
-        commands.add("iptables -t mangle -A $chainOutMangle -m mark --mark $bypassMarkHex -j RETURN")
+        // Always let root/system (UID 0-9999, which includes sing-box) keep its Android netd fwmark for 464XLAT!
+        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
         if (hostIsIpv4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d $cleanedHost -j RETURN")
         }
@@ -112,7 +114,6 @@ object IptablesManager {
             commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 443 -j RETURN")
             commands.add("iptables -t mangle -A $chainOutMangle -p udp --dport 80 -j RETURN")
         }
-        commands.add("iptables -t mangle -A $chainOutMangle -m owner --uid-owner 0-9999 -j RETURN")
 
         for (range in reservedV4) {
             commands.add("iptables -t mangle -A $chainOutMangle -d $range -j RETURN")
@@ -127,7 +128,6 @@ object IptablesManager {
 
         // 5. PHONE FILTER SHIELD (Zero WebRTC Leaks, Private DNS DoT 853 Block, Instant QUIC Fallback)
         commands.add("iptables -N $chainFilter 2>/dev/null")
-        commands.add("iptables -A $chainFilter -m mark --mark $bypassMarkHex -j RETURN")
         commands.add("iptables -A $chainFilter -o lo -j RETURN")
         commands.add("iptables -A $chainFilter -p tcp --dport $inboundPort -j RETURN")
         commands.add("iptables -A $chainFilter -p tcp --dport $socksPort -j RETURN")
@@ -137,14 +137,19 @@ object IptablesManager {
         commands.add("iptables -A $chainFilter -p udp --dport 53 -j RETURN")
         commands.add("iptables -A $chainFilter -p tcp --dport 53 -j RETURN")
 
+        // Block Private DNS (DoT Port 853) so Android netd immediately falls back to Port 53 (which we hijack into sing-box!)
         if (user == 0 && selectedUids.isNullOrEmpty()) {
             commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 853 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 853 -j DROP")
         }
 
+        // Allow root/system (sing-box UID 0) outbound traffic untouched
+        commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
+
         for (uRange in uidRanges) {
             commands.add("iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 853 -m owner --uid-owner $uRange -j DROP")
+            // Block WebRTC STUN/TURN UDP ports
             commands.add("iptables -A $chainFilter -p udp --dport 3478 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 5349 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 19302 -m owner --uid-owner $uRange -j DROP")
@@ -160,14 +165,16 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 6. PHONE NAT OUTPUT (Redirect TCP + DNS 53 into sing-box using REDIRECT for Cellular rmnet compatibility)
+        // 6. PHONE NAT OUTPUT (Redirect TCP + DNS 53 into sing-box)
         commands.add("iptables -t nat -N $chainNatV4")
-        commands.add("iptables -t nat -A $chainNatV4 -m mark --mark $bypassMarkHex -j RETURN")
         if (hostIsIpv4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $cleanedHost -j RETURN")
         }
+        // Allow sing-box (UID 0) bootstrap DNS (9.9.9.9) if proxy host is a domain name
+        commands.add("iptables -t nat -A $chainNatV4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN")
 
         if (user == 0 && selectedUids.isNullOrEmpty()) {
+            // Redirect all UDP/TCP port 53 (including netd UID 0 / 1052 and all apps) into sing-box dns-in
             commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
             commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
         } else {
@@ -177,6 +184,7 @@ object IptablesManager {
             }
         }
 
+        // Bypass root/system (UID 0-9999, including sing-box's own TCP connections to the proxy!)
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
 
         for (range in reservedV4) {
@@ -188,7 +196,7 @@ object IptablesManager {
         }
         commands.add("iptables -t nat -I OUTPUT 1 -j $chainNatV4")
 
-        // 7. PHONE IPV6 HANDLING (Supports IPv4_ONLY, DUAL_STACK, and IPV6_ONLY on Cellular & Wi-Fi)
+        // 7. PHONE IPV6 HANDLING (Crucial for Jazz LTE IPv6 / 464XLAT & Dual-Stack)
         if (settings.ipMode != IpMode.IPV4_ONLY && supportsUdp) {
             commands.add("ip6tables -t mangle -N $chainPreMangleV6 2>/dev/null || true")
             commands.add("ip6tables -t mangle -A $chainPreMangleV6 -p tcp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex 2>/dev/null || true")
@@ -196,7 +204,7 @@ object IptablesManager {
             commands.add("ip6tables -t mangle -I PREROUTING 1 -j $chainPreMangleV6 2>/dev/null || true")
 
             commands.add("ip6tables -t mangle -N $chainOutMangleV6 2>/dev/null || true")
-            commands.add("ip6tables -t mangle -A $chainOutMangleV6 -m mark --mark $bypassMarkHex -j RETURN 2>/dev/null || true")
+            commands.add("ip6tables -t mangle -A $chainOutMangleV6 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
             if (hostIsIpv6) {
                 commands.add("ip6tables -t mangle -A $chainOutMangleV6 -d $cleanedHost -j RETURN 2>/dev/null || true")
             }
@@ -206,7 +214,6 @@ object IptablesManager {
                 commands.add("ip6tables -t mangle -A $chainOutMangleV6 -p udp --dport 443 -j RETURN 2>/dev/null || true")
                 commands.add("ip6tables -t mangle -A $chainOutMangleV6 -p udp --dport 80 -j RETURN 2>/dev/null || true")
             }
-            commands.add("ip6tables -t mangle -A $chainOutMangleV6 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
             for (r6 in reservedV6) {
                 commands.add("ip6tables -t mangle -A $chainOutMangleV6 -d $r6 -j RETURN 2>/dev/null || true")
             }
@@ -217,10 +224,10 @@ object IptablesManager {
         }
 
         commands.add("ip6tables -t nat -N $chainNatV6 2>/dev/null || true")
-        commands.add("ip6tables -t nat -A $chainNatV6 -m mark --mark $bypassMarkHex -j RETURN 2>/dev/null || true")
         if (hostIsIpv6) {
             commands.add("ip6tables -t nat -A $chainNatV6 -d $cleanedHost -j RETURN 2>/dev/null || true")
         }
+        commands.add("ip6tables -t nat -A $chainNatV6 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV6} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
         for (r6 in reservedV6) {
             commands.add("ip6tables -t nat -A $chainNatV6 -d $r6 -j RETURN 2>/dev/null || true")
         }
@@ -236,46 +243,41 @@ object IptablesManager {
         }
 
         commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
-        for (uRange in uidRanges) {
-            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
+        if (settings.ipMode != IpMode.IPV4_ONLY) {
+            for (uRange in uidRanges) {
+                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
+            }
         }
         commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6 2>/dev/null || true")
 
-        // IPv6 Filter Shield
+        // IPv6 Filter Shield: Block any un-redirected IPv6 so cellular IPv6 (2404:3100:...) NEVER leaks!
         commands.add("ip6tables -N $chainV6Filter 2>/dev/null || true")
-        commands.add("ip6tables -A $chainV6Filter -m mark --mark $bypassMarkHex -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -o lo -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -p udp --dport $dnsPort -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -p tcp --dport $dnsPort -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -p tcp --dport $inboundPort -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p tcp --dport $socksPort -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -p udp --dport $tproxyPort -j RETURN 2>/dev/null || true")
         if (hostIsIpv6) {
             commands.add("ip6tables -A $chainV6Filter -d $cleanedHost -j RETURN 2>/dev/null || true")
         }
         commands.add("ip6tables -A $chainV6Filter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 853 -j DROP 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP 2>/dev/null || true")
+        // Allow root/system (UID 0-9999) so Android's 464XLAT CLAT daemon (clatd) works on IPv6 LTE!
+        commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
 
         for (uRange in uidRanges) {
-            commands.add("ip6tables -A $chainV6Filter -p udp --dport 3478 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-            commands.add("ip6tables -A $chainV6Filter -p udp --dport 5349 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-            commands.add("ip6tables -A $chainV6Filter -p udp --dport 19302 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-            if (blockQuicUdp) {
-                commands.add("ip6tables -A $chainV6Filter -p udp --dport 443 -m owner --uid-owner $uRange -j REJECT --reject-with icmp6-adm-prohibited 2>/dev/null || ip6tables -A $chainV6Filter -p udp --dport 443 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-                commands.add("ip6tables -A $chainV6Filter -p udp --dport 80 -m owner --uid-owner $uRange -j REJECT --reject-with icmp6-adm-prohibited 2>/dev/null || ip6tables -A $chainV6Filter -p udp --dport 80 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-            }
-            if (settings.ipMode == IpMode.IPV4_ONLY) {
-                commands.add("ip6tables -A $chainV6Filter -p udp -m owner --uid-owner $uRange -j REJECT --reject-with icmp6-adm-prohibited 2>/dev/null || ip6tables -A $chainV6Filter -p udp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-                commands.add("ip6tables -A $chainV6Filter -p tcp -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-            } else if (!supportsUdp) {
-                commands.add("ip6tables -A $chainV6Filter -p udp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
-            }
+            // Always reject any direct IPv6 TCP/UDP from apps that wasn't redirected to local inboundPort/dnsPort!
+            // This guarantees 0% IPv6 leaks on Jazz LTE in both IPv4_ONLY and DUAL_STACK modes!
+            commands.add("ip6tables -A $chainV6Filter -p tcp -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
+            commands.add("ip6tables -A $chainV6Filter -p udp -m owner --uid-owner $uRange -j REJECT --reject-with icmp6-adm-prohibited 2>/dev/null || ip6tables -A $chainV6Filter -p udp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
         }
         commands.add("ip6tables -I OUTPUT 1 -j $chainV6Filter 2>/dev/null || true")
 
         // 8. ZERO-LEAK HOTSPOT / TETHERING ROUTING
         if (settings.routeHotspot && user == 0) {
             commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null")
-            commands.add("ip rule add fwmark $hsMarkHex table $hsTableId pref 500")
+            commands.add("ip rule add fwmark $hsMarkHex table $hsTableId pref 18500")
             commands.add("ip route add local 0.0.0.0/0 dev lo table $hsTableId")
 
             commands.add("iptables -I FORWARD 1 -j ACCEPT 2>/dev/null")
