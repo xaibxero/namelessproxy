@@ -16,6 +16,7 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -23,12 +24,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,7 +44,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -82,70 +89,34 @@ private val ProxyType.displayTitle: String
         ProxyType.HYSTERIA2 -> "Hysteria 2"
     }
 
-data class CleanThemePalette(
-    val isDark: Boolean,
-    val bg: Color,
-    val surface: Color,
-    val surfaceSubtle: Color,
-    val border: Color,
-    val textPrimary: Color,
-    val textSecondary: Color,
-    val textMuted: Color,
-    val accentPrimary: Color,
-    val accentOnPrimary: Color,
-    val statusActive: Color,
-    val statusWarning: Color,
-    val statusDanger: Color
-)
-
-private val PureBlackPalette = CleanThemePalette(
-    isDark = true,
-    bg = Color(0xFF000000),
-    surface = Color(0xFF0D0D0D),
-    surfaceSubtle = Color(0xFF171717),
-    border = Color(0xFF262626),
-    textPrimary = Color(0xFFFFFFFF),
-    textSecondary = Color(0xFFA3A3A3),
-    textMuted = Color(0xFF737373),
-    accentPrimary = Color(0xFFFFFFFF),
-    accentOnPrimary = Color(0xFF000000),
-    statusActive = Color(0xFF10B981),
-    statusWarning = Color(0xFFF59E0B),
-    statusDanger = Color(0xFFEF4444)
-)
-
-private val PureLightPalette = CleanThemePalette(
-    isDark = false,
-    bg = Color(0xFFFFFFFF),
-    surface = Color(0xFFF8FAFC),
-    surfaceSubtle = Color(0xFFF1F5F9),
-    border = Color(0xFFE2E8F0),
-    textPrimary = Color(0xFF0F172A),
-    textSecondary = Color(0xFF475569),
-    textMuted = Color(0xFF94A3B8),
-    accentPrimary = Color(0xFF0F172A),
-    accentOnPrimary = Color(0xFFFFFFFF),
-    statusActive = Color(0xFF059669),
-    statusWarning = Color(0xFFD97706),
-    statusDanger = Color(0xFFDC2626)
-)
-
-val LocalCleanPalette = compositionLocalOf { PureBlackPalette }
+// LocalSend Inspired Dark Teal Palette (Always Dark Mode — No Pure Black, No Light Mode)
+private val LocalSendBg = Color(0xFF0F171A)
+private val LocalSendCard = Color(0xFF182429)
+private val LocalSendCardElevated = Color(0xFF203036)
+private val LocalSendBorder = Color(0xFF2A3E46)
+private val LocalSendTeal = Color(0xFF0D9488)
+private val LocalSendTealLight = Color(0xFF2DD4BF)
+private val LocalSendTealSoft = Color(0xFF133836)
+private val LocalSendTextPrimary = Color(0xFFE6F1F5)
+private val LocalSendTextSecondary = Color(0xFF94ADB8)
+private val LocalSendTextMuted = Color(0xFF637B85)
+private val LocalSendAmber = Color(0xFFF59E0B)
+private val LocalSendDanger = Color(0xFFEF4444)
 
 @Composable
-fun SimpleCard(
+fun LocalSendSurfaceCard(
     modifier: Modifier = Modifier,
-    borderColor: Color? = null,
-    contentPadding: PaddingValues = PaddingValues(14.dp),
+    borderColor: Color = LocalSendBorder,
+    backgroundColor: Color = LocalSendCard,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val palette = LocalCleanPalette.current
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(18.dp)
     Column(
         modifier = modifier
             .clip(shape)
-            .background(palette.surface)
-            .border(1.dp, borderColor ?: palette.border, shape)
+            .background(backgroundColor)
+            .border(1.dp, borderColor, shape)
             .padding(contentPadding),
         content = content
     )
@@ -164,14 +135,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            ),
-            navigationBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            )
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
 
         refreshRootStatus()
@@ -192,76 +157,59 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            val isDark = isSystemInDarkTheme()
-            val palette = if (isDark) PureBlackPalette else PureLightPalette
-            val scheme = if (isDark) {
-                darkColorScheme(
-                    primary = palette.accentPrimary,
-                    onPrimary = palette.accentOnPrimary,
-                    secondary = palette.statusActive,
-                    background = palette.bg,
-                    surface = palette.surface,
-                    onBackground = palette.textPrimary,
-                    onSurface = palette.textPrimary,
-                    error = palette.statusDanger
-                )
-            } else {
-                lightColorScheme(
-                    primary = palette.accentPrimary,
-                    onPrimary = palette.accentOnPrimary,
-                    secondary = palette.statusActive,
-                    background = palette.bg,
-                    surface = palette.surface,
-                    onBackground = palette.textPrimary,
-                    onSurface = palette.textPrimary,
-                    error = palette.statusDanger
-                )
-            }
+            val scheme = darkColorScheme(
+                primary = LocalSendTealLight,
+                onPrimary = LocalSendBg,
+                secondary = LocalSendTeal,
+                background = LocalSendBg,
+                surface = LocalSendCard,
+                onBackground = LocalSendTextPrimary,
+                onSurface = LocalSendTextPrimary,
+                error = LocalSendDanger
+            )
 
-            CompositionLocalProvider(LocalCleanPalette provides palette) {
-                MaterialTheme(colorScheme = scheme) {
-                    MainScreen(
-                        rootState = rootState,
-                        rootLabel = rootLabel,
-                        isProxyActive = isProxyRunningState,
-                        isTransitioning = isTransitioningState,
-                        runningSlot = runningSlotState,
-                        activePid = activePidState,
-                        onRecheckRoot = { refreshRootStatus() },
-                        installedApps = installedApps,
-                        onSyncStatus = { syncDaemonStatus() },
-                        onStartProxy = { settings, uids, onResult ->
-                            if (isTransitioningState) return@MainScreen
-                            isTransitioningState = true
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                val res = ProxyController.startProxy(this@MainActivity, settings, uids)
-                                val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
-                                val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
-                                withContext(Dispatchers.Main) {
-                                    isProxyRunningState = rSlot != null
-                                    runningSlotState = rSlot
-                                    activePidState = pid
-                                    isTransitioningState = false
-                                    onResult(res.success, res.errorMessage)
-                                }
-                            }
-                        },
-                        onStopProxy = { onResult ->
-                            if (isTransitioningState) return@MainScreen
-                            isTransitioningState = true
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                val ok = ProxyController.stopProxy(this@MainActivity)
-                                withContext(Dispatchers.Main) {
-                                    isProxyRunningState = false
-                                    runningSlotState = null
-                                    activePidState = null
-                                    isTransitioningState = false
-                                    onResult(ok)
-                                }
+            MaterialTheme(colorScheme = scheme) {
+                MainScreen(
+                    rootState = rootState,
+                    rootLabel = rootLabel,
+                    isProxyActive = isProxyRunningState,
+                    isTransitioning = isTransitioningState,
+                    runningSlot = runningSlotState,
+                    activePid = activePidState,
+                    onRecheckRoot = { refreshRootStatus() },
+                    installedApps = installedApps,
+                    onSyncStatus = { syncDaemonStatus() },
+                    onStartProxy = { settings, uids, onResult ->
+                        if (isTransitioningState) return@MainScreen
+                        isTransitioningState = true
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val res = ProxyController.startProxy(this@MainActivity, settings, uids)
+                            val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
+                            val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
+                            withContext(Dispatchers.Main) {
+                                isProxyRunningState = rSlot != null
+                                runningSlotState = rSlot
+                                activePidState = pid
+                                isTransitioningState = false
+                                onResult(res.success, res.errorMessage)
                             }
                         }
-                    )
-                }
+                    },
+                    onStopProxy = { onResult ->
+                        if (isTransitioningState) return@MainScreen
+                        isTransitioningState = true
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val ok = ProxyController.stopProxy(this@MainActivity)
+                            withContext(Dispatchers.Main) {
+                                isProxyRunningState = false
+                                runningSlotState = null
+                                activePidState = null
+                                isTransitioningState = false
+                                onResult(ok)
+                            }
+                        }
+                    }
+                )
             }
         }
     }
@@ -365,7 +313,6 @@ fun MainScreen(
     onStartProxy: (ProxySettings, List<Int>?, (Boolean, String?) -> Unit) -> Unit,
     onStopProxy: ((Boolean) -> Unit) -> Unit
 ) {
-    val palette = LocalCleanPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -598,13 +545,18 @@ fun MainScreen(
 
     fun triggerExitNodeCheck() {
         ipFetchJob?.cancel()
+        if (!isProxyActive) {
+            publicIpInfo = null
+            isFetchingIp = false
+            return
+        }
         isFetchingIp = true
         ipFetchJob = scope.launch(Dispatchers.IO) {
             for (attempt in 1..4) {
-                delay(if (attempt == 1) 300L else 1100L)
+                delay(if (attempt == 1) 350L else 1000L)
                 val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId) ?: activeSlot
                 val socksPort = 10800 + (ProfileManager.androidUserId * 100) + (rSlot * 10) + 1
-                val res = IpFetcher.getPublicIpInfo(if (isProxyActive) socksPort else null)
+                val res = IpFetcher.getPublicIpInfo(socksPort)
                 if (res != null) {
                     withContext(Dispatchers.Main) {
                         publicIpInfo = res
@@ -620,9 +572,6 @@ fun MainScreen(
     }
 
     LaunchedEffect(isProxyActive, runningSlot) {
-        if (!isProxyActive) {
-            publicIpInfo = null
-        }
         triggerExitNodeCheck()
     }
 
@@ -644,7 +593,7 @@ fun MainScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(palette.bg)
+            .background(LocalSendBg)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -653,7 +602,7 @@ fun MainScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            TopHeaderBar(
+            LocalSendTopHeader(
                 isProxyActive = isProxyActive,
                 runningSlot = runningSlot,
                 activeSlot = activeSlot,
@@ -661,7 +610,7 @@ fun MainScreen(
                 onRecheckRoot = onRecheckRoot
             )
             Spacer(modifier = Modifier.height(10.dp))
-            SlotSelectorBar(
+            LocalSendSlotBar(
                 activeSlot = activeSlot,
                 runningSlot = runningSlot,
                 isProxyActive = isProxyActive,
@@ -686,8 +635,10 @@ fun MainScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
         ) {
+            // Using `when (selectedTab)` ensures Tab 1 (IPFighter) is ONLY mounted when active
+            // and immediately disposed & wiped when switching to any other tab!
             when (selectedTab) {
-                0 -> StatusDashboardTab(
+                0 -> LocalSendStatusTab(
                     isProxyActive = isProxyActive,
                     isTransitioning = isTransitioning,
                     runningSlot = runningSlot,
@@ -717,7 +668,7 @@ fun MainScreen(
                         } else {
                             if (host.trim().isEmpty()) {
                                 selectedTab = 2
-                                return@StatusDashboardTab
+                                return@LocalSendStatusTab
                             }
                             saveConfigForSlot(activeSlot, true)
                             val targets = buildTargetUids()
@@ -731,7 +682,7 @@ fun MainScreen(
                     onPingNode = {
                         if (host.trim().isEmpty()) {
                             selectedTab = 2
-                            return@StatusDashboardTab
+                            return@LocalSendStatusTab
                         }
                         saveConfigForSlot(activeSlot)
                         isTesting = true
@@ -747,7 +698,7 @@ fun MainScreen(
                     }
                 )
 
-                1 -> EmbeddedIpFighterWebViewScreen(
+                1 -> LiveEphemeralIpFighterTab(
                     isProxyActive = isProxyActive,
                     runningSlot = runningSlot,
                     publicIpInfo = publicIpInfo
@@ -897,7 +848,7 @@ fun MainScreen(
             }
         }
 
-        BottomNavigationBar(
+        LocalSendBottomNav(
             selectedTab = selectedTab,
             onSelectTab = { selectedTab = it }
         )
@@ -905,14 +856,13 @@ fun MainScreen(
 }
 
 @Composable
-fun TopHeaderBar(
+fun LocalSendTopHeader(
     isProxyActive: Boolean,
     runningSlot: Int?,
     activeSlot: Int,
     rootState: RootState,
     onRecheckRoot: () -> Unit
 ) {
-    val palette = LocalCleanPalette.current
     val userId = ProfileManager.androidUserId
 
     Row(
@@ -922,56 +872,70 @@ fun TopHeaderBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Text(
-                text = "NAMELESS PROXY",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = palette.textPrimary,
-                letterSpacing = 0.5.sp
-            )
-            Text(
-                text = if (isProxyActive) {
-                    "USER #$userId • SLOT P${runningSlot ?: activeSlot} ACTIVE"
-                } else {
-                    "USER #$userId • PORT ${ProfileManager.localInboundPort} • STANDBY"
-                },
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                color = if (isProxyActive) palette.statusActive else palette.textSecondary
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(LocalSendTealSoft)
+                    .border(1.5.dp, LocalSendTealLight, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(if (isProxyActive) LocalSendTealLight else LocalSendTeal, CircleShape)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "Nameless Proxy",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = LocalSendTextPrimary
+                )
+                Text(
+                    text = if (isProxyActive) {
+                        "User #$userId • Slot P${runningSlot ?: activeSlot} Connected"
+                    } else {
+                        "User #$userId • Port ${ProfileManager.localInboundPort} • Standby"
+                    },
+                    fontSize = 11.5.sp,
+                    color = if (isProxyActive) LocalSendTealLight else LocalSendTextSecondary
+                )
+            }
         }
 
         val rootCol = when (rootState) {
-            RootState.GRANTED -> palette.statusActive
-            RootState.DENIED -> palette.statusDanger
-            RootState.CHECKING -> palette.statusWarning
+            RootState.GRANTED -> LocalSendTealLight
+            RootState.DENIED -> LocalSendDanger
+            RootState.CHECKING -> LocalSendAmber
         }
 
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(palette.surface)
-                .border(1.dp, rootCol, RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
+                .background(LocalSendCard)
+                .border(1.dp, rootCol.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                 .clickable { onRecheckRoot() }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(6.dp).background(rootCol, CircleShape))
+            Box(modifier = Modifier.size(7.dp).background(rootCol, CircleShape))
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = if (rootState == RootState.GRANTED) "ROOT" else "NO ROOT",
-                fontSize = 10.5.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = palette.textPrimary
+                color = LocalSendTextPrimary
             )
         }
     }
 }
 
 @Composable
-fun SlotSelectorBar(
+fun LocalSendSlotBar(
     activeSlot: Int,
     runningSlot: Int?,
     isProxyActive: Boolean,
@@ -980,8 +944,6 @@ fun SlotSelectorBar(
     configuredSlots: Set<Int>,
     onSelectSlot: (Int) -> Unit
 ) {
-    val palette = LocalCleanPalette.current
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -992,49 +954,49 @@ fun SlotSelectorBar(
             val isBoot = startOnBoot && bootSlot == idx
             val isConf = configuredSlots.contains(idx)
 
-            val borderCol = when {
-                run -> palette.statusActive
-                sel -> palette.textPrimary
-                else -> palette.border
+            val bgCol = when {
+                run -> LocalSendTealSoft
+                sel -> LocalSendCardElevated
+                else -> LocalSendCard
             }
 
-            val bgCol = when {
-                sel -> palette.surfaceSubtle
-                else -> palette.surface
+            val borderCol = when {
+                run -> LocalSendTealLight
+                sel -> LocalSendTeal
+                else -> LocalSendBorder
             }
 
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(bgCol)
-                    .border(if (sel || run) 1.5.dp else 1.dp, borderCol, RoundedCornerShape(10.dp))
+                    .border(if (sel || run) 1.5.dp else 1.dp, borderCol, RoundedCornerShape(14.dp))
                     .clickable { onSelectSlot(idx) }
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                    .padding(vertical = 9.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = "P$idx",
-                    fontSize = 13.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.textPrimary
+                    color = if (run) LocalSendTealLight else LocalSendTextPrimary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = when {
-                        run -> "ACTIVE"
-                        isBoot -> "BOOT"
-                        isConf -> "READY"
-                        else -> "EMPTY"
+                        run -> "Active"
+                        isBoot -> "Boot"
+                        isConf -> "Ready"
+                        else -> "Empty"
                     },
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
                     color = when {
-                        run -> palette.statusActive
-                        isBoot -> palette.statusWarning
-                        isConf -> palette.textSecondary
-                        else -> palette.textMuted
+                        run -> LocalSendTealLight
+                        isBoot -> LocalSendAmber
+                        isConf -> LocalSendTextSecondary
+                        else -> LocalSendTextMuted
                     }
                 )
             }
@@ -1043,7 +1005,7 @@ fun SlotSelectorBar(
 }
 
 @Composable
-fun StatusDashboardTab(
+fun LocalSendStatusTab(
     isProxyActive: Boolean,
     isTransitioning: Boolean,
     runningSlot: Int?,
@@ -1072,9 +1034,19 @@ fun StatusDashboardTab(
     testStatus: String?,
     onPingNode: () -> Unit
 ) {
-    val palette = LocalCleanPalette.current
     val context = LocalContext.current
     val isCurrentSlotRunning = isProxyActive && runningSlot == activeSlot
+
+    val infiniteTransition = rememberInfiniteTransition(label = "localsendEmblem")
+    val ringRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            tween(if (isProxyActive) 9000 else 22000, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "ringRot"
+    )
 
     Column(
         modifier = Modifier
@@ -1082,180 +1054,233 @@ fun StatusDashboardTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SimpleCard(
+        // 1. LOCALSEND STYLE CENTER RADAR EMBLEM & NODE IDENTITY CARD
+        LocalSendSurfaceCard(
             modifier = Modifier.fillMaxWidth(),
-            borderColor = if (isProxyActive) palette.statusActive else palette.border
+            borderColor = if (isProxyActive) LocalSendTeal else LocalSendBorder
         ) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                if (isProxyActive) palette.statusActive else palette.textMuted,
-                                CircleShape
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = when {
-                            isTransitioning -> "SYNCHRONIZING..."
-                            isProxyActive -> "CONNECTED • SLOT P${runningSlot ?: activeSlot}"
-                            else -> "DISCONNECTED • SLOT P$activeSlot"
+                            isTransitioning -> "Synchronizing Tunnel..."
+                            isProxyActive -> "Tunnel Active • Slot P${runningSlot ?: activeSlot}"
+                            else -> "Standby • Slot P$activeSlot"
                         },
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (isProxyActive) palette.statusActive else palette.textSecondary
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isProxyActive) LocalSendTealLight else LocalSendTextSecondary
                     )
-                }
 
-                if (isProxyActive && sessionStartMs > 0L) {
-                    UptimeBadge(sessionStartMs)
-                } else if (activePid != null) {
-                    Text(
-                        text = "PID $activePid",
-                        fontSize = 10.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = palette.textMuted
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = when {
-                            isProxyActive && publicIpInfo != null -> "${publicIpInfo.flagEmoji} ${publicIpInfo.ip}"
-                            isProxyActive && isFetchingIp -> "Verifying exit IP..."
-                            host.isNotBlank() -> "${host.trim()}:${port.trim()}"
-                            else -> "No Proxy Configured"
-                        },
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = palette.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable {
-                            val ipToCopy = publicIpInfo?.ip ?: host.trim()
-                            if (ipToCopy.isNotEmpty()) {
-                                val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cb.setPrimaryClip(ClipData.newPlainText("ExitIP", ipToCopy))
-                                Toast.makeText(context, "Copied: $ipToCopy", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = when {
-                            isProxyActive && publicIpInfo != null -> buildString {
-                                append(publicIpInfo.country)
-                                if (publicIpInfo.timezone.isNotEmpty()) append(" • ${publicIpInfo.timezone}")
-                            }
-                            isProxyActive -> "Tap Refresh to check exit IP"
-                            else -> "${proxyType.displayTitle} • ${if (routeWholeProfile) "All Apps (User #${ProfileManager.androidUserId})" else "$selectedAppsCount Apps"}"
-                        },
-                        fontSize = 11.5.sp,
-                        color = palette.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { onRefreshIp() }
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onRefreshIp,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        border = BorderStroke(1.dp, palette.border)
-                    ) {
-                        Text("Refresh", fontSize = 11.sp, color = palette.textPrimary)
+                    if (isProxyActive && sessionStartMs > 0L) {
+                        UptimeBadge(sessionStartMs)
+                    } else if (activePid != null) {
+                        Text(
+                            text = "PID $activePid",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = LocalSendTextMuted
+                        )
                     }
-                    OutlinedButton(
-                        onClick = onOpenIpFighterTab,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        border = BorderStroke(1.dp, palette.border)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // LocalSend Signature Dashed Ring & Center Core (Tap to Start/Stop)
+                Box(
+                    modifier = Modifier
+                        .size(112.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = !isTransitioning) { onToggleProxy() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    val ringColor = when {
+                        isTransitioning -> LocalSendAmber
+                        isProxyActive -> LocalSendTealLight
+                        else -> LocalSendTeal
+                    }
+
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val outerRadius = size.minDimension * 0.43f
+
+                        rotate(degrees = ringRotation, pivot = center) {
+                            drawCircle(
+                                color = ringColor.copy(alpha = if (isProxyActive) 0.90f else 0.55f),
+                                radius = outerRadius,
+                                center = center,
+                                style = Stroke(
+                                    width = 7.dp.toPx(),
+                                    cap = StrokeCap.Round,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(28f, 22f), 0f)
+                                )
+                            )
+                        }
+
+                        drawCircle(
+                            color = ringColor.copy(alpha = if (isProxyActive) 0.25f else 0.15f),
+                            radius = size.minDimension * 0.30f,
+                            center = center
+                        )
+
+                        drawCircle(
+                            color = ringColor,
+                            radius = size.minDimension * 0.22f,
+                            center = center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Main Node / Exit IP Title (Like "Smart Raspberry" in LocalSend)
+                Text(
+                    text = when {
+                        isProxyActive && publicIpInfo != null -> "${publicIpInfo.flagEmoji} ${publicIpInfo.ip}"
+                        isProxyActive && isFetchingIp -> "Verifying Tunnel IP..."
+                        host.isNotBlank() -> "${host.trim()}:${port.trim()}"
+                        else -> "No Proxy Configured"
+                    },
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = LocalSendTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable {
+                        val ipToCopy = publicIpInfo?.ip ?: host.trim()
+                        if (ipToCopy.isNotEmpty()) {
+                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cb.setPrimaryClip(ClipData.newPlainText("ExitIP", ipToCopy))
+                            Toast.makeText(context, "Copied: $ipToCopy", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = when {
+                        isProxyActive && publicIpInfo != null -> buildString {
+                            append(publicIpInfo.country)
+                            if (publicIpInfo.timezone.isNotEmpty()) append(" • ${publicIpInfo.timezone}")
+                        }
+                        isProxyActive -> "Routing traffic through proxy tunnel"
+                        else -> "${proxyType.displayTitle} • ${if (routeWholeProfile) "All Apps (User #${ProfileManager.androidUserId})" else "$selectedAppsCount Selected Apps"}"
+                    },
+                    fontSize = 12.sp,
+                    color = LocalSendTextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = LocalSendCardElevated,
+                        border = BorderStroke(1.dp, LocalSendBorder),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onRefreshIp() }
                     ) {
-                        Text("IPFighter ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                        Text(
+                            text = if (isFetchingIp) "Checking..." else "↻ Verify IP",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = LocalSendTextPrimary,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = LocalSendTealSoft,
+                        border = BorderStroke(1.dp, LocalSendTeal),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onOpenIpFighterTab() }
+                    ) {
+                        Text(
+                            text = "IPFighter Check ↗",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = LocalSendTealLight,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                        )
                     }
                 }
             }
         }
 
+        // 2. DOWNLOAD & UPLOAD THROUGHPUT CARDS
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            SimpleCard(modifier = Modifier.weight(1f)) {
-                Text("DOWNLOAD", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
+            LocalSendSurfaceCard(modifier = Modifier.weight(1f)) {
+                Text("Download", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = LocalSendTextSecondary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "${splitSpeedValue(currentRxRate)} ${splitSpeedUnit(currentRxRate)}",
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.textPrimary
+                    color = LocalSendTealLight
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Total: ${formatBytes(totalRxBytes)}",
-                    fontSize = 10.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.textSecondary
+                    text = "Session: ${formatBytes(totalRxBytes)}",
+                    fontSize = 11.sp,
+                    color = LocalSendTextMuted
                 )
             }
 
-            SimpleCard(modifier = Modifier.weight(1f)) {
-                Text("UPLOAD", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
+            LocalSendSurfaceCard(modifier = Modifier.weight(1f)) {
+                Text("Upload", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = LocalSendTextSecondary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "${splitSpeedValue(currentTxRate)} ${splitSpeedUnit(currentTxRate)}",
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.textPrimary
+                    color = LocalSendTextPrimary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Total: ${formatBytes(totalTxBytes)}",
-                    fontSize = 10.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.textSecondary
+                    text = "Session: ${formatBytes(totalTxBytes)}",
+                    fontSize = 11.sp,
+                    color = LocalSendTextMuted
                 )
             }
         }
 
-        SimpleCard(modifier = Modifier.fillMaxWidth()) {
-            Text("ACTIVE RULESET", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
-            Spacer(modifier = Modifier.height(8.dp))
+        // 3. ACTIVE RULESET TAGS
+        LocalSendSurfaceCard(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                InfoChip(proxyType.displayTitle)
-                InfoChip(if (transportMode == TransportMode.TCP_AND_UDP) "TCP + UDP" else "TCP ONLY")
-                InfoChip(ipMode.name.replace("_", " "))
-                InfoChip(if (enableKillSwitch) "KILL-SWITCH ON" else "KILL-SWITCH OFF")
-                if (routeHotspot) InfoChip("HOTSPOT ON")
-                InfoChip("DNS + WEBRTC SHIELD")
+                LocalSendChip(proxyType.displayTitle)
+                LocalSendChip(if (transportMode == TransportMode.TCP_AND_UDP) "TCP + UDP" else "TCP Only")
+                LocalSendChip(ipMode.name.replace("_", " "))
+                if (enableKillSwitch) LocalSendChip("Kill-Switch")
+                if (routeHotspot) LocalSendChip("Hotspot Bridge")
+                LocalSendChip("DNS & WebRTC Shield")
             }
         }
 
+        // 4. PING & START/STOP ACTION ROW
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1263,27 +1288,30 @@ fun StatusDashboardTab(
             OutlinedButton(
                 onClick = onPingNode,
                 enabled = !isTesting && !isTransitioning,
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, palette.border),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, LocalSendBorder),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = LocalSendCard,
+                    contentColor = LocalSendTextPrimary
+                ),
                 modifier = Modifier
                     .weight(0.35f)
                     .height(50.dp)
             ) {
                 Text(
                     text = if (isTesting) "Wait..." else "Ping P$activeSlot",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = palette.textPrimary
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
 
             Button(
                 onClick = onToggleProxy,
                 enabled = !isTransitioning,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isCurrentSlotRunning) palette.statusDanger else palette.accentPrimary,
-                    contentColor = if (isCurrentSlotRunning) Color.White else palette.accentOnPrimary
+                    containerColor = if (isCurrentSlotRunning) LocalSendDanger else LocalSendTeal,
+                    contentColor = Color.White
                 ),
                 modifier = Modifier
                     .weight(0.65f)
@@ -1291,12 +1319,12 @@ fun StatusDashboardTab(
             ) {
                 Text(
                     text = when {
-                        isTransitioning -> "SYNCHRONIZING..."
-                        !isProxyActive -> "START PROXY (P$activeSlot)"
-                        isCurrentSlotRunning -> "STOP PROXY (P$activeSlot)"
-                        else -> "SWITCH TO P$activeSlot"
+                        isTransitioning -> "Synchronizing..."
+                        !isProxyActive -> "Start Proxy (P$activeSlot)"
+                        isCurrentSlotRunning -> "Stop Proxy (P$activeSlot)"
+                        else -> "Switch to Slot P$activeSlot"
                     },
-                    fontSize = 12.5.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -1305,10 +1333,9 @@ fun StatusDashboardTab(
         if (testStatus != null) {
             Text(
                 text = testStatus,
-                fontSize = 11.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                color = if (testStatus.startsWith("ONLINE")) palette.statusActive else palette.statusDanger,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (testStatus.startsWith("ONLINE")) LocalSendTealLight else LocalSendDanger,
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
         }
@@ -1316,34 +1343,38 @@ fun StatusDashboardTab(
 }
 
 @Composable
-private fun InfoChip(text: String) {
-    val palette = LocalCleanPalette.current
+private fun LocalSendChip(text: String) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(palette.surfaceSubtle)
-            .border(1.dp, palette.border, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(LocalSendCardElevated)
+            .border(1.dp, LocalSendBorder, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
     ) {
         Text(
             text = text,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.textPrimary
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = LocalSendTextPrimary
         )
     }
 }
 
+// -------------------------------------------------------------
+// TAB 1: EPHEMERAL NON-CACHED LIVE IPFIGHTER TAB
+// Created ONLY when opened; completely destroyed & cache-wiped when closed!
+// -------------------------------------------------------------
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun EmbeddedIpFighterWebViewScreen(
+fun LiveEphemeralIpFighterTab(
     isProxyActive: Boolean,
     runningSlot: Int?,
     publicIpInfo: GeoIpResult?
 ) {
-    val palette = LocalCleanPalette.current
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    // Changing reloadNonce forces Compose `key(reloadNonce)` to tear down the old WebView
+    // and instantiate a brand-new, zero-cache WebView instance!
+    var reloadNonce by remember { mutableIntStateOf(0) }
     var loadProgress by remember { mutableIntStateOf(0) }
 
     val targetTz = remember(isProxyActive, publicIpInfo?.timezone, publicIpInfo?.country) {
@@ -1384,23 +1415,26 @@ fun EmbeddedIpFighterWebViewScreen(
         """.trimIndent()
     }
 
-    fun reloadWebViewLive(wv: WebView?) {
-        if (wv == null) return
-        wv.stopLoading()
+    // Whenever proxy state or slot changes while on this tab, recreate a fresh WebView
+    LaunchedEffect(isProxyActive, runningSlot) {
+        reloadNonce++
+    }
+
+    // Wipe all WebView storage/cookies when entering AND when leaving the IPFighter tab
+    DisposableEffect(Unit) {
+        WebStorage.getInstance().deleteAllData()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
-        wv.clearCache(true)
-        wv.loadUrl("https://ipfighter.com/")
+        onDispose {
+            WebStorage.getInstance().deleteAllData()
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+        }
     }
 
-    LaunchedEffect(isProxyActive, runningSlot) {
-        delay(450)
-        reloadWebViewLive(webViewRef)
-    }
-
-    SimpleCard(
+    LocalSendSurfaceCard(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(10.dp)
+        contentPadding = PaddingValues(12.dp)
     ) {
         Row(
             modifier = Modifier
@@ -1413,29 +1447,36 @@ fun EmbeddedIpFighterWebViewScreen(
                 Box(
                     modifier = Modifier
                         .size(8.dp)
-                        .background(if (isProxyActive) palette.statusActive else palette.statusWarning, CircleShape)
+                        .background(if (isProxyActive) LocalSendTealLight else LocalSendAmber, CircleShape)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (isProxyActive) {
-                        "IPFIGHTER • ${publicIpInfo?.ip ?: "TUNNEL ACTIVE"}"
+                        "Live IPFighter • ${publicIpInfo?.ip ?: "Tunnel Active"}"
                     } else {
-                        "IPFIGHTER • DIRECT"
+                        "Live IPFighter • Direct"
                     },
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.textPrimary
+                    color = LocalSendTextPrimary
                 )
             }
 
-            OutlinedButton(
-                onClick = { reloadWebViewLive(webViewRef) },
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                border = BorderStroke(1.dp, palette.border)
+            Button(
+                onClick = {
+                    WebStorage.getInstance().deleteAllData()
+                    CookieManager.getInstance().removeAllCookies(null)
+                    CookieManager.getInstance().flush()
+                    reloadNonce++
+                },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = LocalSendTeal,
+                    contentColor = Color.White
+                )
             ) {
-                Text("↻ Reload", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                Text("↻ Fresh Check", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -1446,7 +1487,7 @@ fun EmbeddedIpFighterWebViewScreen(
                     .fillMaxWidth()
                     .height(2.dp)
                     .padding(bottom = 4.dp),
-                color = palette.statusActive,
+                color = LocalSendTealLight,
                 trackColor = Color.Transparent
             )
         }
@@ -1454,62 +1495,73 @@ fun EmbeddedIpFighterWebViewScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, palette.border, RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, LocalSendBorder, RoundedCornerShape(14.dp))
         ) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        CookieManager.getInstance().setAcceptCookie(true)
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            databaseEnabled = true
-                            cacheMode = WebSettings.LOAD_DEFAULT
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                            userAgentString =
-                                "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
-                        }
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                loadProgress = newProgress
+            key(reloadNonce) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            clearCache(true)
+                            clearHistory()
+                            clearFormData()
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = false
+                                cacheMode = WebSettings.LOAD_NO_CACHE
+                                setSupportZoom(true)
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
+                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                userAgentString =
+                                    "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
                             }
-                        }
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                super.onPageStarted(view, url, favicon)
-                                view?.evaluateJavascript(tzAndWebRtcShieldScript, null)
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    loadProgress = newProgress
+                                }
                             }
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    view?.evaluateJavascript(tzAndWebRtcShieldScript, null)
+                                }
 
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                loadProgress = 100
-                                view?.evaluateJavascript(tzAndWebRtcShieldScript, null)
-                            }
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    loadProgress = 100
+                                    view?.evaluateJavascript(tzAndWebRtcShieldScript, null)
+                                }
 
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?
-                            ): Boolean = false
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): Boolean = false
+                            }
+                            val noCacheHeaders = mapOf(
+                                "Cache-Control" to "no-cache, no-store, must-revalidate",
+                                "Pragma" to "no-cache",
+                                "Expires" to "0"
+                            )
+                            loadUrl("https://ipfighter.com/?_t=${System.currentTimeMillis()}", noCacheHeaders)
                         }
-                        webViewRef = this
-                        loadUrl("https://ipfighter.com/")
+                    },
+                    onRelease = { wv ->
+                        wv.stopLoading()
+                        wv.loadUrl("about:blank")
+                        wv.clearHistory()
+                        wv.clearCache(true)
+                        wv.removeAllViews()
+                        wv.destroy()
                     }
-                },
-                onRelease = { wv ->
-                    webViewRef = null
-                    wv.stopLoading()
-                    wv.destroy()
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -1545,7 +1597,6 @@ fun NodeConfigTab(
     onResetSlot: () -> Unit,
     getCurrentSettings: () -> ProxySettings
 ) {
-    val palette = LocalCleanPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isCheckingAlive by remember { mutableStateOf(false) }
@@ -1557,12 +1608,12 @@ fun NodeConfigTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SimpleCard(modifier = Modifier.fillMaxWidth()) {
+        LocalSendSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "URI IMPORT & SOCKET TEST",
-                fontSize = 11.sp,
+                text = "URI Import & Socket Test",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = palette.textSecondary
+                color = LocalSendTextPrimary
             )
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -1583,10 +1634,10 @@ fun NodeConfigTab(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, palette.border)
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, LocalSendBorder)
                 ) {
-                    Text("Paste URI", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    Text("Paste URI", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
                 }
 
                 Button(
@@ -1604,15 +1655,15 @@ fun NodeConfigTab(
                     },
                     enabled = !isCheckingAlive,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = palette.accentPrimary,
-                        contentColor = palette.accentOnPrimary
+                        containerColor = LocalSendTeal,
+                        contentColor = Color.White
                     )
                 ) {
                     Text(
                         text = if (isCheckingAlive) "Testing..." else "Test Socket",
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1624,18 +1675,16 @@ fun NodeConfigTab(
                     is TestResult.Success -> {
                         Text(
                             text = "ONLINE • ${res.latencyMs} ms",
-                            color = palette.statusActive,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace,
+                            color = LocalSendTealLight,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     is TestResult.Failure -> {
                         Text(
                             text = "FAILED • ${res.error}",
-                            color = palette.statusDanger,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace,
+                            color = LocalSendDanger,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1644,29 +1693,29 @@ fun NodeConfigTab(
             }
         }
 
-        SimpleCard(modifier = Modifier.fillMaxWidth()) {
+        LocalSendSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "SLOT P$activeSlot CONFIGURATION",
-                    fontSize = 11.sp,
+                    text = "Slot P$activeSlot Configuration",
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = palette.textSecondary
+                    color = LocalSendTextPrimary
                 )
                 Text(
                     text = "Reset P$activeSlot",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = palette.statusDanger,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = LocalSendDanger,
                     modifier = Modifier.clickable { onResetSlot() }
                 )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            Text("PROTOCOL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
+            Text("Protocol", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = LocalSendTextSecondary)
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
@@ -1678,29 +1727,41 @@ fun NodeConfigTab(
                     FilterChip(
                         selected = proxyType == t,
                         onClick = { onProxyTypeChange(t); onConfigChanged() },
-                        label = { Text(t.displayTitle, fontSize = 11.sp) }
+                        label = { Text(t.displayTitle, fontSize = 11.5.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = LocalSendTeal,
+                            selectedLabelColor = Color.White
+                        )
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            Text("TRANSPORT MODE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
+            Text("Transport Mode", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = LocalSendTextSecondary)
             Spacer(modifier = Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = transportMode == TransportMode.TCP_AND_UDP,
                     onClick = { onTransportModeChange(TransportMode.TCP_AND_UDP); onConfigChanged() },
-                    label = { Text("TCP + UDP (WebRTC Safe)", fontSize = 11.sp) }
+                    label = { Text("TCP + UDP (WebRTC Safe)", fontSize = 11.5.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = LocalSendTeal,
+                        selectedLabelColor = Color.White
+                    )
                 )
                 FilterChip(
                     selected = transportMode == TransportMode.TCP_ONLY,
                     onClick = { onTransportModeChange(TransportMode.TCP_ONLY); onConfigChanged() },
-                    label = { Text("TCP Only", fontSize = 11.sp) }
+                    label = { Text("TCP Only", fontSize = 11.5.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = LocalSendTeal,
+                        selectedLabelColor = Color.White
+                    )
                 )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            Text("IP MODE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = palette.textMuted)
+            Text("IP Mode", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = LocalSendTextSecondary)
             Spacer(modifier = Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
@@ -1711,7 +1772,11 @@ fun NodeConfigTab(
                     FilterChip(
                         selected = ipMode == mode,
                         onClick = { onIpModeChange(mode); onConfigChanged() },
-                        label = { Text(lbl, fontSize = 11.sp) }
+                        label = { Text(lbl, fontSize = 11.5.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = LocalSendTeal,
+                            selectedLabelColor = Color.White
+                        )
                     )
                 }
             }
@@ -1724,7 +1789,7 @@ fun NodeConfigTab(
                     label = { Text("Server Host / IP") },
                     placeholder = { Text("48.45.153.215") },
                     modifier = Modifier.weight(0.68f),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     singleLine = true
                 )
                 OutlinedTextField(
@@ -1734,7 +1799,7 @@ fun NodeConfigTab(
                     placeholder = { Text("1080") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(0.32f),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     singleLine = true
                 )
             }
@@ -1750,7 +1815,7 @@ fun NodeConfigTab(
                             onValueChange = { onUsernameChange(it); onConfigChanged() },
                             label = { Text("Username") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(12.dp),
                             singleLine = true
                         )
                         OutlinedTextField(
@@ -1763,12 +1828,12 @@ fun NodeConfigTab(
                                     text = if (showPass) "Hide" else "Show",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = palette.textPrimary,
+                                    color = LocalSendTealLight,
                                     modifier = Modifier.clickable { showPass = !showPass }.padding(end = 10.dp)
                                 )
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(12.dp),
                             singleLine = true
                         )
                     }
@@ -1781,7 +1846,7 @@ fun NodeConfigTab(
                         onValueChange = { onSsMethodChange(it); onConfigChanged() },
                         label = { Text("Cipher Method") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1795,12 +1860,12 @@ fun NodeConfigTab(
                                 text = if (showPass) "Hide" else "Show",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = palette.textPrimary,
+                                color = LocalSendTealLight,
                                 modifier = Modifier.clickable { showPass = !showPass }.padding(end = 10.dp)
                             )
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                 }
@@ -1811,7 +1876,7 @@ fun NodeConfigTab(
                         onValueChange = { onPasswordChange(it); onConfigChanged() },
                         label = { Text("VLESS UUID") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1820,7 +1885,7 @@ fun NodeConfigTab(
                         onValueChange = { onSniChange(it); onConfigChanged() },
                         label = { Text("TLS SNI") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1830,7 +1895,7 @@ fun NodeConfigTab(
                             onValueChange = { onRealityPublicKeyChange(it); onConfigChanged() },
                             label = { Text("REALITY Public Key") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(12.dp),
                             singleLine = true
                         )
                         OutlinedTextField(
@@ -1838,7 +1903,7 @@ fun NodeConfigTab(
                             onValueChange = { onRealityShortIdChange(it); onConfigChanged() },
                             label = { Text("Short ID") },
                             modifier = Modifier.weight(0.55f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(12.dp),
                             singleLine = true
                         )
                     }
@@ -1856,12 +1921,12 @@ fun NodeConfigTab(
                                 text = if (showPass) "Hide" else "Show",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = palette.textPrimary,
+                                color = LocalSendTealLight,
                                 modifier = Modifier.clickable { showPass = !showPass }.padding(end = 10.dp)
                             )
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1870,7 +1935,7 @@ fun NodeConfigTab(
                         onValueChange = { onSniChange(it); onConfigChanged() },
                         label = { Text("TLS SNI") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                 }
@@ -1902,7 +1967,6 @@ fun RoutingAndBootTab(
     onSelectAll: () -> Unit,
     onClearAll: () -> Unit
 ) {
-    val palette = LocalCleanPalette.current
     val uid = ProfileManager.androidUserId
 
     Column(
@@ -1911,12 +1975,12 @@ fun RoutingAndBootTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SimpleCard(modifier = Modifier.fillMaxWidth()) {
+        LocalSendSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "KERNEL ROUTING & SECURITY",
-                fontSize = 11.sp,
+                text = "Kernel Routing & Security",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = palette.textSecondary
+                color = LocalSendTextPrimary
             )
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -1926,14 +1990,21 @@ fun RoutingAndBootTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Auto-Start on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+                    Text("Auto-Start on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
                     Text(
                         text = if (startOnBoot) "Armed for Slot P$bootSlot (/data/adb/service.d)" else "Manual launch only",
-                        fontSize = 11.sp,
-                        color = palette.textSecondary
+                        fontSize = 11.5.sp,
+                        color = LocalSendTextSecondary
                     )
                 }
-                Switch(checked = startOnBoot, onCheckedChange = onStartOnBootChange)
+                Switch(
+                    checked = startOnBoot,
+                    onCheckedChange = onStartOnBootChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = LocalSendTeal
+                    )
+                )
             }
 
             if (startOnBoot) {
@@ -1947,13 +2018,17 @@ fun RoutingAndBootTab(
                         FilterChip(
                             selected = bootSlot == s,
                             onClick = { onBootSlotChange(s) },
-                            label = { Text("P$s", fontSize = 11.sp) }
+                            label = { Text("P$s", fontSize = 11.5.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = LocalSendTeal,
+                                selectedLabelColor = Color.White
+                            )
                         )
                     }
                 }
             }
 
-            HorizontalDivider(color = palette.border, modifier = Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(color = LocalSendBorder, modifier = Modifier.padding(vertical = 10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1961,13 +2036,20 @@ fun RoutingAndBootTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Strict Kernel Kill-Switch", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
-                    Text("Zero DNS & WebRTC leaks across all networks", fontSize = 11.sp, color = palette.textSecondary)
+                    Text("Strict Kernel Kill-Switch", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
+                    Text("Zero DNS & WebRTC leaks across all networks", fontSize = 11.5.sp, color = LocalSendTextSecondary)
                 }
-                Switch(checked = enableKillSwitch, onCheckedChange = onKillSwitchChange)
+                Switch(
+                    checked = enableKillSwitch,
+                    onCheckedChange = onKillSwitchChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = LocalSendTeal
+                    )
+                )
             }
 
-            HorizontalDivider(color = palette.border, modifier = Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(color = LocalSendBorder, modifier = Modifier.padding(vertical = 10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1975,23 +2057,27 @@ fun RoutingAndBootTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Hotspot & Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
-                    Text("Share proxy tunnel with Wi-Fi / USB clients", fontSize = 11.sp, color = palette.textSecondary)
+                    Text("Hotspot & Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
+                    Text("Share proxy tunnel with Wi-Fi / USB clients", fontSize = 11.5.sp, color = LocalSendTextSecondary)
                 }
                 Switch(
                     checked = routeHotspot && uid == 0,
                     enabled = uid == 0,
-                    onCheckedChange = onRouteHotspotChange
+                    onCheckedChange = onRouteHotspotChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = LocalSendTeal
+                    )
                 )
             }
         }
 
-        SimpleCard(modifier = Modifier.fillMaxWidth()) {
+        LocalSendSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "5-SLOT CONFIG BACKUP (/SDCARD/DOWNLOAD)",
-                fontSize = 11.sp,
+                text = "5-Slot Config Backup (/sdcard/Download)",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = palette.textSecondary
+                color = LocalSendTextPrimary
             )
             Spacer(modifier = Modifier.height(10.dp))
             Row(
@@ -2001,40 +2087,47 @@ fun RoutingAndBootTab(
                 OutlinedButton(
                     onClick = onExportBackup,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, palette.border)
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, LocalSendBorder)
                 ) {
-                    Text("Export All Slots", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    Text("Export All Slots", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
                 }
                 Button(
                     onClick = onImportBackup,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = palette.accentPrimary,
-                        contentColor = palette.accentOnPrimary
+                        containerColor = LocalSendTeal,
+                        contentColor = Color.White
                     )
                 ) {
-                    Text("Import Backup", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    Text("Import Backup", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        SimpleCard(modifier = Modifier.fillMaxWidth()) {
+        LocalSendSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Tunnel All Apps (User #$uid)", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+                    Text("Tunnel All Apps (User #$uid)", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
                     Text(
                         text = if (routeWholeProfile) "Routing entire user profile #$uid" else "${selectedPackages.size} apps selected",
-                        fontSize = 11.sp,
-                        color = palette.textSecondary
+                        fontSize = 11.5.sp,
+                        color = LocalSendTextSecondary
                     )
                 }
-                Switch(checked = routeWholeProfile, onCheckedChange = onRouteWholeProfileChange)
+                Switch(
+                    checked = routeWholeProfile,
+                    onCheckedChange = onRouteWholeProfileChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = LocalSendTeal
+                    )
+                )
             }
 
             if (!routeWholeProfile) {
@@ -2055,7 +2148,7 @@ fun RoutingAndBootTab(
                     onValueChange = { query = it },
                     placeholder = { Text("Search installed apps...") },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     singleLine = true
                 )
 
@@ -2064,13 +2157,13 @@ fun RoutingAndBootTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("${selectedPackages.size} selected", fontSize = 11.sp, color = palette.textSecondary)
+                    Text("${selectedPackages.size} selected", fontSize = 11.5.sp, color = LocalSendTextSecondary)
                     Row {
                         TextButton(onClick = onSelectAll) {
-                            Text("Select All", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                            Text("Select All", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = LocalSendTealLight)
                         }
                         TextButton(onClick = onClearAll) {
-                            Text("Clear", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = palette.statusDanger)
+                            Text("Clear", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = LocalSendDanger)
                         }
                     }
                 }
@@ -2091,10 +2184,17 @@ fun RoutingAndBootTab(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(app.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary, maxLines = 1)
-                                Text("${app.packageName} • UID ${app.uid}", fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = palette.textSecondary, maxLines = 1)
+                                Text(app.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary, maxLines = 1)
+                                Text("${app.packageName} • UID ${app.uid}", fontSize = 11.sp, color = LocalSendTextSecondary, maxLines = 1)
                             }
-                            Checkbox(checked = checked, onCheckedChange = { onToggleApp(app.packageName) })
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { onToggleApp(app.packageName) },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = LocalSendTeal,
+                                    checkmarkColor = Color.White
+                                )
+                            )
                         }
                     }
                 }
@@ -2111,21 +2211,19 @@ fun KernelLogsTab(
     onRefresh: () -> Unit,
     onClear: () -> Unit
 ) {
-    val palette = LocalCleanPalette.current
     val context = LocalContext.current
 
-    SimpleCard(modifier = Modifier.fillMaxSize()) {
+    LocalSendSurfaceCard(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "KERNEL LOGS (P${runningSlot ?: activeSlot})",
-                fontSize = 11.5.sp,
+                text = "Kernel Logs (Slot P${runningSlot ?: activeSlot})",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = palette.textPrimary
+                color = LocalSendTextPrimary
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2133,26 +2231,26 @@ fun KernelLogsTab(
                     val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cb.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", logs))
                     Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
-                }) { Text("Copy", color = palette.textPrimary, fontWeight = FontWeight.Bold) }
-                TextButton(onClick = onClear) { Text("Clear", color = palette.statusDanger, fontWeight = FontWeight.Bold) }
-                TextButton(onClick = onRefresh) { Text("Refresh", color = palette.statusActive, fontWeight = FontWeight.Bold) }
+                }) { Text("Copy", color = LocalSendTextPrimary, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onClear) { Text("Clear", color = LocalSendDanger, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onRefresh) { Text("Refresh", color = LocalSendTealLight, fontWeight = FontWeight.Bold) }
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(8.dp))
-                .background(palette.bg)
-                .border(1.dp, palette.border, RoundedCornerShape(8.dp))
-                .padding(10.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(LocalSendBg)
+                .border(1.dp, LocalSendBorder, RoundedCornerShape(12.dp))
+                .padding(12.dp)
         ) {
             Text(
                 text = logs,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
-                color = palette.textPrimary,
+                color = LocalSendTextPrimary,
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
@@ -2162,36 +2260,35 @@ fun KernelLogsTab(
 }
 
 @Composable
-fun BottomNavigationBar(selectedTab: Int, onSelectTab: (Int) -> Unit) {
-    val palette = LocalCleanPalette.current
+fun LocalSendBottomNav(selectedTab: Int, onSelectTab: (Int) -> Unit) {
     val tabs = listOf("Status", "IPFighter", "Nodes", "Routing", "Logs")
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(palette.surface)
-            .border(1.dp, palette.border, RoundedCornerShape(10.dp))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(LocalSendCard)
+            .border(1.dp, LocalSendBorder, RoundedCornerShape(16.dp))
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         tabs.forEachIndexed { idx, label ->
             val sel = selectedTab == idx
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (sel) palette.accentPrimary else Color.Transparent)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (sel) LocalSendTeal else Color.Transparent)
                     .clickable { onSelectTab(idx) }
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = label,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
-                    color = if (sel) palette.accentOnPrimary else palette.textSecondary,
+                    color = if (sel) Color.White else LocalSendTextSecondary,
                     maxLines = 1
                 )
             }
@@ -2201,7 +2298,6 @@ fun BottomNavigationBar(selectedTab: Int, onSelectTab: (Int) -> Unit) {
 
 @Composable
 fun UptimeBadge(sessionStartMs: Long) {
-    val palette = LocalCleanPalette.current
     var sec by remember { mutableLongStateOf(0L) }
     LaunchedEffect(sessionStartMs) {
         while (isActive) {
@@ -2211,10 +2307,10 @@ fun UptimeBadge(sessionStartMs: Long) {
     }
     Text(
         text = String.format("%02d:%02d", (sec % 3600) / 60, sec % 60),
-        fontSize = 11.sp,
+        fontSize = 11.5.sp,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
-        color = palette.statusActive
+        color = LocalSendTealLight
     )
 }
 
