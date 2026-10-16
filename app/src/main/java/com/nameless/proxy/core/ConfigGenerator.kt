@@ -36,9 +36,10 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    // Dedicated bootstrap DNS IP allowed directly for UID 0 only if proxy host is a domain name
     const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
     const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
+
+    private val IPV4_SIMPLE_REGEX = Regex("^(\\d{1,3}\\.){3}\\d{1,3}$")
 
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
@@ -46,6 +47,7 @@ object ConfigGenerator {
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
         val serverHost = cleanHost(settings.host)
+        val hostIsIpv4 = IPV4_SIMPLE_REGEX.matches(serverHost)
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -53,11 +55,12 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (All client DNS resolves over TCP through proxy-out so DNS IP == Proxy IP)
+        // 2. DNS Engine
+        // Uses TCP DNS through proxy-out + EDNS Client Subnet of the proxy IP so DNS GeoIP matches Proxy GeoIP
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        val remoteDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
+        val remoteDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2001:4860:4860::8888" else "8.8.8.8"
         val directDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
 
         dnsServers.put(JSONObject().apply {
@@ -80,6 +83,11 @@ object ConfigGenerator {
             IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
             IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
+        }
+
+        // Stamp EDNS client_subnet with the proxy's IPv4 address so DNS leak tests see the proxy's exact region/ISP
+        if (hostIsIpv4) {
+            dns.put("client_subnet", serverHost)
         }
 
         dns.put("final", "dns-remote")
@@ -130,9 +138,6 @@ object ConfigGenerator {
         root.put("inbounds", inbounds)
 
         // 4. Outbounds
-        // IMPORTANT: Do NOT set routing_mark on outbounds! Android's netd uses fwmark to route
-        // IPv4 packets through 464XLAT (v4-rmnet_data) on IPv6 cellular networks like Jazz LTE.
-        // Because sing-box runs as UID 0 (root), iptables already bypasses it via --uid-owner 0-9999!
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -227,8 +232,6 @@ object ConfigGenerator {
         root.put("outbounds", outbounds)
 
         // 5. Routing Rules
-        // auto_detect_interface MUST be false on Android root mode so the kernel routes IPv4
-        // through v4-rmnet_data (CLAT) and IPv6 through rmnet_data seamlessly.
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -237,6 +240,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
+        // 1) Hijack all DNS entering dns-in or targeting port 53
         routeRules.put(JSONObject().apply {
             put("inbound", JSONArray().apply { put("dns-in") })
             put("action", "hijack-dns")
@@ -246,6 +250,17 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
+        // 2) Reject ALL WebRTC STUN/TURN ports over both TCP and UDP (3478-3497, 5349-5350, 19302-19309)
+        routeRules.put(JSONObject().apply {
+            put("port_range", JSONArray().apply {
+                put("3478:3497")
+                put("5349:5350")
+                put("19302:19309")
+            })
+            put("action", "reject")
+        })
+
+        // 3) Reject UDP 853 (DoT) and QUIC UDP 443/80 on TCP_ONLY or SOCKS5/SOCKS4/HTTP
         val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
@@ -254,9 +269,6 @@ object ConfigGenerator {
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {
-                put(3478)
-                put(5349)
-                put(19302)
                 put(853)
                 if (rejectQuicUdp) {
                     put(80)
@@ -266,9 +278,16 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
+        // 4) Sniff protocol & TLS SNI
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
             put("timeout", "300ms")
+        })
+
+        // 5) Reject STUN protocol if detected by sniffer on any non-standard port
+        routeRules.put(JSONObject().apply {
+            put("protocol", JSONArray().apply { put("stun") })
+            put("action", "reject")
         })
 
         route.put("rules", routeRules)
