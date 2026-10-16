@@ -89,7 +89,7 @@ private val ProxyType.displayTitle: String
         ProxyType.HYSTERIA2 -> "Hysteria 2"
     }
 
-// LocalSend Inspired Dark Teal Palette (Always Dark Mode — No Pure Black, No Light Mode)
+// LocalSend Dark Teal Palette (Untouched)
 private val LocalSendBg = Color(0xFF0F171A)
 private val LocalSendCard = Color(0xFF182429)
 private val LocalSendCardElevated = Color(0xFF203036)
@@ -320,7 +320,6 @@ fun MainScreen(
     var startOnBoot by remember { mutableStateOf(globalPrefs.getBoolean("start_on_boot", false)) }
     var bootSlot by remember { mutableIntStateOf(globalPrefs.getInt("boot_slot", 0)) }
     var routeHotspot by remember { mutableStateOf(globalPrefs.getBoolean("route_hotspot", true)) }
-    var enableKillSwitch by remember { mutableStateOf(globalPrefs.getBoolean("enable_kill_switch", true)) }
 
     var activeSlot by remember { mutableIntStateOf(ProfileManager.activeSlot) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -494,8 +493,7 @@ fun MainScreen(
         sni = sni.trim(),
         ssMethod = ssMethod.trim(),
         realityPublicKey = realityPublicKey.trim(),
-        realityShortId = realityShortId.trim(),
-        enableKillSwitch = enableKillSwitch
+        realityShortId = realityShortId.trim()
     )
 
     var saveJob by remember { mutableStateOf<Job?>(null) }
@@ -519,7 +517,6 @@ fun MainScreen(
             .putBoolean("start_on_boot", startOnBoot)
             .putInt("boot_slot", bootSlot)
             .putBoolean("route_hotspot", routeHotspot)
-            .putBoolean("enable_kill_switch", enableKillSwitch)
             .apply()
         refreshConfiguredSlots()
 
@@ -635,8 +632,6 @@ fun MainScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
         ) {
-            // Using `when (selectedTab)` ensures Tab 1 (IPFighter) is ONLY mounted when active
-            // and immediately disposed & wiped when switching to any other tab!
             when (selectedTab) {
                 0 -> LocalSendStatusTab(
                     isProxyActive = isProxyActive,
@@ -653,7 +648,6 @@ fun MainScreen(
                     transportMode = transportMode,
                     ipMode = ipMode,
                     routeHotspot = routeHotspot,
-                    enableKillSwitch = enableKillSwitch,
                     routeWholeProfile = routeWholeProfile,
                     selectedAppsCount = selectedPackages.size,
                     currentRxRate = currentRxRate,
@@ -756,7 +750,6 @@ fun MainScreen(
                     startOnBoot = startOnBoot,
                     bootSlot = bootSlot,
                     routeHotspot = routeHotspot,
-                    enableKillSwitch = enableKillSwitch,
                     routeWholeProfile = routeWholeProfile,
                     selectedPackages = selectedPackages,
                     installedApps = installedApps,
@@ -776,10 +769,6 @@ fun MainScreen(
                     },
                     onRouteHotspotChange = {
                         routeHotspot = it
-                        saveConfigForSlot(activeSlot, true)
-                    },
-                    onKillSwitchChange = {
-                        enableKillSwitch = it
                         saveConfigForSlot(activeSlot, true)
                     },
                     onExportBackup = {
@@ -1020,7 +1009,6 @@ fun LocalSendStatusTab(
     transportMode: TransportMode,
     ipMode: IpMode,
     routeHotspot: Boolean,
-    enableKillSwitch: Boolean,
     routeWholeProfile: Boolean,
     selectedAppsCount: Int,
     currentRxRate: Long,
@@ -1054,7 +1042,6 @@ fun LocalSendStatusTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. LOCALSEND STYLE CENTER RADAR EMBLEM & NODE IDENTITY CARD
         LocalSendSurfaceCard(
             modifier = Modifier.fillMaxWidth(),
             borderColor = if (isProxyActive) LocalSendTeal else LocalSendBorder
@@ -1093,7 +1080,6 @@ fun LocalSendStatusTab(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // LocalSend Signature Dashed Ring & Center Core (Tap to Start/Stop)
                 Box(
                     modifier = Modifier
                         .size(112.dp)
@@ -1140,7 +1126,6 @@ fun LocalSendStatusTab(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Main Node / Exit IP Title (Like "Smart Raspberry" in LocalSend)
                 Text(
                     text = when {
                         isProxyActive && publicIpInfo != null -> "${publicIpInfo.flagEmoji} ${publicIpInfo.ip}"
@@ -1220,7 +1205,6 @@ fun LocalSendStatusTab(
             }
         }
 
-        // 2. DOWNLOAD & UPLOAD THROUGHPUT CARDS
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1260,7 +1244,6 @@ fun LocalSendStatusTab(
             }
         }
 
-        // 3. ACTIVE RULESET TAGS
         LocalSendSurfaceCard(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
@@ -1274,13 +1257,11 @@ fun LocalSendStatusTab(
                 LocalSendChip(proxyType.displayTitle)
                 LocalSendChip(if (transportMode == TransportMode.TCP_AND_UDP) "TCP + UDP" else "TCP Only")
                 LocalSendChip(ipMode.name.replace("_", " "))
-                if (enableKillSwitch) LocalSendChip("Kill-Switch")
                 if (routeHotspot) LocalSendChip("Hotspot Bridge")
-                LocalSendChip("DNS & WebRTC Shield")
+                LocalSendChip("FakeIP + Zero-Leak Shield")
             }
         }
 
-        // 4. PING & START/STOP ACTION ROW
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1362,7 +1343,7 @@ private fun LocalSendChip(text: String) {
 
 // -------------------------------------------------------------
 // TAB 1: EPHEMERAL NON-CACHED LIVE IPFIGHTER TAB
-// Created ONLY when opened; completely destroyed & cache-wiped when closed!
+// Matches Chrome's real WebRTC behavior (shows `-` when blocked by kernel, never fake `N/A`)
 // -------------------------------------------------------------
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -1372,8 +1353,6 @@ fun LiveEphemeralIpFighterTab(
     runningSlot: Int?,
     publicIpInfo: GeoIpResult?
 ) {
-    // Changing reloadNonce forces Compose `key(reloadNonce)` to tear down the old WebView
-    // and instantiate a brand-new, zero-cache WebView instance!
     var reloadNonce by remember { mutableIntStateOf(0) }
     var loadProgress by remember { mutableIntStateOf(0) }
 
@@ -1393,7 +1372,8 @@ fun LiveEphemeralIpFighterTab(
         }
     }
 
-    val tzAndWebRtcShieldScript = remember(targetTz, isProxyActive) {
+    // Syncs Timezone to Proxy Exit IP while keeping real WebRTC active (so it matches Chrome!)
+    val tzSyncScript = remember(targetTz, isProxyActive) {
         """
         (function() {
             try {
@@ -1405,22 +1385,15 @@ fun LiveEphemeralIpFighterTab(
                         return res;
                     };
                 }
-                window.RTCPeerConnection = undefined;
-                window.webkitRTCPeerConnection = undefined;
-                if (navigator.mediaDevices) {
-                    navigator.mediaDevices.getUserMedia = undefined;
-                }
             } catch (e) {}
         })();
         """.trimIndent()
     }
 
-    // Whenever proxy state or slot changes while on this tab, recreate a fresh WebView
     LaunchedEffect(isProxyActive, runningSlot) {
         reloadNonce++
     }
 
-    // Wipe all WebView storage/cookies when entering AND when leaving the IPFighter tab
     DisposableEffect(Unit) {
         WebStorage.getInstance().deleteAllData()
         CookieManager.getInstance().removeAllCookies(null)
@@ -1530,13 +1503,13 @@ fun LiveEphemeralIpFighterTab(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
-                                    view?.evaluateJavascript(tzAndWebRtcShieldScript, null)
+                                    view?.evaluateJavascript(tzSyncScript, null)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     loadProgress = 100
-                                    view?.evaluateJavascript(tzAndWebRtcShieldScript, null)
+                                    view?.evaluateJavascript(tzSyncScript, null)
                                 }
 
                                 override fun shouldOverrideUrlLoading(
@@ -1952,14 +1925,12 @@ fun RoutingAndBootTab(
     startOnBoot: Boolean,
     bootSlot: Int,
     routeHotspot: Boolean,
-    enableKillSwitch: Boolean,
     routeWholeProfile: Boolean,
     selectedPackages: Set<String>,
     installedApps: List<AppItem>,
     onStartOnBootChange: (Boolean) -> Unit,
     onBootSlotChange: (Int) -> Unit,
     onRouteHotspotChange: (Boolean) -> Unit,
-    onKillSwitchChange: (Boolean) -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onRouteWholeProfileChange: (Boolean) -> Unit,
@@ -1977,7 +1948,7 @@ fun RoutingAndBootTab(
     ) {
         LocalSendSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "Kernel Routing & Security",
+                text = "Kernel Routing & Automation",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = LocalSendTextPrimary
@@ -2026,27 +1997,6 @@ fun RoutingAndBootTab(
                         )
                     }
                 }
-            }
-
-            HorizontalDivider(color = LocalSendBorder, modifier = Modifier.padding(vertical = 10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Strict Kernel Kill-Switch", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = LocalSendTextPrimary)
-                    Text("Zero DNS & WebRTC leaks across all networks", fontSize = 11.5.sp, color = LocalSendTextSecondary)
-                }
-                Switch(
-                    checked = enableKillSwitch,
-                    onCheckedChange = onKillSwitchChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = LocalSendTeal
-                    )
-                )
             }
 
             HorizontalDivider(color = LocalSendBorder, modifier = Modifier.padding(vertical = 10.dp))
