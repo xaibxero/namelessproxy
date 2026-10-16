@@ -38,15 +38,14 @@ object ConfigGenerator {
     const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
     const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
 
-    private val IPV4_SIMPLE_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$""")
-
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
 
     fun generateJson(settings: ProxySettings, inboundPort: Int): String {
         val root = JSONObject()
         val serverHost = cleanHost(settings.host)
-        val hostIsIpv4 = IPV4_SIMPLE_REGEX.matches(serverHost)
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -54,7 +53,16 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (FakeIP primary so remote proxy resolves all domains using its own ISP DNS)
+        // 2. Official sing-box Experimental Cache File (Required by official sing-box guide for FakeIP!)
+        root.put("experimental", JSONObject().apply {
+            put("cache_file", JSONObject().apply {
+                put("enabled", true)
+                put("path", "/data/adb/nameless_proxy/cache_u${user}_s${slot}.db")
+                put("store_fakeip", true)
+            })
+        })
+
+        // 3. Official sing-box FakeIP + Remote TCP DNS Configuration
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -85,19 +93,23 @@ object ConfigGenerator {
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
-        if (settings.ipMode == IpMode.IPV4_ONLY) {
-            dnsRules.put(JSONObject().apply {
-                put("query_type", JSONArray().apply { put("AAAA"); put("HTTPS"); put("SVCB") })
-                put("action", "predefined")
-                put("rcode", "NOERROR")
+        // Block HTTPS/SVCB records (type 65/64) so Chrome cannot discover ECH/HTTP3/DoH endpoints
+        dnsRules.put(JSONObject().apply {
+            put("query_type", JSONArray().apply {
+                put("HTTPS")
+                put("SVCB")
+                if (settings.ipMode == IpMode.IPV4_ONLY) {
+                    put("AAAA")
+                }
             })
-        }
+            put("action", "reject")
+        })
+
+        // Route all A / AAAA queries to FakeIP so the remote proxy server resolves domains with its own ISP DNS!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("A")
-                if (settings.ipMode != IpMode.IPV4_ONLY) {
-                    put("AAAA")
-                }
+                put("AAAA")
             })
             put("action", "route")
             put("server", "dns-fakeip")
@@ -111,16 +123,12 @@ object ConfigGenerator {
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
         }
 
-        if (hostIsIpv4) {
-            dns.put("client_subnet", serverHost)
-        }
-
         dns.put("final", "dns-remote")
         dns.put("independent_cache", true)
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 4. Inbounds (Note: override_address & override_port are required by sing-box direct inbound schema!)
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -146,6 +154,8 @@ object ConfigGenerator {
                 put("tcp")
                 put("udp")
             })
+            put("override_address", "1.1.1.1")
+            put("override_port", 53)
         })
 
         inbounds.put(JSONObject().apply {
@@ -161,7 +171,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds
+        // 5. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -255,7 +265,7 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 6. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -264,7 +274,7 @@ object ConfigGenerator {
 
         val routeRules = JSONArray()
 
-        // 1) Hijack all DNS entering dns-in or port 53
+        // 1) Hijack all DNS entering dns-in or port 53 BEFORE sniff
         routeRules.put(JSONObject().apply {
             put("inbound", JSONArray().apply { put("dns-in") })
             put("action", "hijack-dns")
@@ -274,13 +284,13 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // 2)Sniff protocol, TLS SNI, HTTP Host, and restore FakeIP domain mapping
+        // 2) Sniff protocol, TLS SNI, HTTP Host
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
             put("timeout", "300ms")
         })
 
-        // 3) Reject STUN protocol & all STUN/TURN ports (TCP & UDP) so WebRTC never leaks
+        // 3) Reject STUN protocol & all STUN/TURN ports (TCP & UDP)
         routeRules.put(JSONObject().apply {
             put("protocol", JSONArray().apply { put("stun") })
             put("action", "reject")
@@ -294,7 +304,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // 4) Reject Browser DoH (DNS-over-HTTPS) to public resolvers so browsers use FakeIP
+        // 4) Reject Browser DoH (DNS-over-HTTPS) to public resolvers so browsers are forced to use FakeIP
         routeRules.put(JSONObject().apply {
             put("ip_cidr", JSONArray().apply {
                 put("8.8.8.8/32")
@@ -324,7 +334,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // 5) Reject UDP 853 and QUIC UDP 443/80 when appropriate
+        // 5) Reject UDP 853 and QUIC UDP 443/80
         val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
