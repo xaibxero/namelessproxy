@@ -36,7 +36,9 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    const val SINGBOX_ROUTING_MARK = 0x2026
+    // Dedicated bootstrap DNS IP allowed directly for UID 0 only if proxy host is a domain name
+    const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
+    const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
 
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
@@ -51,12 +53,12 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (Supports IPv4, Dual-Stack, and IPv6-Only)
+        // 2. DNS Engine (All client DNS resolves over TCP through proxy-out so DNS IP == Proxy IP)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
         val remoteDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
-        val directDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2001:4860:4860::8888" else "8.8.8.8"
+        val directDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
 
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
@@ -84,7 +86,7 @@ object ConfigGenerator {
         dns.put("independent_cache", true)
         root.put("dns", dns)
 
-        // 3. Inbounds (Dual-stack "::" listens on both IPv4 and IPv6)
+        // 3. Inbounds (Bind to "::" so both IPv4 and IPv6 REDIRECT/TPROXY work on Wi-Fi & LTE)
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -128,11 +130,13 @@ object ConfigGenerator {
         root.put("inbounds", inbounds)
 
         // 4. Outbounds
+        // IMPORTANT: Do NOT set routing_mark on outbounds! Android's netd uses fwmark to route
+        // IPv4 packets through 464XLAT (v4-rmnet_data) on IPv6 cellular networks like Jazz LTE.
+        // Because sing-box runs as UID 0 (root), iptables already bypasses it via --uid-owner 0-9999!
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
             put("domain_resolver", "dns-direct")
-            put("routing_mark", SINGBOX_ROUTING_MARK)
         }
 
         when (settings.type) {
@@ -219,13 +223,14 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
-            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         root.put("outbounds", outbounds)
 
         // 5. Routing Rules
+        // auto_detect_interface MUST be false on Android root mode so the kernel routes IPv4
+        // through v4-rmnet_data (CLAT) and IPv6 through rmnet_data seamlessly.
         val route = JSONObject().apply {
-            put("auto_detect_interface", true)
+            put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
