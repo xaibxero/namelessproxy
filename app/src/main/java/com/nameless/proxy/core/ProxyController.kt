@@ -2,8 +2,6 @@ package com.nameless.proxy.core
 
 import android.content.Context
 import java.io.DataOutputStream
-import java.io.File
-import java.io.FileOutputStream
 
 data class StartResult(
     val success: Boolean,
@@ -78,26 +76,25 @@ object ProxyController {
     fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = getBinaryPath()
         return try {
-            // Step 1: Extract asset to app's own cacheDir first (never fails on su stdin piping)
-            val tempFile = File(context.cacheDir, "sing-box-bin")
-            if (tempFile.exists()) tempFile.delete()
-            context.assets.open("sing-box").use { input ->
-                FileOutputStream(tempFile).use { output ->
+            // Stream directly from app assets into the root-owned destination.
+            // Avoids cacheDir SELinux and multi-user boundary restrictions.
+            val assetStream = context.assets.open("sing-box")
+
+            val process = ProcessBuilder(
+                "su", "-c",
+                "mkdir -p $ADB_DIR && cat > $targetPath && chmod 755 $targetPath && chcon u:object_r:system_file:s0 $targetPath 2>/dev/null || true"
+            ).redirectErrorStream(true).start()
+
+            assetStream.use { input ->
+                process.outputStream.use { output ->
                     input.copyTo(output)
                     output.flush()
                 }
             }
 
-            // Step 2: Copy from cacheDir to /data/adb/nameless_proxy/sing-box via root
-            executeSu(listOf(
-                "mkdir -p " + ADB_DIR,
-                "cp -f " + tempFile.absolutePath + " " + targetPath,
-                "chmod 755 " + targetPath,
-                "chcon u:object_r:system_file:s0 " + targetPath + " 2>/dev/null || true"
-            ))
-            tempFile.delete()
+            if (process.waitFor() != 0) return false
 
-            val checkVer = executeSuWithOutput(listOf(targetPath + " version 2>&1"))
+            val checkVer = executeSuWithOutput(listOf("$targetPath version 2>&1"))
             checkVer.contains("sing-box")
         } catch (e: Exception) {
             false
