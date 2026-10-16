@@ -51,6 +51,7 @@ object IptablesManager {
 
         val tetherInterfaces = listOf("wlan+", "ap+", "rndis+", "usb+", "softap+", "swlan+", "wigig+", "p2p+", "ncm+")
 
+        // 198.18.0.0/15 (FakeIP) is NOT in reservedV4 so all FakeIP connections enter sing-box!
         val reservedV4 = listOf(
             "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
             "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
@@ -129,7 +130,7 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. ALWAYS-ON STRICT KERNEL SHIELD (Zero WebRTC Leaks, Zero DNS Leaks, Zero Un-Tunneled Leaks)
+        // 5. ALWAYS-ON STRICT KERNEL SHIELD (Zero WebRTC Leaks, Zero DNS Leaks)
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -o lo -j RETURN")
         commands.add("iptables -A $chainFilter -d 127.0.0.0/8 -j RETURN")
@@ -139,29 +140,24 @@ object IptablesManager {
         commands.add("iptables -A $chainFilter -p udp --dport $dnsPort -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport $tproxyPort -j RETURN")
 
-        // Block Private DNS (DoT Port 853) globally so netd always uses Port 53 -> FakeIP
-        if (user == 0 && selectedUids.isNullOrEmpty()) {
-            commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 853 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 853 -j DROP")
-        }
+        // Block Private DNS (DoT Port 853) and ALL WebRTC STUN ports BEFORE allowing UID 0-9999!
+        // This guarantees neither netd (UID 0/1052) nor clatd (UID 1029) can ever forward a STUN or DoT packet!
+        commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp --dport 3478:3497 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp --dport 5349:5350 -j DROP")
+        commands.add("iptables -A $chainFilter -p udp --dport 19302:19309 -j DROP")
+        commands.add("iptables -A $chainFilter -p tcp --dport 3478:3497 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 3478:3497 -j DROP")
+        commands.add("iptables -A $chainFilter -p tcp --dport 5349:5350 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 5349:5350 -j DROP")
+        commands.add("iptables -A $chainFilter -p tcp --dport 19302:19309 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 19302:19309 -j DROP")
 
+        // Allow sing-box (UID 0) and system services after STUN/DoT are blocked
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
         if (hostIsIpv4) {
             commands.add("iptables -A $chainFilter -d $cleanedHost -j RETURN")
         }
 
         for (uRange in uidRanges) {
-            commands.add("iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 853 -m owner --uid-owner $uRange -j DROP")
-
-            // Block WebRTC STUN/TURN ports over both UDP and TCP
-            commands.add("iptables -A $chainFilter -p udp --dport 3478:3497 -m owner --uid-owner $uRange -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 5349:5350 -m owner --uid-owner $uRange -j DROP")
-            commands.add("iptables -A $chainFilter -p udp --dport 19302:19309 -m owner --uid-owner $uRange -j DROP")
-            commands.add("iptables -A $chainFilter -p tcp --dport 3478:3497 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 3478:3497 -m owner --uid-owner $uRange -j DROP")
-            commands.add("iptables -A $chainFilter -p tcp --dport 5349:5350 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 5349:5350 -m owner --uid-owner $uRange -j DROP")
-            commands.add("iptables -A $chainFilter -p tcp --dport 19302:19309 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 19302:19309 -m owner --uid-owner $uRange -j DROP")
-
             if (blockQuicUdp) {
                 commands.add("iptables -A $chainFilter -p udp --dport 443 -m owner --uid-owner $uRange -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 443 -m owner --uid-owner $uRange -j DROP")
                 commands.add("iptables -A $chainFilter -p udp --dport 80 -m owner --uid-owner $uRange -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 80 -m owner --uid-owner $uRange -j DROP")
@@ -171,7 +167,7 @@ object IptablesManager {
                 commands.add("iptables -A $chainFilter -p udp -m mark --mark $markHex -j RETURN")
             }
 
-            // Always block any un-redirected TCP or un-marked UDP (Strict Kill-Switch always active!)
+            // Block any un-redirected TCP or un-marked UDP from target apps
             commands.add("iptables -A $chainFilter -p tcp -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -m owner --uid-owner $uRange -j DROP")
@@ -185,7 +181,7 @@ object IptablesManager {
         }
         commands.add("iptables -t nat -A $chainNatV4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN")
 
-        // Do not redirect DoT (853) or TCP STUN so chainFilter rejects them immediately
+        // Do NOT redirect DoT (853) or TCP STUN so chainFilter rejects them immediately
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 3478:3497 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 5349:5350 -j RETURN")
@@ -202,6 +198,11 @@ object IptablesManager {
         }
 
         commands.add("iptables -t nat -A $chainNatV4 -m owner --uid-owner 0-9999 -j RETURN")
+
+        // Always redirect FakeIP range (198.18.0.0/15) into sing-box before any reservedV4 check
+        for (uRange in uidRanges) {
+            commands.add("iptables -t nat -A $chainNatV4 -p tcp -d 198.18.0.0/15 -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort")
+        }
 
         for (range in reservedV4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $range -j RETURN")
@@ -273,7 +274,7 @@ object IptablesManager {
         }
         commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6 2>/dev/null || true")
 
-        // IPv6 Filter Shield
+        // IPv6 Filter Shield (Blocks IPv6 DNS & STUN globally BEFORE UID 0-9999 return!)
         commands.add("ip6tables -N $chainV6Filter 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -o lo -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -d ::1/128 -j RETURN 2>/dev/null || true")
@@ -287,7 +288,13 @@ object IptablesManager {
         }
         commands.add("ip6tables -A $chainV6Filter -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV6} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -A $chainV6Filter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 853 -j DROP 2>/dev/null || true")
-        commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j REJECT --reject-with icmp6-adm-prohibited 2>/dev/null || ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 3478:3497 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 5349:5350 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 19302:19309 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p tcp --dport 3478:3497 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p tcp --dport 5349:5350 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p tcp --dport 19302:19309 -j DROP 2>/dev/null || true")
         if (user == 0 && selectedUids.isNullOrEmpty()) {
             commands.add("ip6tables -A $chainV6Filter -p udp --dport 53 -j REJECT --reject-with icmp6-adm-prohibited 2>/dev/null || ip6tables -A $chainV6Filter -p udp --dport 53 -j DROP 2>/dev/null || true")
             commands.add("ip6tables -A $chainV6Filter -p tcp --dport 53 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -A $chainV6Filter -p tcp --dport 53 -j DROP 2>/dev/null || true")
@@ -328,6 +335,7 @@ object IptablesManager {
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
+                commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp -d 198.18.0.0/15 -j REDIRECT --to-ports $inboundPort")
             }
             for (range in reservedV4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $range -j RETURN")
