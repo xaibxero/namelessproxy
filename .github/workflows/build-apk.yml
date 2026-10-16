@@ -2,15 +2,14 @@ name: Build Nameless Proxy APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -19,37 +18,31 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Fix gojo_icon.png Format for AAPT2
+      - name: Fix gojo_icon.png for AAPT2
         run: |
-          if [ -f app/src/main/res/drawable/gojo_icon.png ]; then
-            printf 'import java.awt.image.BufferedImage;\nimport java.awt.Graphics2D;\nimport java.io.File;\nimport javax.imageio.ImageIO;\npublic class FixIcon {\n  public static void main(String[] a) throws Exception {\n    File f = new File("app/src/main/res/drawable/gojo_icon.png");\n    BufferedImage s = ImageIO.read(f);\n    BufferedImage o = new BufferedImage(s != null ? s.getWidth() : 512, s != null ? s.getHeight() : 512, BufferedImage.TYPE_INT_ARGB);\n    if (s != null) { Graphics2D g = o.createGraphics(); g.drawImage(s, 0, 0, null); g.dispose(); }\n    ImageIO.write(o, "PNG", f);\n  }\n}\n' > FixIcon.java
-            java FixIcon.java
-            rm -f FixIcon.java
-          fi
+          mkdir -p app/src/main/res/drawable
+          [ -f app/src/main/res/drawable/gojo_icon.png ] && \
+          java -e 'import javax.imageio.ImageIO; import java.awt.image.BufferedImage; import java.awt.Graphics2D; try { var inImg = ImageIO.read(new java.io.File("app/src/main/res/drawable/gojo_icon.png")); var outImg = new BufferedImage(inImg.getWidth(), inImg.getHeight(), BufferedImage.TYPE_INT_ARGB); Graphics2D g = outImg.createGraphics(); g.drawImage(inImg, 0, 0, null); g.dispose(); ImageIO.write(outImg, "png", new java.io.File("app/src/main/res/drawable/gojo_icon.png")); } catch(Exception e){}' || true
 
       - name: Setup Go (Latest Stable)
         uses: actions/setup-go@v5
         with:
           go-version: 'stable'
 
-      - name: Compile Pure Static sing-box Core (arm64 with QUIC & uTLS/Reality)
+      - name: Compile Pure Static sing-box Core (arm64 with QUIC & uTLS/REALITY)
         run: |
           mkdir -p app/src/main/assets
-          echo "Cloning latest stable sing-box release..."
-          LATEST_TAG=$(git ls-remote --tags --refs --sort="v:refname" https://github.com/SagerNet/sing-box.git | grep -v '\-' | tail -n1 | sed 's/.*\///')
-          echo "Using sing-box tag: $LATEST_TAG"
-          git clone --depth 1 --branch "$LATEST_TAG" https://github.com/SagerNet/sing-box.git /tmp/sing-box-src
+          echo "Cloning latest stable sing-box..."
+          LATEST_TAG=$(git ls-remote --tags --refs --sort='version:refname' https://github.com/SagerNet/sing-box.git 'v*' | tail -n1 | sed 's/.*v//')
+          echo "Target tag: v$LATEST_TAG"
+          git clone --depth 1 --branch "v$LATEST_TAG" https://github.com/SagerNet/sing-box.git /tmp/sing-box-src
           cd /tmp/sing-box-src
           echo "Compiling static binary for Android arm64..."
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-            -v -trimpath \
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -v -trimpath -ldflags "-s -w -buildid=" \
             -tags "with_quic,with_utls" \
-            -ldflags "-X github.com/sagernet/sing-box/constant.Version=$LATEST_TAG -s -w -buildid=" \
-            ./cmd/sing-box
-          mv sing-box "$GITHUB_WORKSPACE/app/src/main/assets/sing-box"
-          cd "$GITHUB_WORKSPACE"
-          chmod 755 app/src/main/assets/sing-box
-          ls -lh app/src/main/assets/sing-box
+            -o /tmp/sing-box ./cmd/sing-box
+          cp /tmp/sing-box $GITHUB_WORKSPACE/app/src/main/assets/sing-box
+          chmod 755 $GITHUB_WORKSPACE/app/src/main/assets/sing-box
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -57,7 +50,9 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Compile Release & Debug APKs
-        run: gradle assembleRelease assembleDebug --no-daemon --stacktrace
+        run: |
+          chmod +x ./gradlew 2>/dev/null || true
+          gradle assembleRelease assembleDebug --no-daemon --stacktrace
 
       - name: Upload Release APK (Smooth 120FPS Optimized)
         uses: actions/upload-artifact@v4
