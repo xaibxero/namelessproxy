@@ -32,12 +32,12 @@ object IpFetcher {
     suspend fun getPublicIpInfo(localSocksPort: Int? = null): GeoIpResult? = withContext(Dispatchers.IO) {
         val proxy = if (localSocksPort != null) {
             Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", localSocksPort))
-        } else null
+        } else Proxy.NO_PROXY
 
         val jsonProviders = listOf(
             "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,timezone,query",
-            "https://ipwho.is/",
             "https://ipinfo.io/json",
+            "https://ipwho.is/",
             "https://freeipapi.com/api/json",
             "https://api.ip.sb/geoip"
         )
@@ -46,13 +46,14 @@ object IpFetcher {
             var conn: HttpURLConnection? = null
             try {
                 val url = URL(endpoint)
-                conn = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
-                conn.connectTimeout = 3500
-                conn.readTimeout = 3500
+                conn = url.openConnection(proxy) as HttpURLConnection
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
                 conn.instanceFollowRedirects = true
                 conn.useCaches = false
                 conn.setRequestProperty("User-Agent", BROWSER_UA)
                 conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Cache-Control", "no-cache, no-store")
 
                 if (conn.responseCode == 200) {
                     val raw = conn.inputStream.bufferedReader().use { it.readText() }
@@ -119,49 +120,26 @@ object IpFetcher {
         }
 
         val rawEndpoints = listOf(
+            "https://api4.ipify.org",
             "https://api.ipify.org",
-            "https://icanhazip.com",
-            "https://ifconfig.me/ip"
+            "https://icanhazip.com"
         )
         for (rawUrl in rawEndpoints) {
             var conn: HttpURLConnection? = null
             try {
                 val url = URL(rawUrl)
-                conn = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
+                conn = url.openConnection(proxy) as HttpURLConnection
+                conn.connectTimeout = 3500
+                conn.readTimeout = 3500
                 conn.useCaches = false
                 conn.setRequestProperty("User-Agent", BROWSER_UA)
 
                 if (conn.responseCode == 200) {
                     val ip = conn.inputStream.bufferedReader().use { it.readText().trim() }
                     if (ip.isNotEmpty()) {
-                        try {
-                            val geoUrl = URL("http://ip-api.com/json/$ip?fields=status,country,countryCode,city,timezone")
-                            val geoConn = (if (proxy != null) geoUrl.openConnection(proxy) else geoUrl.openConnection()) as HttpURLConnection
-                            geoConn.connectTimeout = 2500
-                            geoConn.readTimeout = 2500
-                            if (geoConn.responseCode == 200) {
-                                val gj = JSONObject(geoConn.inputStream.bufferedReader().use { it.readText() })
-                                val cc = gj.optString("countryCode", "")
-                                val cn = gj.optString("country", "")
-                                val ct = gj.optString("city", "")
-                                val tz = gj.optString("timezone", "")
-                                if (cc.length == 2) {
-                                    val loc = if (ct.isNotEmpty()) "$cn • $ct" else cn
-                                    return@withContext GeoIpResult(
-                                        ip = ip,
-                                        country = loc,
-                                        flagEmoji = countryCodeToFlag(cc),
-                                        timezone = tz
-                                    )
-                                }
-                            }
-                        } catch (_: Exception) {}
-
                         return@withContext GeoIpResult(
                             ip = ip,
-                            country = "Exit Tunnel Active",
+                            country = "Tunnel Verified",
                             flagEmoji = "🌐"
                         )
                     }
