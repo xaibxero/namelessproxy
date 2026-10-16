@@ -51,11 +51,13 @@ object IptablesManager {
 
         val tetherInterfaces = listOf("wlan+", "ap+", "rndis+", "usb+", "softap+", "swlan+", "wigig+", "p2p+", "ncm+")
 
+        // Note: 198.18.0.0/15 (FakeIP) is intentionally NOT in reservedV4 so FakeIP traffic is always redirected into sing-box!
         val reservedV4 = listOf(
             "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
             "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
         )
-        val reservedV6 = listOf("::1/128", "fe80::/10", "fc00::/7", "ff00::/8")
+        // Note: fc00::/18 (FakeIPv6) is handled before reservedV6
+        val reservedV6 = listOf("::1/128", "fe80::/10", "ff00::/8")
 
         val supportsUdp = settings.transportMode == TransportMode.TCP_AND_UDP &&
             settings.type != ProxyType.SOCKS5 &&
@@ -138,6 +140,7 @@ object IptablesManager {
         commands.add("iptables -A $chainFilter -p udp --dport $dnsPort -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport $tproxyPort -j RETURN")
 
+        // Block Private DNS (DoT Port 853) for ALL UIDs (including netd UID 0) so Android immediately falls back to Port 53!
         if (user == 0 && selectedUids.isNullOrEmpty()) {
             commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 853 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -A $chainFilter -p udp --dport 853 -j DROP")
@@ -149,6 +152,7 @@ object IptablesManager {
             commands.add("iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 853 -m owner --uid-owner $uRange -j DROP")
 
+            // Block WebRTC STUN/TURN ports over both UDP and TCP
             commands.add("iptables -A $chainFilter -p udp --dport 3478:3497 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 5349:5350 -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp --dport 19302:19309 -m owner --uid-owner $uRange -j DROP")
@@ -165,6 +169,7 @@ object IptablesManager {
                 commands.add("iptables -A $chainFilter -p udp -m mark --mark $markHex -j RETURN")
             }
 
+            // Drop all other un-tunneled UDP from target apps so WebRTC can NEVER discover cellular IP
             commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uRange -j DROP")
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
@@ -175,6 +180,13 @@ object IptablesManager {
             commands.add("iptables -t nat -A $chainNatV4 -d $cleanedHost -j RETURN")
         }
         commands.add("iptables -t nat -A $chainNatV4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN")
+
+        // CRITICAL: Do NOT redirect DoT (853) or TCP STUN (3478:3497, 5349:5350, 19302:19309) to inboundPort!
+        // Returning here keeps their original port numbers intact so chainFilter rejects them with tcp-reset!
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 3478:3497 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 5349:5350 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 19302:19309 -j RETURN")
 
         if (user == 0 && selectedUids.isNullOrEmpty()) {
             commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
@@ -232,6 +244,10 @@ object IptablesManager {
             commands.add("ip6tables -t nat -A $chainNatV6 -d $cleanedHost -j RETURN 2>/dev/null || true")
         }
         commands.add("ip6tables -t nat -A $chainNatV6 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV6} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 853 -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 3478:3497 -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 5349:5350 -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 19302:19309 -j RETURN 2>/dev/null || true")
         for (r6 in reservedV6) {
             commands.add("ip6tables -t nat -A $chainNatV6 -d $r6 -j RETURN 2>/dev/null || true")
         }
@@ -300,6 +316,10 @@ object IptablesManager {
             if (hostIsIpv4) {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $cleanedHost -j RETURN")
             }
+            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 853 -j RETURN")
+            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 3478:3497 -j RETURN")
+            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 5349:5350 -j RETURN")
+            commands.add("iptables -t nat -A $chainHotspotNat -p tcp --dport 19302:19309 -j RETURN")
             for (iface in tetherInterfaces) {
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
@@ -361,6 +381,8 @@ object IptablesManager {
         commands.add("ss -K dport = :80 2>/dev/null || true")
         commands.add("ss -K dport = :853 2>/dev/null || true")
         commands.add("ss -K dport = :53 2>/dev/null || true")
+        commands.add("ss -K dport = :19302 2>/dev/null || true")
+        commands.add("ss -K dport = :3478 2>/dev/null || true")
         commands.add("cmd connectivity flush-dns 2>/dev/null || true")
         commands.add("ndc resolver flushdefaultif 2>/dev/null || true")
 
