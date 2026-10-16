@@ -71,7 +71,6 @@ object PersistentStorage {
                 put("route_hotspot", settings.routeHotspot)
                 put("start_on_boot", startOnBoot)
                 put("route_whole_profile", routeWholeProfile)
-                put("enable_kill_switch", settings.enableKillSwitch)
                 put("selected_packages", JSONArray(selectedPackages))
             }
             ProxyController.writeConfigDirectly(json.toString(2), backupFile)
@@ -112,7 +111,6 @@ object PersistentStorage {
             rootObj.put("start_on_boot", globalPrefs.getBoolean("start_on_boot", false))
             rootObj.put("boot_slot", globalPrefs.getInt("boot_slot", 0))
             rootObj.put("route_hotspot", globalPrefs.getBoolean("route_hotspot", true))
-            rootObj.put("enable_kill_switch", globalPrefs.getBoolean("enable_kill_switch", true))
 
             val slotsArr = JSONArray()
             for (s in 0 until ProfileManager.MAX_SLOTS) {
@@ -163,7 +161,6 @@ object PersistentStorage {
                 .putBoolean("start_on_boot", rootObj.optBoolean("start_on_boot", false))
                 .putInt("boot_slot", rootObj.optInt("boot_slot", 0))
                 .putBoolean("route_hotspot", rootObj.optBoolean("route_hotspot", true))
-                .putBoolean("enable_kill_switch", rootObj.optBoolean("enable_kill_switch", true))
                 .apply()
 
             val slotsArr = rootObj.optJSONArray("slots") ?: return false
