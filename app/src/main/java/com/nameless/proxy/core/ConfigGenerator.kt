@@ -51,10 +51,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. Official sing-box FakeIP DNS Engine
-        // Returns a virtual IP (198.18.x.x) to the phone and passes the raw domain name
-        // to proxy-out (with NO domain_resolver on proxy-out!) so the remote proxy server
-        // resolves every domain using its own local residential ISP DNS!
+        // 2. DNS Engine (Official sing-box FakeIP)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -162,10 +159,6 @@ object ConfigGenerator {
         root.put("inbounds", inbounds)
 
         // 4. Outbounds
-        // CRITICAL: Do NOT put "domain_resolver" on proxy-out!
-        // In sing-box 1.12+, setting "domain_resolver" on a proxy outbound forces sing-box to resolve
-        // the target domain locally into an IP before dialing the proxy! Leaving it off makes sing-box
-        // send the domain name itself (SOCKS5 ATYP=0x03) to the proxy so the proxy's own ISP resolves it!
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -276,10 +269,9 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // Sniff TLS SNI & HTTP Host and override destination to the sniffed domain name!
+        // Standard sing-box sniff rule (No deprecated override_destination field)
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("override_destination", true)
             put("timeout", "300ms")
         })
 
