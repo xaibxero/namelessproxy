@@ -48,6 +48,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
@@ -877,16 +879,28 @@ fun LocalSendTopHeader(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(LocalSendTealSoft)
-                    .border(1.5.dp, LocalSendTealLight, CircleShape),
+                    .border(1.5.dp, if (isProxyActive) LocalSendTealLight else LocalSendBorder, RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .background(if (isProxyActive) LocalSendTealLight else LocalSendTeal, CircleShape)
-                )
+                Canvas(modifier = Modifier.size(20.dp)) {
+                    val w = size.width
+                    val h = size.height
+                    val boltPath = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w * 0.54f, h * 0.08f)
+                        lineTo(w * 0.22f, h * 0.52f)
+                        lineTo(w * 0.46f, h * 0.52f)
+                        lineTo(w * 0.38f, h * 0.92f)
+                        lineTo(w * 0.78f, h * 0.44f)
+                        lineTo(w * 0.54f, h * 0.44f)
+                        close()
+                    }
+                    drawPath(
+                        path = boltPath,
+                        color = if (isProxyActive) LocalSendTealLight else LocalSendTeal
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column {
@@ -1037,15 +1051,24 @@ fun LocalSendStatusTab(
     val context = LocalContext.current
     val isCurrentSlotRunning = isProxyActive && runningSlot == activeSlot
 
-    val infiniteTransition = rememberInfiniteTransition(label = "localsendEmblem")
-    val ringRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
+    val infiniteTransition = rememberInfiniteTransition(label = "flashPulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.05f,
         animationSpec = infiniteRepeatable(
-            tween(if (isProxyActive) 9000 else 22000, easing = LinearEasing),
-            RepeatMode.Restart
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
         ),
-        label = "ringRot"
+        label = "scale"
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.90f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
     )
 
     Column(
@@ -1092,47 +1115,71 @@ fun LocalSendStatusTab(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                val flashColor = when {
+                    isTransitioning -> LocalSendAmber
+                    isProxyActive -> LocalSendTealLight
+                    else -> LocalSendTextSecondary.copy(alpha = 0.40f)
+                }
+
+                val flashGlowBg = when {
+                    isTransitioning -> LocalSendAmber.copy(alpha = 0.15f)
+                    isProxyActive -> LocalSendTealSoft
+                    else -> LocalSendCardElevated
+                }
+
                 Box(
                     modifier = Modifier
-                        .size(112.dp)
-                        .clip(CircleShape)
+                        .size(118.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(flashGlowBg)
+                        .border(
+                            width = if (isProxyActive) 2.dp else 1.5.dp,
+                            color = if (isProxyActive) flashColor.copy(alpha = pulseAlpha) else LocalSendBorder,
+                            shape = RoundedCornerShape(32.dp)
+                        )
                         .clickable(enabled = !isTransitioning) { onToggleProxy() },
                     contentAlignment = Alignment.Center
                 ) {
-                    val ringColor = when {
-                        isTransitioning -> LocalSendAmber
-                        isProxyActive -> LocalSendTealLight
-                        else -> LocalSendTeal
-                    }
+                    Canvas(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .then(if (isProxyActive) Modifier.graphicsLayer(scaleX = pulseScale, scaleY = pulseScale) else Modifier)
+                    ) {
+                        val w = size.width
+                        val h = size.height
+                        val boltPath = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(w * 0.54f, h * 0.08f)
+                            lineTo(w * 0.22f, h * 0.52f)
+                            lineTo(w * 0.46f, h * 0.52f)
+                            lineTo(w * 0.38f, h * 0.92f)
+                            lineTo(w * 0.78f, h * 0.44f)
+                            lineTo(w * 0.54f, h * 0.44f)
+                            close()
+                        }
 
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val outerRadius = size.minDimension * 0.43f
-
-                        rotate(degrees = ringRotation, pivot = center) {
-                            drawCircle(
-                                color = ringColor.copy(alpha = if (isProxyActive) 0.90f else 0.55f),
-                                radius = outerRadius,
-                                center = center,
-                                style = Stroke(
-                                    width = 7.dp.toPx(),
-                                    cap = StrokeCap.Round,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(28f, 22f), 0f)
-                                )
+                        // Electric outer aura when active
+                        if (isProxyActive) {
+                            drawPath(
+                                path = boltPath,
+                                color = LocalSendTeal.copy(alpha = 0.40f),
+                                style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                             )
                         }
 
-                        drawCircle(
-                            color = ringColor.copy(alpha = if (isProxyActive) 0.25f else 0.15f),
-                            radius = size.minDimension * 0.30f,
-                            center = center
+                        // Core Flash Bolt
+                        drawPath(
+                            path = boltPath,
+                            color = flashColor
                         )
 
-                        drawCircle(
-                            color = ringColor,
-                            radius = size.minDimension * 0.22f,
-                            center = center
-                        )
+                        // High-tech inner accent highlight
+                        if (isProxyActive) {
+                            drawPath(
+                                path = boltPath,
+                                color = Color.White.copy(alpha = 0.45f),
+                                style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
                     }
                 }
 
