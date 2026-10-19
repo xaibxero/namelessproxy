@@ -55,7 +55,7 @@ class NamelessTileService : TileService() {
                         password = slotPrefs.getString("password", "") ?: "",
                         routeHotspot = routeHotspot,
                         sni = slotPrefs.getString("sni", "") ?: "",
-                        ssMethod = slotPrefs.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm",
+                        ssMethod = slotPrefs.getString("ss_method", "chacha20-ietf-poly1305") ?: "chacha20-ietf-poly1305",
                         realityPublicKey = slotPrefs.getString("reality_pk", "") ?: "",
                         realityShortId = slotPrefs.getString("reality_sid", "") ?: ""
                     )
@@ -63,9 +63,12 @@ class NamelessTileService : TileService() {
                     val routeWhole = slotPrefs.getBoolean("route_whole_profile", true)
                     val selectedPkgs = slotPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet()
                     val uids = if (routeWhole) null else {
-                        packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                        val targets = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
                             .filter { selectedPkgs.contains(it.packageName) }
                             .map { it.uid }
+                            .toMutableSet()
+                        targets.add(applicationInfo.uid)
+                        targets.toList()
                     }
                     ProxyController.startProxy(applicationContext, settings, uids)
                 }
