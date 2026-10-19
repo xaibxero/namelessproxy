@@ -29,19 +29,16 @@ class BootReceiver : BroadcastReceiver() {
         val routeHotspot = globalPrefs.getBoolean("route_hotspot", true)
         val slotPrefs = context.getSharedPreferences("nameless_slot_$bootSlot", Context.MODE_PRIVATE)
 
-        // Keep receiver process alive during async root + daemon startup
         val pendingResult = goAsync()
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val user = ProfileManager.androidUserId
 
-                // If service.d boot script is installed, give it priority so we don't collide with it
                 if (BootManager.isBootScriptInstalled()) {
                     delay(6500)
                 }
 
-                // If already started by the kernel service.d script, exit cleanly
                 if (ProxyController.isRunning(user, bootSlot)) return@launch
 
                 var host = slotPrefs.getString("host", "")?.trim() ?: ""
@@ -52,13 +49,13 @@ class BootReceiver : BroadcastReceiver() {
                 var ssMethod = slotPrefs.getString("ss_method", "chacha20-ietf-poly1305") ?: "chacha20-ietf-poly1305"
                 var rpk = slotPrefs.getString("reality_pk", "") ?: ""
                 var rsid = slotPrefs.getString("reality_sid", "") ?: ""
+                var strictWebRtc = slotPrefs.getBoolean("strict_webrtc_shield", true)
                 var type = try { ProxyType.valueOf(slotPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (_: Exception) { ProxyType.SOCKS5 }
                 var transportMode = try { TransportMode.valueOf(slotPrefs.getString("transport_mode", TransportMode.TCP_AND_UDP.name) ?: TransportMode.TCP_AND_UDP.name) } catch (_: Exception) { TransportMode.TCP_AND_UDP }
                 var ipMode = try { IpMode.valueOf(slotPrefs.getString("ip_mode", IpMode.IPV4_ONLY.name) ?: IpMode.IPV4_ONLY.name) } catch (_: Exception) { IpMode.IPV4_ONLY }
                 var routeWholeProfile = slotPrefs.getBoolean("route_whole_profile", true)
                 var selectedPackages = slotPrefs.getStringSet("selected_packages", emptySet()) ?: emptySet()
 
-                // Fallback to /data/adb/nameless_proxy backup if SharedPreferences was cleared
                 if (host.isEmpty()) {
                     val backup = PersistentStorage.loadBackup(bootSlot, user)
                     if (backup != null) {
@@ -70,6 +67,7 @@ class BootReceiver : BroadcastReceiver() {
                         ssMethod = backup.optString("ss_method", "chacha20-ietf-poly1305")
                         rpk = backup.optString("reality_pk", "")
                         rsid = backup.optString("reality_sid", "")
+                        strictWebRtc = backup.optBoolean("strict_webrtc_shield", true)
                         type = try { ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (_: Exception) { ProxyType.SOCKS5 }
                         transportMode = try { TransportMode.valueOf(backup.optString("transport_mode", TransportMode.TCP_AND_UDP.name)) } catch (_: Exception) { TransportMode.TCP_AND_UDP }
                         ipMode = try { IpMode.valueOf(backup.optString("ip_mode", IpMode.IPV4_ONLY.name)) } catch (_: Exception) { IpMode.IPV4_ONLY }
@@ -100,7 +98,8 @@ class BootReceiver : BroadcastReceiver() {
                     sni = sni,
                     ssMethod = ssMethod,
                     realityPublicKey = rpk,
-                    realityShortId = rsid
+                    realityShortId = rsid,
+                    strictWebRtcShield = strictWebRtc
                 )
 
                 val uids = if (routeWholeProfile) null else {

@@ -57,7 +57,8 @@ class NamelessTileService : TileService() {
                         sni = slotPrefs.getString("sni", "") ?: "",
                         ssMethod = slotPrefs.getString("ss_method", "chacha20-ietf-poly1305") ?: "chacha20-ietf-poly1305",
                         realityPublicKey = slotPrefs.getString("reality_pk", "") ?: "",
-                        realityShortId = slotPrefs.getString("reality_sid", "") ?: ""
+                        realityShortId = slotPrefs.getString("reality_sid", "") ?: "",
+                        strictWebRtcShield = slotPrefs.getBoolean("strict_webrtc_shield", true)
                     )
 
                     val routeWhole = slotPrefs.getBoolean("route_whole_profile", true)
@@ -88,7 +89,7 @@ class NamelessTileService : TileService() {
                     tile.state = Tile.STATE_ACTIVE
                     tile.label = "Nameless • P$runningSlot"
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        tile.subtitle = "Tunnel Active"
+                        tile.subtitle = "Zero-Leak Active"
                     }
                 } else {
                     tile.state = Tile.STATE_INACTIVE

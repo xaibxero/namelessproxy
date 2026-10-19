@@ -30,7 +30,8 @@ data class ProxySettings(
     val sni: String = "",
     val ssMethod: String = "chacha20-ietf-poly1305",
     val realityPublicKey: String = "",
-    val realityShortId: String = ""
+    val realityShortId: String = "",
+    val strictWebRtcShield: Boolean = true
 )
 
 object ConfigGenerator {
@@ -51,7 +52,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (FakeIP + Strict Anti-Leak)
+        // 2. DNS Engine (FakeIP + Zero-Leak Remote Tunnel + Marked Bootstrap Resolver)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -78,18 +79,58 @@ object ConfigGenerator {
             put("type", "udp")
             put("server", directDnsServer)
             put("server_port", 53)
+            put("routing_mark", ProfileManager.SINGBOX_BYPASS_MARK_INT)
         })
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
 
-        // Reject HTTPS & SVCB records to stop browsers from bypassing into DoH / ECH
+        // Hard-reject STUN/TURN and DoH bootstrap/canary domains at the DNS layer
+        // so browsers never even receive a FakeIP for WebRTC STUN or encrypted DNS bypass
+        dnsRules.put(JSONObject().apply {
+            put("domain_keyword", JSONArray().apply {
+                put("stun")
+                put("turn")
+            })
+            put("action", "reject")
+        })
+
+        dnsRules.put(JSONObject().apply {
+            put("domain_suffix", JSONArray().apply {
+                put("stun.l.google.com")
+                put("stun1.l.google.com")
+                put("stun2.l.google.com")
+                put("stun3.l.google.com")
+                put("stun4.l.google.com")
+                put("stun.cloudflare.com")
+                put("stun.services.mozilla.com")
+                put("global.stun.twilio.com")
+                put("use-application-dns.net")
+                put("dns.google")
+                put("dns.google.com")
+                put("cloudflare-dns.com")
+                put("one.one.one.one")
+                put("1dot1dot1dot1.cloudflare-dns.com")
+                put("dns.quad9.net")
+                put("dns.nextdns.io")
+                put("dns.adguard-dns.com")
+                put("doh.opendns.com")
+                put("dns.alidns.com")
+                put("doh.pub")
+                put("resolver.arpa")
+            })
+            put("action", "reject")
+        })
+
+        // Reject HTTPS & SVCB records to stop browsers from upgrading to DoH / ECH / HTTP3
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
                 put("SVCB")
                 if (settings.ipMode == IpMode.IPV4_ONLY) {
                     put("AAAA")
+                } else if (settings.ipMode == IpMode.IPV6_ONLY) {
+                    put("A")
                 }
             })
             put("action", "reject")
@@ -97,8 +138,8 @@ object ConfigGenerator {
 
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
-                put("A")
-                put("AAAA")
+                if (settings.ipMode != IpMode.IPV6_ONLY) put("A")
+                if (settings.ipMode != IpMode.IPV4_ONLY) put("AAAA")
             })
             put("action", "route")
             put("server", "dns-fakeip")
@@ -114,6 +155,7 @@ object ConfigGenerator {
 
         dns.put("final", "dns-remote")
         dns.put("reverse_mapping", true)
+        dns.put("independent_cache", true)
         root.put("dns", dns)
 
         // 3. Inbounds
@@ -159,10 +201,12 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds
+        // 4. Outbounds (Marked with SINGBOX_BYPASS_MARK_INT so iptables never loops sing-box traffic
+        // while still intercepting UID 0 netd DNS queries on Cellular & Wi-Fi)
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
+            put("routing_mark", ProfileManager.SINGBOX_BYPASS_MARK_INT)
         }
 
         when (settings.type) {
@@ -250,10 +294,11 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
+            put("routing_mark", ProfileManager.SINGBOX_BYPASS_MARK_INT)
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules (auto_detect_interface enabled for seamless Mobile & Wi-Fi handover)
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -276,7 +321,7 @@ object ConfigGenerator {
             put("timeout", "300ms")
         })
 
-        // WebRTC & STUN leak block
+        // WebRTC & STUN protocol + port leak block
         routeRules.put(JSONObject().apply {
             put("protocol", JSONArray().apply { put("stun") })
             put("action", "reject")
@@ -285,7 +330,7 @@ object ConfigGenerator {
             put("port_range", JSONArray().apply {
                 put("3478:3497")
                 put("5349:5350")
-                put("19302:19309")
+                put("19300:19320")
             })
             put("action", "reject")
         })
@@ -296,7 +341,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // Reject DoH direct IP requests to known public providers
+        // Reject DoH direct IP requests to known public DNS resolvers (forces port 53 hijack)
         routeRules.put(JSONObject().apply {
             put("ip_cidr", JSONArray().apply {
                 put("8.8.8.8/32")
@@ -307,18 +352,22 @@ object ConfigGenerator {
                 put("149.112.112.112/32")
                 put("208.67.222.222/32")
                 put("208.67.220.220/32")
+                put("94.140.14.14/32")
+                put("94.140.15.15/32")
                 put("2001:4860:4860::8888/128")
                 put("2001:4860:4860::8844/128")
                 put("2606:4700:4700::1111/128")
                 put("2606:4700:4700::1001/128")
+                put("2620:fe::fe/128")
+                put("2620:fe::9/128")
             })
             put("port", JSONArray().apply { put(443); put(853) })
             put("action", "reject")
         })
 
-        // Reject well-known DoH bootstrap domain names
+        // Reject well-known DoH & STUN domain names
         routeRules.put(JSONObject().apply {
-            put("domain", JSONArray().apply {
+            put("domain_suffix", JSONArray().apply {
                 put("dns.google")
                 put("dns.google.com")
                 put("cloudflare-dns.com")
@@ -326,16 +375,21 @@ object ConfigGenerator {
                 put("dns.quad9.net")
                 put("dns.nextdns.io")
                 put("dns.adguard-dns.com")
+                put("doh.opendns.com")
+                put("use-application-dns.net")
+                put("stun.l.google.com")
+                put("stun.cloudflare.com")
             })
             put("action", "reject")
         })
 
         val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
+            settings.strictWebRtcShield ||
             settings.type == ProxyType.SOCKS5 ||
             settings.type == ProxyType.SOCKS4 ||
             settings.type == ProxyType.HTTP
 
-        // Block QUIC UDP port 80/443 when proxy does not tunnel UDP, forcing browser to use TCP proxy
+        // Block QUIC / HTTP3 UDP port 80/443 when UDP WebRTC shield is active or proxy is TCP-based
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {

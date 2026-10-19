@@ -65,6 +65,7 @@ object BootManager {
         val configPath = ProxyController.getConfigPath(user, targetSlot)
         val pidFile = ProxyController.getPidFile(user, targetSlot)
         val logFile = ProxyController.getLogFile(user, targetSlot)
+        val slotFile = ProxyController.getActiveSlotFile(user)
 
         val configJson = ConfigGenerator.generateJson(settings, port)
         ProxyController.writeConfigDirectly(configJson, configPath)
@@ -85,8 +86,8 @@ object BootManager {
         sb.append("done\n\n")
 
         sb.append("count=0\n")
-        sb.append("while [ \$count -lt 15 ]; do\n")
-        sb.append("    if ip route | grep -q \"default\" || ip -6 route | grep -q \"default\"; then\n")
+        sb.append("while [ \$count -lt 20 ]; do\n")
+        sb.append("    if ip route show table all 2>/dev/null | grep -q \"default\" || ip -6 route show table all 2>/dev/null | grep -q \"default\"; then\n")
         sb.append("        break\n")
         sb.append("    fi\n")
         sb.append("    sleep 1\n")
@@ -104,21 +105,23 @@ object BootManager {
         sb.append("killall -9 sing-box 2>/dev/null\n")
         sb.append("pkill -9 -f sing-box 2>/dev/null\n\n")
 
-        // Private DNS handling for system boot
+        // Private DNS handling for system boot (handles "null" factory default properly)
         sb.append("cur_dns=\$(settings get global private_dns_mode 2>/dev/null)\n")
-        sb.append("if [ -n \"\$cur_dns\" ] && [ \"\$cur_dns\" != \"null\" ]; then\n")
+        sb.append("if [ -z \"\$cur_dns\" ] || [ \"\$cur_dns\" = \"null\" ]; then\n")
+        sb.append("    echo \"opportunistic\" > $ADB_DIR/saved_private_dns_mode\n")
+        sb.append("elif [ \"\$cur_dns\" != \"off\" ]; then\n")
         sb.append("    echo \"\$cur_dns\" > $ADB_DIR/saved_private_dns_mode\n")
-        sb.append("    settings put global private_dns_mode off 2>/dev/null\n")
-        sb.append("    cmd connectivity flush-dns 2>/dev/null || true\n")
-        sb.append("fi\n\n")
+        sb.append("fi\n")
+        sb.append("settings put global private_dns_mode off 2>/dev/null\n")
+        sb.append("cmd connectivity flush-dns 2>/dev/null || true\n\n")
 
-        sb.append("nohup $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null &\n")
-        sb.append("PID=\$!\n")
-        sb.append("echo \$PID > $pidFile\n")
+        sb.append("( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )\n")
+        sb.append("PID=\$(cat $pidFile 2>/dev/null)\n")
+        sb.append("echo $targetSlot > $slotFile\n")
         sb.append("echo $targetSlot > $ADB_DIR/running_slot\n\n")
 
         sb.append("sleep 2\n")
-        sb.append("if kill -0 \$PID 2>/dev/null; then\n")
+        sb.append("if [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null; then\n")
         for (cmd in iptablesCmds) {
             sb.append("    ").append(cmd).append("\n")
         }

@@ -69,13 +69,13 @@ object PersistentStorage {
                 put("ss_method", settings.ssMethod)
                 put("reality_pk", settings.realityPublicKey)
                 put("reality_sid", settings.realityShortId)
+                put("strict_webrtc_shield", settings.strictWebRtcShield)
                 put("route_hotspot", settings.routeHotspot)
                 put("start_on_boot", startOnBoot)
                 put("route_whole_profile", routeWholeProfile)
                 put("selected_packages", JSONArray(selectedPackages))
             }
             ProxyController.writeConfigDirectly(json.toString(2), backupFile)
-            // Also update the full 5-slot root backup
             autoBackupAllToRoot(context)
         } catch (e: Exception) {
             false
@@ -110,7 +110,7 @@ object PersistentStorage {
         return try {
             val rootObj = JSONObject()
             val globalPrefs = context.getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE)
-            rootObj.put("version", 2)
+            rootObj.put("version", 3)
             rootObj.put("start_on_boot", globalPrefs.getBoolean("start_on_boot", false))
             rootObj.put("boot_slot", globalPrefs.getInt("boot_slot", 0))
             rootObj.put("route_hotspot", globalPrefs.getBoolean("route_hotspot", true))
@@ -131,6 +131,7 @@ object PersistentStorage {
                     put("ss_method", sp.getString("ss_method", "chacha20-ietf-poly1305"))
                     put("reality_pk", sp.getString("reality_pk", ""))
                     put("reality_sid", sp.getString("reality_sid", ""))
+                    put("strict_webrtc_shield", sp.getBoolean("strict_webrtc_shield", true))
                     put("route_whole_profile", sp.getBoolean("route_whole_profile", true))
                     put("selected_packages", JSONArray(sp.getStringSet("selected_packages", emptySet()) ?: emptySet<String>()))
                 }
@@ -179,6 +180,7 @@ object PersistentStorage {
                     .putString("ss_method", sObj.optString("ss_method", "chacha20-ietf-poly1305"))
                     .putString("reality_pk", sObj.optString("reality_pk", ""))
                     .putString("reality_sid", sObj.optString("reality_sid", ""))
+                    .putBoolean("strict_webrtc_shield", sObj.optBoolean("strict_webrtc_shield", true))
                     .putBoolean("route_whole_profile", sObj.optBoolean("route_whole_profile", true))
                     .putStringSet("selected_packages", pkgs)
                     .apply()
@@ -193,7 +195,7 @@ object PersistentStorage {
         return try {
             val rootObj = JSONObject()
             val globalPrefs = context.getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE)
-            rootObj.put("version", 2)
+            rootObj.put("version", 3)
             rootObj.put("start_on_boot", globalPrefs.getBoolean("start_on_boot", false))
             rootObj.put("boot_slot", globalPrefs.getInt("boot_slot", 0))
             rootObj.put("route_hotspot", globalPrefs.getBoolean("route_hotspot", true))
@@ -214,6 +216,7 @@ object PersistentStorage {
                     put("ss_method", sp.getString("ss_method", "chacha20-ietf-poly1305"))
                     put("reality_pk", sp.getString("reality_pk", ""))
                     put("reality_sid", sp.getString("reality_sid", ""))
+                    put("strict_webrtc_shield", sp.getBoolean("strict_webrtc_shield", true))
                     put("route_whole_profile", sp.getBoolean("route_whole_profile", true))
                     put("selected_packages", JSONArray(sp.getStringSet("selected_packages", emptySet()) ?: emptySet<String>()))
                 }
@@ -270,11 +273,11 @@ object PersistentStorage {
                     .putString("ss_method", sObj.optString("ss_method", "chacha20-ietf-poly1305"))
                     .putString("reality_pk", sObj.optString("reality_pk", ""))
                     .putString("reality_sid", sObj.optString("reality_sid", ""))
+                    .putBoolean("strict_webrtc_shield", sObj.optBoolean("strict_webrtc_shield", true))
                     .putBoolean("route_whole_profile", sObj.optBoolean("route_whole_profile", true))
                     .putStringSet("selected_packages", pkgs)
                     .apply()
             }
-            // Sync to root auto backup as well
             autoBackupAllToRoot(context)
             true
         } catch (e: Exception) {

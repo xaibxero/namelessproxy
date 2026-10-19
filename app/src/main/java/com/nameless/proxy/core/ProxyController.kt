@@ -65,7 +65,6 @@ object ProxyController {
         val check = executeSuWithOutput(listOf(
             "if [ -x $targetPath ]; then $targetPath version 2>&1; else echo 'MISSING'; fi"
         ))
-        // Must contain "sing-box version " and not be an error message
         return check.contains("sing-box version") && !check.contains("No such file") && !check.contains("cannot execute")
     }
 
@@ -144,21 +143,58 @@ object ProxyController {
         executeSu(listOf(": > " + logFile))
     }
 
+    fun refreshHandoverRules(
+        user: Int = ProfileManager.androidUserId,
+        slot: Int = ProfileManager.activeSlot
+    ): Boolean {
+        if (!isRunning(user, slot)) return false
+        return executeSu(IptablesManager.generateHandoverRefreshCommands(user, slot))
+    }
+
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
         val raw = executeSuWithOutput(listOf(
-            "echo '=== DAEMON STATUS (USER " + user + " • SLOT P" + slot + ") ==='",
+            "echo '=== KERNEL DAEMON STATUS (USER " + user + " • SLOT P" + slot + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
-            "  echo 'State: ACTIVE (PID: '$(cat " + pidFile + ")')'",
+            "  echo 'State   : ACTIVE (PID '$(cat " + pidFile + ")')'",
             "else",
-            "  echo 'State: STOPPED / NOT RUNNING'",
+            "  echo 'State   : STOPPED'",
             "fi",
+            "echo 'PrivDNS : '$(settings get global private_dns_mode 2>/dev/null)",
+            "echo 'ActiveIF: '$(ip route show table all 2>/dev/null | grep -E 'default via|dev (wlan|rmnet|v4-rmnet|ccmni)' | head -n 3 | tr '\\n' ' ')",
             "echo ''",
-            "echo '=== RECENT LOG ENTRIES ==='",
+            "echo '=== RECENT SING-BOX LOG STREAM ==='",
             "if [ -f " + logFile + " ]; then tail -n 120 " + logFile + "; else echo 'No log file found.'; fi"
         ))
         return raw.replace(Regex("\u001B\\[[;\\d]*m"), "")
+    }
+
+    fun getKernelAuditReport(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
+        val chainNatV4 = "NAMELESS_U" + user + "_S" + slot
+        val chainNatV6 = "NAMELESS_U" + user + "_S" + slot + "_V6"
+        val chainFilter = "NAMELESS_FILTER_u" + user + "_s" + slot
+        val chainV6Filter = "NAMELESS_V6_FILTER_u" + user + "_s" + slot
+        val raw = executeSuWithOutput(listOf(
+            "echo '=== IPv4 POLICY RULES ==='",
+            "ip rule show | grep -E '1800|1850|22000' || true",
+            "echo ''",
+            "echo '=== IPv6 POLICY RULES (464XLAT SAFE) ==='",
+            "ip -6 rule show | grep -E '890|1800|22000' || true",
+            "echo ''",
+            "echo '=== NAT DNS & WEBRTC SHIELD ($chainNatV4) ==='",
+            "iptables -w -t nat -S $chainNatV4 2>&1 || true",
+            "echo ''",
+            "echo '=== IPv6 NAT DNS SHIELD ($chainNatV6) ==='",
+            "ip6tables -w -t nat -S $chainNatV6 2>&1 || true",
+            "echo ''",
+            "echo '=== OUTPUT KILL-SWITCH ($chainFilter) ==='",
+            "iptables -w -S $chainFilter 2>&1 || true",
+            "echo ''",
+            "echo '=== IPv6 OUTPUT SHIELD ($chainV6Filter) ==='",
+            "ip6tables -w -S $chainV6Filter 2>&1 || true"
+        ))
+        return raw.ifEmpty { "Unable to query kernel netfilter tables." }
     }
 
     fun startProxy(
@@ -175,7 +211,6 @@ object ProxyController {
         val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
 
-        // Verify that sing-box binary is present, executable, and valid
         if (!isBinaryExecutable()) {
             val extracted = extractBinaryDirectly(context)
             if (!extracted || !isBinaryExecutable()) {
@@ -196,20 +231,24 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        stopProxy(context, user)
-
-        // Save active Private DNS mode and switch to 'off' so Android doesn't leak or report 'No internet'
+        // Preserve original Private DNS mode BEFORE stopProxy or overwriting
+        // Note: On factory-default Android, 'settings get global private_dns_mode' returns "null"
+        // which Android treats as "opportunistic" (DoT on port 853). We MUST always force it to 'off'!
         val curDnsMode = executeSuWithOutput(listOf("settings get global private_dns_mode")).trim()
-        if (curDnsMode.isNotEmpty() && curDnsMode != "null") {
-            executeSu(listOf(
-                "echo '$curDnsMode' > $ADB_DIR/saved_private_dns_mode",
-                "settings put global private_dns_mode off",
-                "cmd connectivity flush-dns 2>/dev/null || true"
-            ))
+        val modeToSave = if (curDnsMode.isEmpty() || curDnsMode == "null") "opportunistic" else curDnsMode
+        if (modeToSave != "off") {
+            executeSu(listOf("mkdir -p $ADB_DIR && echo '$modeToSave' > $ADB_DIR/saved_private_dns_mode"))
         }
 
-        // Run daemon in background using POSIX subshell with SIGHUP ignored
-        // Completely avoids toybox 'nohup' applet bugs across diverse ROMs
+        stopProxy(context, user, restorePrivateDns = false)
+
+        // Always force Private DNS off while tunnel is active so Android netd uses port 53 (hijacked to sing-box)
+        executeSu(listOf(
+            "settings put global private_dns_mode off",
+            "cmd connectivity flush-dns 2>/dev/null || true",
+            "ndc resolver flushdefaultif 2>/dev/null || true"
+        ))
+
         val runCmd = "mkdir -p $ADB_DIR && ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) && echo $slot > $slotFile"
         executeSu(listOf(runCmd))
 
@@ -236,14 +275,15 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context, user)
+            stopProxy(context, user, restorePrivateDns = true)
             StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
         }
     }
 
     fun stopProxy(
         context: Context,
-        user: Int = ProfileManager.androidUserId
+        user: Int = ProfileManager.androidUserId,
+        restorePrivateDns: Boolean = true
     ): Boolean {
         val commands = mutableListOf<String>()
 
@@ -257,10 +297,18 @@ object ProxyController {
         if (user == 0) {
             commands.add("rm -f " + ADB_DIR + "/running_slot")
         }
-        commands.add("pkill -9 -f 'config_u" + user + "_' 2>/dev/null")
+        commands.add("pkill -9 -f 'config_u" + user + "_' 2>/dev/null || true")
 
-        // Restore original Private DNS mode if previously saved
-        commands.add("if [ -f $ADB_DIR/saved_private_dns_mode ]; then settings put global private_dns_mode \$(cat $ADB_DIR/saved_private_dns_mode) 2>/dev/null; rm -f $ADB_DIR/saved_private_dns_mode; cmd connectivity flush-dns 2>/dev/null; fi")
+        if (restorePrivateDns) {
+            commands.add(
+                "if [ -f $ADB_DIR/saved_private_dns_mode ]; then " +
+                    "settings put global private_dns_mode \$(cat $ADB_DIR/saved_private_dns_mode) 2>/dev/null; " +
+                    "rm -f $ADB_DIR/saved_private_dns_mode; " +
+                "fi"
+            )
+            commands.add("cmd connectivity flush-dns 2>/dev/null || true")
+            commands.add("ndc resolver flushdefaultif 2>/dev/null || true")
+        }
 
         return executeSu(commands)
     }
