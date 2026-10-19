@@ -34,7 +34,7 @@ object ProxyController {
                 for (cmd in commands) {
                     os.write((cmd + "\n").toByteArray(Charsets.UTF_8))
                 }
-                os.write("exit\n".toByteArray(Charsets.UTF_8))
+                os.write("exit 0\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             val output = process.inputStream.bufferedReader().use { it.readText().trim() }
@@ -149,14 +149,14 @@ object ProxyController {
         slot: Int = ProfileManager.activeSlot
     ): Boolean {
         if (!isRunning(user, slot)) return false
-        return executeSu(IptablesManager.generateHandoverRefreshCommands(user, slot))
+        return executeSu(IptablesManager.generateHandoverRefreshCommands())
     }
 
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
         val raw = executeSuWithOutput(listOf(
-            "echo '=== KERNEL DAEMON (U#" + user + " • P" + slot + ") ==='",
+            "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + slot + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
             "  echo 'Status  : ONLINE (PID '$(cat " + pidFile + ")')'",
             "else",
@@ -171,25 +171,22 @@ object ProxyController {
     }
 
     fun getKernelAuditReport(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
-        val chainNatV4 = "NAMELESS_U" + user + "_S" + slot
-        val chainNatV6 = "NAMELESS_U" + user + "_S" + slot + "_V6"
-        val chainFilter = "NAMELESS_FILTER_u" + user + "_s" + slot
-        val chainV6Filter = "NAMELESS_V6_FILTER_u" + user + "_s" + slot
         val raw = executeSuWithOutput(listOf(
-            "echo '=== IPv6 464XLAT SAFE RULES ==='",
-            "ip -6 rule show | grep -E '890|22000' || true",
+            "echo '=== FIB UDP & IPv6 LEAK SHIELD RULES ==='",
+            "ip rule show | grep -E '8800|22000' || true",
+            "ip -6 rule show | grep -E '8900|22000' || true",
             "echo ''",
-            "echo '=== NAT DNS & WEBRTC ($chainNatV4) ==='",
-            "iptables -w -t nat -S $chainNatV4 2>&1 || true",
+            "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
+            "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 NAT ($chainNatV6) ==='",
-            "ip6tables -w -t nat -S $chainNatV6 2>&1 || true",
+            "echo '=== IPv6 NAT (${IptablesManager.CHAIN_NAT_V6}) ==='",
+            "ip6tables -w -t nat -S ${IptablesManager.CHAIN_NAT_V6} 2>&1 || true",
             "echo ''",
-            "echo '=== KILL-SWITCH ($chainFilter) ==='",
-            "iptables -w -S $chainFilter 2>&1 || true",
+            "echo '=== KILL-SWITCH (${IptablesManager.CHAIN_FILTER_V4}) ==='",
+            "iptables -w -S ${IptablesManager.CHAIN_FILTER_V4} 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 SHIELD ($chainV6Filter) ==='",
-            "ip6tables -w -S $chainV6Filter 2>&1 || true"
+            "echo '=== IPv6 SHIELD (${IptablesManager.CHAIN_FILTER_V6}) ==='",
+            "ip6tables -w -S ${IptablesManager.CHAIN_FILTER_V6} 2>&1 || true"
         ))
         return raw.ifEmpty { "Unable to query netfilter." }
     }
@@ -222,17 +219,15 @@ object ProxyController {
             }
         }
 
-        // Preserve original Private DNS mode BEFORE stopping any existing tunnels
         val curDnsMode = executeSuWithOutput(listOf("settings get global private_dns_mode")).trim()
         val modeToSave = if (curDnsMode.isEmpty() || curDnsMode == "null") "opportunistic" else curDnsMode
         if (modeToSave != "off") {
             executeSu(listOf("mkdir -p $ADB_DIR && echo '$modeToSave' > $ADB_DIR/saved_private_dns_mode"))
         }
 
-        // Stop any running tunnels across ALL user profiles first so no other profile's iptables chains conflict!
-        stopProxy(context, user, restorePrivateDns = false, cleanAllUsers = true)
+        // Fast <120ms cleanup before starting
+        stopProxy(context, user, restorePrivateDns = false)
 
-        // Pre-resolve proxy server hostname (if user entered a domain instead of an IP) while network is clean
         val rawHost = ConfigGenerator.cleanHost(settings.host)
         val resolvedHost = if (!IptablesManager.isValidIpv4(rawHost) && !IptablesManager.isValidIpv6(rawHost)) {
             try {
@@ -250,18 +245,19 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        executeSu(listOf(
-            "settings put global private_dns_mode off",
-            "cmd connectivity flush-dns 2>/dev/null || true",
-            "ndc resolver flushdefaultif 2>/dev/null || true"
-        ))
-
-        val runCmd = "mkdir -p $ADB_DIR && rm -f $ADB_DIR/cache_u${user}_s${slot}.db && ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) && echo $slot > $slotFile"
-        executeSu(listOf(runCmd))
+        val runCmd = listOf(
+            "mkdir -p $ADB_DIR",
+            "rm -f $ADB_DIR/cache_u${user}_s${slot}.db",
+            "settings put global private_dns_mode off 2>/dev/null || true",
+            "( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
+            "echo $slot > $slotFile",
+            "echo $slot > $ADB_DIR/running_slot"
+        )
+        executeSu(runCmd)
 
         var alive = false
-        for (attempt in 1..8) {
-            Thread.sleep(150)
+        for (attempt in 1..6) {
+            Thread.sleep(120)
             if (isRunning(user, slot)) {
                 alive = true
                 if (attempt >= 2) break
@@ -282,42 +278,28 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context, user, restorePrivateDns = true, cleanAllUsers = false)
+            stopProxy(context, user, restorePrivateDns = true)
             StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
         }
     }
 
+    /**
+     * Instantaneous <120ms tunnel stop: kills sing-box and flushes canonical NAMELESS chains in one pass.
+     */
     fun stopProxy(
         context: Context,
         user: Int = ProfileManager.androidUserId,
-        restorePrivateDns: Boolean = true,
-        cleanAllUsers: Boolean = true
+        restorePrivateDns: Boolean = true
     ): Boolean {
         val commands = mutableListOf<String>()
 
-        // Discover all users that may have active NAMELESS chains (e.g. User 0, 10, 11, 12, 999)
-        val usersToClean = if (cleanAllUsers) {
-            setOf(0, 10, 11, 12, 13, 95, 999, user)
-        } else {
-            setOf(user)
-        }
+        // 1. Kill sing-box processes immediately so traffic stops in <10ms
+        commands.add("killall -9 sing-box 2>/dev/null || true")
+        commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
+        commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* 2>/dev/null || true")
 
-        for (u in usersToClean) {
-            for (s in 0 until ProfileManager.MAX_SLOTS) {
-                commands.addAll(IptablesManager.generateDisableCommands(u, s))
-                val pFile = getPidFile(u, s)
-                commands.add("if [ -f " + pFile + " ]; then kill -9 $(cat " + pFile + ") 2>/dev/null; rm -f " + pFile + "; fi")
-            }
-            commands.add("rm -f " + getActiveSlotFile(u))
-        }
-
-        commands.add("rm -f " + ADB_DIR + "/running_slot")
-        if (cleanAllUsers) {
-            commands.add("killall -9 sing-box 2>/dev/null || true")
-            commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
-        } else {
-            commands.add("pkill -9 -f 'config_u" + user + "_' 2>/dev/null || true")
-        }
+        // 2. Clean canonical iptables/ip6tables/ip-rule chains in a single pass (~25 commands)
+        commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
         if (restorePrivateDns) {
             commands.add(

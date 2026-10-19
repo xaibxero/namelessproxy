@@ -50,6 +50,8 @@ object ConfigGenerator {
         val root = JSONObject()
         val rawCleanedHost = cleanHost(settings.host)
         val serverHost = resolvedServerHost?.takeIf { it.isNotBlank() } ?: rawCleanedHost
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -57,7 +59,18 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (FakeIP + Remote TCP Tunnel through Proxy)
+        // 2. Experimental Cache File (REQUIRED in sing-box 1.12+ for type:"fakeip" Store!)
+        // As documented in SagerNet/sing-box#2514 and #2572, sing-box 1.12's fakeip transport
+        // requires experimental.cache_file with store_fakeip:true to allocate & reverse-map 198.18.0.x!
+        root.put("experimental", JSONObject().apply {
+            put("cache_file", JSONObject().apply {
+                put("enabled", true)
+                put("path", "/data/adb/nameless_proxy/cache_u${user}_s${slot}.db")
+                put("store_fakeip", true)
+            })
+        })
+
+        // 3. DNS Engine (FakeIP + Remote TCP Tunnel through Proxy)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -115,8 +128,7 @@ object ConfigGenerator {
         })
 
         // Reject HTTPS & SVCB records to stop browsers from upgrading to DoH / ECH.
-        // Note: Do NOT put "AAAA" in action:"reject" so dns.strategy="ipv4_only" returns
-        // instant NOERROR (0 answers) instead of RCODE=REFUSED (which stalls Android netd).
+        // Do NOT reject AAAA here so dns.strategy="ipv4_only" returns clean NOERROR (0 answers).
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -132,7 +144,7 @@ object ConfigGenerator {
             })
             put("action", "route")
             put("server", "dns-fakeip")
-            put("rewrite_ttl", 30)
+            put("rewrite_ttl", 20)
         })
         dns.put("rules", dnsRules)
 
@@ -146,7 +158,7 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 4. Inbounds
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -189,7 +201,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds
+        // 5. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -283,7 +295,7 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 6. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -303,7 +315,7 @@ object ConfigGenerator {
 
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("timeout", "300ms")
+            put("timeout", "200ms")
         })
 
         // WebRTC & STUN leak block
