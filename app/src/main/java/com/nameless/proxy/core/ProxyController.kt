@@ -76,8 +76,6 @@ object ProxyController {
     fun extractBinaryDirectly(context: Context): Boolean {
         val targetPath = getBinaryPath()
         return try {
-            // Stream directly from app assets into the root-owned destination.
-            // Avoids cacheDir SELinux and multi-user boundary restrictions.
             val assetStream = context.assets.open("sing-box")
 
             val process = ProcessBuilder(
@@ -185,7 +183,17 @@ object ProxyController {
 
         stopProxy(context, user)
 
-        val runCmd = binaryPath + " run -c " + configPath + " > " + logFile + " 2>&1 < /dev/null & echo $! > " + pidFile + " && echo " + slot + " > " + slotFile
+        // Save active Private DNS mode and switch to 'off' so Android doesn't leak or report 'No internet'
+        val curDnsMode = executeSuWithOutput(listOf("settings get global private_dns_mode")).trim()
+        if (curDnsMode.isNotEmpty() && curDnsMode != "null") {
+            executeSu(listOf(
+                "echo '$curDnsMode' > $ADB_DIR/saved_private_dns_mode",
+                "settings put global private_dns_mode off",
+                "cmd connectivity flush-dns 2>/dev/null || true"
+            ))
+        }
+
+        val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile && echo $slot > $slotFile"
         executeSu(listOf(runCmd))
 
         var alive = false
@@ -233,6 +241,9 @@ object ProxyController {
             commands.add("rm -f " + ADB_DIR + "/running_slot")
         }
         commands.add("pkill -9 -f 'config_u" + user + "_' 2>/dev/null")
+
+        // Restore original Private DNS mode if previously saved
+        commands.add("if [ -f $ADB_DIR/saved_private_dns_mode ]; then settings put global private_dns_mode \$(cat $ADB_DIR/saved_private_dns_mode) 2>/dev/null; rm -f $ADB_DIR/saved_private_dns_mode; cmd connectivity flush-dns 2>/dev/null; fi")
 
         return executeSu(commands)
     }
