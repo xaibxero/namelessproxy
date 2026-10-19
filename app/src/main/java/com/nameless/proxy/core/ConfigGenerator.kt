@@ -78,7 +78,6 @@ object ConfigGenerator {
             put("type", "udp")
             put("server", directDnsServer)
             put("server_port", 53)
-            put("detour", "direct-out")
         })
         dns.put("servers", dnsServers)
 
@@ -114,7 +113,6 @@ object ConfigGenerator {
         }
 
         dns.put("final", "dns-remote")
-        dns.put("independent_cache", true)
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
