@@ -49,7 +49,7 @@ class BootReceiver : BroadcastReceiver() {
                 var username = slotPrefs.getString("username", "") ?: ""
                 var password = slotPrefs.getString("password", "") ?: ""
                 var sni = slotPrefs.getString("sni", "") ?: ""
-                var ssMethod = slotPrefs.getString("ss_method", "2022-blake3-aes-128-gcm") ?: "2022-blake3-aes-128-gcm"
+                var ssMethod = slotPrefs.getString("ss_method", "chacha20-ietf-poly1305") ?: "chacha20-ietf-poly1305"
                 var rpk = slotPrefs.getString("reality_pk", "") ?: ""
                 var rsid = slotPrefs.getString("reality_sid", "") ?: ""
                 var type = try { ProxyType.valueOf(slotPrefs.getString("proxy_type", ProxyType.SOCKS5.name) ?: ProxyType.SOCKS5.name) } catch (_: Exception) { ProxyType.SOCKS5 }
@@ -67,7 +67,7 @@ class BootReceiver : BroadcastReceiver() {
                         username = backup.optString("username", "")
                         password = backup.optString("password", "")
                         sni = backup.optString("sni", "")
-                        ssMethod = backup.optString("ss_method", "2022-blake3-aes-128-gcm")
+                        ssMethod = backup.optString("ss_method", "chacha20-ietf-poly1305")
                         rpk = backup.optString("reality_pk", "")
                         rsid = backup.optString("reality_sid", "")
                         type = try { ProxyType.valueOf(backup.optString("proxy_type", ProxyType.SOCKS5.name)) } catch (_: Exception) { ProxyType.SOCKS5 }
@@ -105,9 +105,12 @@ class BootReceiver : BroadcastReceiver() {
 
                 val uids = if (routeWholeProfile) null else {
                     val pm = context.packageManager
-                    pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                    val targets = pm.getInstalledApplications(PackageManager.GET_META_DATA)
                         .filter { selectedPackages.contains(it.packageName) }
                         .map { it.uid }
+                        .toMutableSet()
+                    targets.add(context.applicationInfo.uid)
+                    targets.toList()
                 }
 
                 ProfileManager.activeSlot = bootSlot

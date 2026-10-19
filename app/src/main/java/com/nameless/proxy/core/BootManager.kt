@@ -14,9 +14,9 @@ object BootManager {
             val process = ProcessBuilder("su").redirectErrorStream(true).start()
             DataOutputStream(process.outputStream).use { os ->
                 for (cmd in commands) {
-                    os.writeBytes("$cmd\n")
+                    os.write((cmd + "\n").toByteArray(Charsets.UTF_8))
                 }
-                os.writeBytes("exit\n")
+                os.write("exit\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             process.waitFor() == 0
@@ -29,8 +29,8 @@ object BootManager {
         return try {
             val process = ProcessBuilder("su").redirectErrorStream(true).start()
             DataOutputStream(process.outputStream).use { os ->
-                os.writeBytes("if [ -f $BOOT_SCRIPT ]; then echo 'EXISTS'; fi\n")
-                os.writeBytes("exit\n")
+                os.write("if [ -f $BOOT_SCRIPT ]; then echo 'EXISTS'; fi\n".toByteArray(Charsets.UTF_8))
+                os.write("exit\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             val output = process.inputStream.bufferedReader().use { it.readText() }
@@ -42,7 +42,10 @@ object BootManager {
     }
 
     fun removeBootScript(): Boolean {
-        return executeSu(listOf("rm -f $BOOT_SCRIPT"))
+        return executeSu(listOf(
+            "rm -f $BOOT_SCRIPT",
+            "if [ -f $ADB_DIR/saved_private_dns_mode ]; then settings put global private_dns_mode \$(cat $ADB_DIR/saved_private_dns_mode) 2>/dev/null; rm -f $ADB_DIR/saved_private_dns_mode; cmd connectivity flush-dns 2>/dev/null; fi"
+        ))
     }
 
     fun syncBootState(
@@ -101,12 +104,19 @@ object BootManager {
         sb.append("killall -9 sing-box 2>/dev/null\n")
         sb.append("pkill -9 -f sing-box 2>/dev/null\n\n")
 
-        sb.append("$binaryPath run -c $configPath > $logFile 2>&1 < /dev/null &\n")
+        // Private DNS handling for system boot
+        sb.append("cur_dns=\$(settings get global private_dns_mode 2>/dev/null)\n")
+        sb.append("if [ -n \"\$cur_dns\" ] && [ \"\$cur_dns\" != \"null\" ]; then\n")
+        sb.append("    echo \"\$cur_dns\" > $ADB_DIR/saved_private_dns_mode\n")
+        sb.append("    settings put global private_dns_mode off 2>/dev/null\n")
+        sb.append("    cmd connectivity flush-dns 2>/dev/null || true\n")
+        sb.append("fi\n\n")
+
+        sb.append("nohup $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null &\n")
         sb.append("PID=\$!\n")
         sb.append("echo \$PID > $pidFile\n")
         sb.append("echo $targetSlot > $ADB_DIR/running_slot\n\n")
 
-        // Use integer sleep for universal toybox/mksh compatibility
         sb.append("sleep 2\n")
         sb.append("if kill -0 \$PID 2>/dev/null; then\n")
         for (cmd in iptablesCmds) {

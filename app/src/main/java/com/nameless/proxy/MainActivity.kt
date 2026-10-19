@@ -2363,7 +2363,6 @@ private fun parseProxyUri(rawUri: String): ProxySettings? {
                         password = pass
                     )
                 } else {
-                    // Legacy SIP002 full base64 decode
                     val decoded = try {
                         String(Base64.decode(body, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
                     } catch (_: Exception) { "" }
@@ -2401,4 +2400,11 @@ private fun splitSpeedUnit(b: Long) = when {
     b >= 1024 * 1024 -> "MB/s"
     b >= 1024 -> "KB/s"
     else -> "B/s"
+}
+
+private fun formatBytes(b: Long) = when {
+    b >= 1024L * 1024L * 1024L -> String.format("%.2f GB", b / (1024.0 * 1024.0 * 1024.0))
+    b >= 1024L * 1024L -> String.format("%.1f MB", b / (1024.0 * 1024.0))
+    b >= 1024L -> String.format("%.1f KB", b / 1024.0)
+    else -> "$b B"
 }
