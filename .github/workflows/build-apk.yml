@@ -18,26 +18,21 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Fix gojo_icon.png for AAPT2
-        run: |
-          mkdir -p app/src/main/res/drawable
-          [ -f app/src/main/res/drawable/gojo_icon.png ] && \
-          java -e 'import javax.imageio.ImageIO; import java.awt.image.BufferedImage; import java.awt.Graphics2D; try { var inImg = ImageIO.read(new java.io.File("app/src/main/res/drawable/gojo_icon.png")); var outImg = new BufferedImage(inImg.getWidth(), inImg.getHeight(), BufferedImage.TYPE_INT_ARGB); Graphics2D g = outImg.createGraphics(); g.drawImage(inImg, 0, 0, null); g.dispose(); ImageIO.write(outImg, "png", new java.io.File("app/src/main/res/drawable/gojo_icon.png")); } catch(Exception e){}' || true
-
       - name: Setup Go (Latest Stable)
         uses: actions/setup-go@v5
         with:
           go-version: 'stable'
 
-      - name: Compile Pure Static sing-box Core (arm64 with QUIC & uTLS/REALITY)
+      - name: Compile Pure Static sing-box Core (arm64 Linux for Android Root)
         run: |
           mkdir -p app/src/main/assets
-          echo "Cloning latest stable sing-box..."
-          LATEST_TAG=$(git ls-remote --tags --refs --sort='version:refname' https://github.com/SagerNet/sing-box.git 'v*' | tail -n1 | sed 's/.*v//')
-          echo "Target tag: v$LATEST_TAG"
+          echo "Resolving latest stable sing-box release..."
+          LATEST_TAG=$(git ls-remote --tags --refs --sort='version:refname' https://github.com/SagerNet/sing-box.git 'v*' \
+            | grep -v -E '(alpha|beta|rc)' | tail -n1 | sed 's/.*v//')
+          echo "Target stable tag: v$LATEST_TAG"
           git clone --depth 1 --branch "v$LATEST_TAG" https://github.com/SagerNet/sing-box.git /tmp/sing-box-src
           cd /tmp/sing-box-src
-          echo "Compiling static binary for Android arm64..."
+          echo "Compiling static Linux arm64 binary for Android kernel..."
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -ldflags "-s -w -buildid=" \
             -tags "with_quic,with_utls" \
             -o /tmp/sing-box ./cmd/sing-box
@@ -54,14 +49,14 @@ jobs:
           chmod +x ./gradlew 2>/dev/null || true
           gradle assembleRelease assembleDebug --no-daemon --stacktrace
 
-      - name: Upload Release APK (Smooth 120FPS Optimized)
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: NamelessProxy-v1.1.0-Release
+          name: NamelessProxy-Release
           path: app/build/outputs/apk/release/*.apk
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: NamelessProxy-v1.1.0-Debug
+          name: NamelessProxy-Debug
           path: app/build/outputs/apk/debug/*.apk
