@@ -38,7 +38,7 @@ jobs:
           git clone --depth 1 --branch "v$LATEST_TAG" https://github.com/SagerNet/sing-box.git /tmp/sing-box-src
           cd /tmp/sing-box-src
           echo "Compiling static binary for Android arm64..."
-          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -v -trimpath -ldflags "-s -w -buildid=" \
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -ldflags "-s -w -buildid=" \
             -tags "with_quic,with_utls" \
             -o /tmp/sing-box ./cmd/sing-box
           cp /tmp/sing-box $GITHUB_WORKSPACE/app/src/main/assets/sing-box
