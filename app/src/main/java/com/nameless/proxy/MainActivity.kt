@@ -143,6 +143,18 @@ class MainActivity : ComponentActivity() {
         syncDaemonStatus()
         loadInstalledApps()
 
+        lifecycleScope.launch(Dispatchers.IO) {
+            val s0 = getSharedPreferences("nameless_slot_0", Context.MODE_PRIVATE)
+            if (s0.getString("host", "").isNullOrBlank()) {
+                val restored = PersistentStorage.autoRestoreAllFromRoot(this@MainActivity)
+                if (restored) {
+                    withContext(Dispatchers.Main) {
+                        syncDaemonStatus()
+                    }
+                }
+            }
+        }
+
         val globalPrefs = getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE)
         if (!globalPrefs.getBoolean("start_on_boot", false)) {
             lifecycleScope.launch(Dispatchers.IO) {

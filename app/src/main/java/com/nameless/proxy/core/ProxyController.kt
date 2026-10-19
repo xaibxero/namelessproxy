@@ -60,6 +60,15 @@ object ProxyController {
         }
     }
 
+    fun isBinaryExecutable(): Boolean {
+        val targetPath = getBinaryPath()
+        val check = executeSuWithOutput(listOf(
+            "if [ -x $targetPath ]; then $targetPath version 2>&1; else echo 'MISSING'; fi"
+        ))
+        // Must contain "sing-box version " and not be an error message
+        return check.contains("sing-box version") && !check.contains("No such file") && !check.contains("cannot execute")
+    }
+
     fun getRunningSlot(user: Int = ProfileManager.androidUserId): Int? {
         val slotFile = getActiveSlotFile(user)
         val legacyFile = ADB_DIR + "/running_slot"
@@ -92,8 +101,7 @@ object ProxyController {
 
             if (process.waitFor() != 0) return false
 
-            val checkVer = executeSuWithOutput(listOf("$targetPath version 2>&1"))
-            checkVer.contains("sing-box")
+            isBinaryExecutable()
         } catch (e: Exception) {
             false
         }
@@ -167,11 +175,18 @@ object ProxyController {
         val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
 
-        val testRun = executeSuWithOutput(listOf(binaryPath + " version 2>&1"))
-        if (!testRun.contains("sing-box")) {
+        // Verify that sing-box binary is present, executable, and valid
+        if (!isBinaryExecutable()) {
             val extracted = extractBinaryDirectly(context)
-            if (!extracted) {
-                return StartResult(success = false, errorMessage = "Failed to extract sing-box binary to " + ADB_DIR)
+            if (!extracted || !isBinaryExecutable()) {
+                val diag = executeSuWithOutput(listOf(
+                    "ls -la $binaryPath 2>&1",
+                    "$binaryPath version 2>&1"
+                ))
+                return StartResult(
+                    success = false,
+                    errorMessage = "sing-box binary invalid or missing at $binaryPath:\n$diag"
+                )
             }
         }
 
@@ -193,11 +208,13 @@ object ProxyController {
             ))
         }
 
-        val runCmd = "nohup $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile && echo $slot > $slotFile"
+        // Run daemon in background using POSIX subshell with SIGHUP ignored
+        // Completely avoids toybox 'nohup' applet bugs across diverse ROMs
+        val runCmd = "mkdir -p $ADB_DIR && ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) && echo $slot > $slotFile"
         executeSu(listOf(runCmd))
 
         var alive = false
-        for (attempt in 1..6) {
+        for (attempt in 1..8) {
             Thread.sleep(150)
             if (isRunning(user, slot)) {
                 alive = true
