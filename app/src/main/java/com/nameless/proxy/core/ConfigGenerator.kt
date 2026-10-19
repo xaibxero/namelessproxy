@@ -28,7 +28,7 @@ data class ProxySettings(
     val password: String = "",
     val routeHotspot: Boolean = true,
     val sni: String = "",
-    val ssMethod: String = "2022-blake3-aes-128-gcm",
+    val ssMethod: String = "chacha20-ietf-poly1305",
     val realityPublicKey: String = "",
     val realityShortId: String = ""
 )
@@ -51,7 +51,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (Official sing-box FakeIP)
+        // 2. DNS Engine (FakeIP + Strict Anti-Leak)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -82,6 +82,8 @@ object ConfigGenerator {
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
+
+        // Reject HTTPS & SVCB records to stop browsers from bypassing into DoH / ECH
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -194,7 +196,7 @@ object ConfigGenerator {
                 proxyOutbound.put("type", "shadowsocks")
                 proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("method", settings.ssMethod.ifEmpty { "2022-blake3-aes-128-gcm" })
+                proxyOutbound.put("method", settings.ssMethod.ifEmpty { "chacha20-ietf-poly1305" })
                 proxyOutbound.put("password", settings.password)
             }
             ProxyType.VLESS -> {
@@ -202,6 +204,7 @@ object ConfigGenerator {
                 proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
+                proxyOutbound.put("packet_encoding", "xudp")
                 if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
                     proxyOutbound.put("flow", "xtls-rprx-vision")
                 }
@@ -251,9 +254,9 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 5. Routing Rules (auto_detect_interface enabled for seamless Mobile & Wi-Fi handover)
         val route = JSONObject().apply {
-            put("auto_detect_interface", false)
+            put("auto_detect_interface", true)
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
@@ -269,12 +272,12 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // Standard sing-box sniff rule (No deprecated override_destination field)
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
             put("timeout", "300ms")
         })
 
+        // WebRTC & STUN leak block
         routeRules.put(JSONObject().apply {
             put("protocol", JSONArray().apply { put("stun") })
             put("action", "reject")
@@ -288,6 +291,13 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
+        // Reject DoT (853) queries inside sing-box
+        routeRules.put(JSONObject().apply {
+            put("port", JSONArray().apply { put(853) })
+            put("action", "reject")
+        })
+
+        // Reject DoH direct IP requests to known public providers
         routeRules.put(JSONObject().apply {
             put("ip_cidr", JSONArray().apply {
                 put("8.8.8.8/32")
@@ -306,6 +316,8 @@ object ConfigGenerator {
             put("port", JSONArray().apply { put(443); put(853) })
             put("action", "reject")
         })
+
+        // Reject well-known DoH bootstrap domain names
         routeRules.put(JSONObject().apply {
             put("domain", JSONArray().apply {
                 put("dns.google")
@@ -313,6 +325,8 @@ object ConfigGenerator {
                 put("cloudflare-dns.com")
                 put("one.one.one.one")
                 put("dns.quad9.net")
+                put("dns.nextdns.io")
+                put("dns.adguard-dns.com")
             })
             put("action", "reject")
         })
@@ -322,6 +336,7 @@ object ConfigGenerator {
             settings.type == ProxyType.SOCKS4 ||
             settings.type == ProxyType.HTTP
 
+        // Block QUIC UDP port 80/443 when proxy does not tunnel UDP, forcing browser to use TCP proxy
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {
