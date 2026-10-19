@@ -1,18 +1,19 @@
 package com.nameless.proxy
 
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.RuntimeShader
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.view.ViewGroup
@@ -32,16 +33,22 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -57,25 +64,28 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -91,9 +101,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.intellij.lang.annotations.Language
 import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.tanh
 
 data class AppItem(
     val name: String,
@@ -131,14 +143,16 @@ private val ProxyType.shortBadge: String
         ProxyType.HYSTERIA2 -> "HY2"
     }
 
+private fun slotLabel(slotIndex: Int): String = "P${slotIndex + 1}"
+
 // -------------------------------------------------------------
-// ZUAN KERNEL MANAGER LIQUID GLASS DESIGN SYSTEM
-// Inspired by ZUANVFX01/ZKM & Kyant0/android-liquid-glass
+// REAL iOS 26 / KYANT0 & ZUAN KERNEL MANAGER LIQUID GLASS SYSTEM
+// Hardware AGSL Shader + Interactive Squish Physics + Specular Rim
 // -------------------------------------------------------------
 
-private val ZuanDeepSpace = Color(0xFF060913)
-private val ZuanGlassBase = Color(0xB80E1628)
-private val ZuanGlassElevated = Color(0xD416223B)
+private val ZuanDeepSpace = Color(0xFF040710)
+private val ZuanGlassBase = Color(0xA60C1426)
+private val ZuanGlassElevated = Color(0xCC14203A)
 private val ZuanAqua = Color(0xFF00E5FF)
 private val ZuanSky = Color(0xFF38BDF8)
 private val ZuanMint = Color(0xFF00F5A0)
@@ -148,142 +162,308 @@ private val ZuanIndigo = Color(0xFF6366F1)
 private val ZuanAmber = Color(0xFFFFB800)
 private val ZuanRose = Color(0xFFFF3366)
 private val ZuanTextPrimary = Color(0xFFF8FAFC)
-private val ZuanTextSecondary = Color(0xFFA3B8CC)
+private val ZuanTextSecondary = Color(0xFFA5B8D0)
 private val ZuanTextMuted = Color(0xFF64748B)
 
+@Language("AGSL")
+private const val LIQUID_AURORA_AGSL = """
+    uniform float2 resolution;
+    uniform float time;
+    uniform float activeFactor;
+
+    half4 main(float2 fragCoord) {
+        float2 uv = fragCoord / max(resolution, float2(1.0, 1.0));
+        float2 p = uv * 2.0 - 1.0;
+        p.x *= resolution.x / max(resolution.y, 1.0);
+
+        // Organic fluid distortion waves
+        float w1 = sin(p.x * 2.4 + time * 0.9) * cos(p.y * 2.1 - time * 0.7);
+        float w2 = sin((p.x + p.y) * 3.1 - time * 1.1) * 0.5;
+        float w3 = cos(length(p - float2(sin(time * 0.5) * 0.4, cos(time * 0.4) * 0.4)) * 4.2 - time * 1.3);
+        float fluid = (w1 + w2 + w3) * 0.333;
+
+        // Deep space base
+        half3 baseCol = half3(0.016, 0.028, 0.065);
+        // Electric Cyan & Indigo idle aurora
+        half3 idleA = half3(0.0, 0.75, 0.98);
+        half3 idleB = half3(0.39, 0.35, 0.95);
+        // Emerald & Cyan active tunnel aurora
+        half3 actA = half3(0.0, 0.96, 0.63);
+        half3 actB = half3(0.0, 0.88, 1.0);
+
+        half3 colA = mix(idleA, actA, half(activeFactor));
+        half3 colB = mix(idleB, actB, half(activeFactor));
+
+        float2 c1 = float2(0.28 + 0.22 * cos(time * 0.6), 0.20 + 0.12 * sin(time * 0.5));
+        float2 c2 = float2(0.75 + 0.18 * sin(time * 0.45), 0.52 + 0.15 * cos(time * 0.55));
+        float2 c3 = float2(0.32 + 0.22 * sin(time * 0.35), 0.84 + 0.10 * cos(time * 0.4));
+
+        float d1 = exp(-3.6 * length(uv - c1));
+        float d2 = exp(-4.0 * length(uv - c2));
+        float d3 = exp(-4.2 * length(uv - c3));
+
+        half3 glow = colA * half(d1 * 0.34) + colB * half(d2 * 0.28) + colA * half(d3 * 0.20);
+        glow += mix(colB, colA, half(0.5 + 0.5 * fluid)) * half(max(0.0, fluid) * 0.10);
+
+        return half4( clamp(baseCol + glow, half3(0.0), half3(1.0)), 1.0 );
+    }
+"""
+
 /**
- * Zuan Kernel Manager's signature animated Liquid Mesh Background.
- * Renders 3 organic drifting plasma blobs with radial specular diffusion.
+ * Real GPU AGSL Fluid Background on Android 13+ (TIRAMISU) with multi-blob fallback for API 29-32.
  */
 @Composable
 fun ZuanLiquidMeshBackground(
     isProxyActive: Boolean,
     isTransitioning: Boolean
 ) {
-    val infinite = rememberInfiniteTransition(label = "zuanMesh")
-    val phase1 by infinite.animateFloat(
+    val infinite = rememberInfiniteTransition(label = "liquidBg")
+    val timeSec by infinite.animateFloat(
         initialValue = 0f,
-        targetValue = 6.283185f,
-        animationSpec = infiniteRepeatable(tween(14000, easing = LinearEasing)),
-        label = "p1"
+        targetValue = 62.83185f,
+        animationSpec = infiniteRepeatable(tween(60000, easing = LinearEasing)),
+        label = "shaderTime"
     )
-    val phase2 by infinite.animateFloat(
-        initialValue = 6.283185f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(19000, easing = LinearEasing)),
-        label = "p2"
-    )
-
-    val blobPrimary by animateColorAsState(
-        targetValue = when {
-            isTransitioning -> ZuanAmber
-            isProxyActive -> ZuanMint
-            else -> ZuanIndigo
-        },
-        animationSpec = tween(800),
-        label = "blob1"
-    )
-    val blobSecondary by animateColorAsState(
-        targetValue = when {
-            isTransitioning -> ZuanRose
-            isProxyActive -> ZuanAqua
-            else -> ZuanViolet
-        },
-        animationSpec = tween(800),
-        label = "blob2"
-    )
-    val blobTertiary by animateColorAsState(
-        targetValue = if (isProxyActive) ZuanIndigo else ZuanAqua,
-        animationSpec = tween(800),
-        label = "blob3"
+    val activeFactor by animateFloatAsState(
+        targetValue = if (isProxyActive) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 120f),
+        label = "activeFactor"
     )
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val shader = remember { RuntimeShader(LIQUID_AURORA_AGSL) }
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            shader.setFloatUniform("resolution", size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f))
+            shader.setFloatUniform("time", timeSec)
+            shader.setFloatUniform("activeFactor", activeFactor)
+            drawRect(brush = ShaderBrush(shader))
+        }
+    } else {
+        val blobPrimary by animateColorAsState(
+            targetValue = when {
+                isTransitioning -> ZuanAmber
+                isProxyActive -> ZuanMint
+                else -> ZuanIndigo
+            },
+            animationSpec = tween(700),
+            label = "b1"
+        )
+        val blobSecondary by animateColorAsState(
+            targetValue = when {
+                isTransitioning -> ZuanRose
+                isProxyActive -> ZuanAqua
+                else -> ZuanViolet
+            },
+            animationSpec = tween(700),
+            label = "b2"
+        )
 
-        val c1 = Offset(
-            x = w * (0.28f + 0.22f * cos(phase1)),
-            y = h * (0.18f + 0.10f * sin(phase1))
-        )
-        val c2 = Offset(
-            x = w * (0.76f + 0.18f * sin(phase2)),
-            y = h * (0.48f + 0.12f * cos(phase2))
-        )
-        val c3 = Offset(
-            x = w * (0.35f + 0.24f * sin(phase1 * 0.7f)),
-            y = h * (0.82f + 0.08f * cos(phase2 * 0.7f))
-        )
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(blobPrimary.copy(alpha = 0.22f), Color.Transparent),
-                center = c1,
-                radius = w * 0.78f
-            ),
-            radius = w * 0.78f,
-            center = c1
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(blobSecondary.copy(alpha = 0.18f), Color.Transparent),
-                center = c2,
-                radius = w * 0.72f
-            ),
-            radius = w * 0.72f,
-            center = c2
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(blobTertiary.copy(alpha = 0.14f), Color.Transparent),
-                center = c3,
-                radius = w * 0.68f
-            ),
-            radius = w * 0.68f,
-            center = c3
-        )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val c1 = Offset(w * (0.28f + 0.20f * cos(timeSec * 0.5f)), h * (0.18f + 0.10f * sin(timeSec * 0.5f)))
+            val c2 = Offset(w * (0.76f + 0.18f * sin(timeSec * 0.4f)), h * (0.50f + 0.12f * cos(timeSec * 0.4f)))
+            drawCircle(
+                brush = Brush.radialGradient(listOf(blobPrimary.copy(alpha = 0.25f), Color.Transparent), c1, w * 0.8f),
+                radius = w * 0.8f,
+                center = c1
+            )
+            drawCircle(
+                brush = Brush.radialGradient(listOf(blobSecondary.copy(alpha = 0.20f), Color.Transparent), c2, w * 0.75f),
+                radius = w * 0.75f,
+                center = c2
+            )
+        }
     }
 }
 
 /**
- * Zuan Liquid Glass Surface Card with diagonal specular rim lighting,
- * translucent frosted fill, and top-edge inner refraction highlight.
+ * Kyant0 AndroidLiquidGlass + iOS 26 Interactive Liquid Squish & Refractive Highlight Modifier.
+ * Applies:
+ * - Bouncy spring scale expansion on press (like a real iOS 26 liquid lens droplet)
+ * - Elastic tanh displacement following pointer drag
+ * - Interactive radial specular refraction spotlight following the finger position
+ */
+@Composable
+fun Modifier.liquidInteractive(
+    enabled: Boolean = true,
+    pressScale: Float = 1.032f,
+    highlightColor: Color = ZuanAqua,
+    onClick: (() -> Unit)? = null
+): Modifier {
+    var isPressed by remember { mutableStateOf(false) }
+    var touchPos by remember { mutableStateOf(Offset.Unspecified) }
+    var dragDelta by remember { mutableStateOf(Offset.Zero) }
+
+    val pressProgress by animateFloatAsState(
+        targetValue = if (isPressed && enabled) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.52f, stiffness = 420f),
+        label = "liquidPress"
+    )
+    val animDragX by animateFloatAsState(
+        targetValue = if (isPressed) 10f * tanh(0.04f * dragDelta.x / 10f) else 0f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 380f),
+        label = "dragX"
+    )
+    val animDragY by animateFloatAsState(
+        targetValue = if (isPressed) 10f * tanh(0.04f * dragDelta.y / 10f) else 0f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 380f),
+        label = "dragY"
+    )
+
+    val pointerMod = if (enabled) {
+        Modifier.pointerInput(onClick) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                isPressed = true
+                touchPos = down.position
+                val startPos = down.position
+                dragDelta = Offset.Zero
+                var upOrCancelled = false
+                while (!upOrCancelled) {
+                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull()
+                    if (change == null || !change.pressed) {
+                        upOrCancelled = true
+                    } else {
+                        touchPos = change.position
+                        dragDelta = change.position - startPos
+                    }
+                }
+                isPressed = false
+                dragDelta = Offset.Zero
+            }
+        }
+    } else Modifier
+
+    val clickMod = if (onClick != null && enabled) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick
+        )
+    } else Modifier
+
+    return this
+        .graphicsLayer {
+            val s = 1f + (pressScale - 1f) * pressProgress
+            scaleX = s + (kotlin.math.abs(animDragX) * 0.0025f)
+            scaleY = s - (kotlin.math.abs(animDragX) * 0.0012f)
+            translationX = animDragX
+            translationY = animDragY
+        }
+        .then(pointerMod)
+        .then(clickMod)
+        .drawWithContent {
+            drawContent()
+            if (pressProgress > 0.01f) {
+                val center = if (touchPos != Offset.Unspecified) touchPos else Offset(size.width / 2f, size.height / 2f)
+                val radius = size.maxDimension * 0.75f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.20f * pressProgress),
+                            highlightColor.copy(alpha = 0.12f * pressProgress),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = radius.coerceAtLeast(1f)
+                    ),
+                    radius = radius.coerceAtLeast(1f),
+                    center = center
+                )
+            }
+        }
+}
+
+/**
+ * Real iOS 26 / Zuan Kernel Manager Liquid Glass Card:
+ * - Translucent deep refractive glass fill
+ * - Chromatic dispersion top-left to bottom-right tint
+ * - Top curved meniscus inner light bar
+ * - Dual-stop specular rim border
+ * - Interactive Kyant0 liquid squish physics
  */
 @Composable
 fun ZuanLiquidGlassCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 26.dp,
-    glowColor: Color? = null,
+    cornerRadius: Dp = 24.dp,
+    accentGlow: Color = ZuanAqua,
+    isHighlighted: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    val rimTopLeft = glowColor?.copy(alpha = 0.62f) ?: Color.White.copy(alpha = 0.34f)
-    val rimMid = glowColor?.copy(alpha = 0.22f) ?: Color.White.copy(alpha = 0.10f)
-    val rimBottomRight = glowColor?.copy(alpha = 0.35f) ?: Color.White.copy(alpha = 0.05f)
+    val rimBrush = Brush.linearGradient(
+        colors = if (isHighlighted) {
+            listOf(
+                Color.White.copy(alpha = 0.65f),
+                accentGlow.copy(alpha = 0.55f),
+                ZuanIndigo.copy(alpha = 0.25f),
+                accentGlow.copy(alpha = 0.35f)
+            )
+        } else {
+            listOf(
+                Color.White.copy(alpha = 0.38f),
+                accentGlow.copy(alpha = 0.22f),
+                Color.White.copy(alpha = 0.06f),
+                Color.White.copy(alpha = 0.16f)
+            )
+        }
+    )
+
+    val surfaceBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xD8131E36),
+            Color(0xB80B1222),
+            Color(0xCC0F182D)
+        )
+    )
 
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(ZuanGlassBase)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.09f),
-                        if (glowColor != null) glowColor.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.02f),
-                        Color.Black.copy(alpha = 0.18f)
-                    )
-                )
+            .liquidInteractive(
+                enabled = true,
+                pressScale = if (onClick != null) 1.028f else 1.012f,
+                highlightColor = accentGlow,
+                onClick = onClick
             )
-            .border(
-                width = 1.2.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(rimTopLeft, rimMid, rimBottomRight),
-                    start = Offset(0f, 0f),
-                    end = Offset(900f, 900f)
+            .clip(shape)
+            .background(brush = surfaceBrush, shape = shape)
+            .background(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        accentGlow.copy(alpha = if (isHighlighted) 0.16f else 0.07f),
+                        Color.Transparent
+                    ),
+                    center = Offset(120f, 60f),
+                    radius = 520f
                 ),
                 shape = shape
             )
+            .border(width = 1.2.dp, brush = rimBrush, shape = shape)
+            .drawWithContent {
+                drawContent()
+                // iOS 26 top curved meniscus specular reflection line
+                val inset = cornerRadius.toPx() * 0.65f
+                if (size.width > inset * 2) {
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.White.copy(alpha = if (isHighlighted) 0.55f else 0.32f),
+                                accentGlow.copy(alpha = if (isHighlighted) 0.45f else 0.20f),
+                                Color.Transparent
+                            )
+                        ),
+                        start = Offset(inset, 1.5.dp.toPx()),
+                        end = Offset(size.width - inset, 1.5.dp.toPx()),
+                        strokeWidth = 1.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
     ) {
         Column(
             modifier = Modifier
@@ -294,352 +474,125 @@ fun ZuanLiquidGlassCard(
     }
 }
 
-/**
- * Zuan Squircle Icon Badge used in Bento cards and list headers.
- */
-@Composable
-fun ZuanIconBadge(
-    icon: IconType,
-    accent: Color,
-    size: Dp = 38.dp,
-    iconSize: Dp = 19.dp
-) {
-    val shape = RoundedCornerShape(13.dp)
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(accent.copy(alpha = 0.26f), accent.copy(alpha = 0.08f))
-                )
-            )
-            .border(
-                1.dp,
-                Brush.linearGradient(
-                    colors = listOf(accent.copy(alpha = 0.65f), accent.copy(alpha = 0.15f))
-                ),
-                shape
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        VectorIcon(type = icon, size = iconSize, tint = accent)
-    }
-}
+// -------------------------------------------------------------
+// CRISP VECTOR ICON ENGINE
+// -------------------------------------------------------------
 
 enum class IconType {
-    POWER, BOLT, SHIELD, GLOBE, SLIDERS, HUB, TERMINAL,
-    WIFI, CELLULAR, HOTSPOT, ROCKET, COPY, PASTE, REFRESH,
-    TRASH, DOWN_ARROW, UP_ARROW, EXPORT, IMPORT, APPS,
-    SEARCH, EYE, EYE_OFF, PLAY, PAUSE, CHECK, SERVER, PORT, USER, KEY
+    POWER, SHIELD, GLOBE, SERVER, APPS, TERMINAL, ROCKET, HOTSPOT,
+    PASTE, BOLT, REFRESH, TRASH, CHECK, COPY, EYE, EYE_OFF,
+    DOWNLOAD, UPLOAD, WIFI, CELLULAR, SLIDERS, LOCK, PORT, USER, KEY
 }
 
 @Composable
 fun VectorIcon(
     type: IconType,
     modifier: Modifier = Modifier,
-    size: Dp = 20.dp,
+    size: Dp = 18.dp,
     tint: Color = ZuanTextPrimary,
-    strokeWidth: Float = 2.0f
+    strokeWidth: Float = 2.1f
 ) {
     Canvas(modifier = modifier.size(size)) {
         val w = this.size.width
         val h = this.size.height
-        val sw = strokeWidth.dp.toPx()
-        val stroke = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val s = Stroke(width = strokeWidth.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
 
         when (type) {
             IconType.POWER -> {
+                drawLine(tint, Offset(w * 0.5f, h * 0.14f), Offset(w * 0.5f, h * 0.48f), strokeWidth = strokeWidth.dp.toPx(), cap = StrokeCap.Round)
                 drawArc(
                     color = tint,
                     startAngle = -55f,
                     sweepAngle = 290f,
                     useCenter = false,
-                    topLeft = Offset(w * 0.16f, h * 0.18f),
-                    size = Size(w * 0.68f, h * 0.68f),
-                    style = stroke
+                    topLeft = Offset(w * 0.18f, h * 0.20f),
+                    size = Size(w * 0.64f, h * 0.64f),
+                    style = s
                 )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.5f, h * 0.10f),
-                    end = Offset(w * 0.5f, h * 0.48f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round
-                )
-            }
-            IconType.BOLT -> {
-                val p = Path().apply {
-                    moveTo(w * 0.55f, h * 0.08f)
-                    lineTo(w * 0.20f, h * 0.54f)
-                    lineTo(w * 0.48f, h * 0.54f)
-                    lineTo(w * 0.40f, h * 0.92f)
-                    lineTo(w * 0.80f, h * 0.44f)
-                    lineTo(w * 0.52f, h * 0.44f)
-                    close()
-                }
-                drawPath(p, color = tint)
             }
             IconType.SHIELD -> {
                 val p = Path().apply {
-                    moveTo(w * 0.5f, h * 0.10f)
-                    lineTo(w * 0.84f, h * 0.24f)
-                    lineTo(w * 0.84f, h * 0.52f)
-                    cubicTo(w * 0.84f, h * 0.74f, w * 0.5f, h * 0.90f, w * 0.5f, h * 0.90f)
-                    cubicTo(w * 0.5f, h * 0.90f, w * 0.16f, h * 0.74f, w * 0.16f, h * 0.52f)
-                    lineTo(w * 0.16f, h * 0.24f)
+                    moveTo(w * 0.5f, h * 0.12f)
+                    lineTo(w * 0.84f, h * 0.26f)
+                    cubicTo(w * 0.84f, h * 0.58f, w * 0.72f, h * 0.76f, w * 0.5f, h * 0.88f)
+                    cubicTo(w * 0.28f, h * 0.76f, w * 0.16f, h * 0.58f, w * 0.16f, h * 0.26f)
                     close()
                 }
-                drawPath(p, color = tint, style = stroke)
-                val check = Path().apply {
+                drawPath(p, tint, style = s)
+                val ck = Path().apply {
                     moveTo(w * 0.36f, h * 0.50f)
                     lineTo(w * 0.46f, h * 0.60f)
                     lineTo(w * 0.66f, h * 0.40f)
                 }
-                drawPath(check, color = tint, style = stroke)
+                drawPath(ck, tint, style = s)
             }
             IconType.GLOBE -> {
-                drawCircle(color = tint, radius = w * 0.38f, style = stroke)
-                drawLine(tint, Offset(w * 0.12f, h * 0.5f), Offset(w * 0.88f, h * 0.5f), sw)
-                drawOval(
-                    color = tint,
-                    topLeft = Offset(w * 0.31f, h * 0.12f),
-                    size = Size(w * 0.38f, h * 0.76f),
-                    style = stroke
-                )
+                drawCircle(tint, radius = w * 0.38f, center = Offset(w * 0.5f, h * 0.5f), style = s)
+                drawOval(tint, topLeft = Offset(w * 0.31f, h * 0.12f), size = Size(w * 0.38f, h * 0.76f), style = s)
+                drawLine(tint, Offset(w * 0.14f, h * 0.5f), Offset(w * 0.86f, h * 0.5f), strokeWidth = s.width)
             }
-            IconType.SLIDERS -> {
-                drawLine(tint, Offset(w * 0.16f, h * 0.28f), Offset(w * 0.84f, h * 0.28f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.16f, h * 0.50f), Offset(w * 0.84f, h * 0.50f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.16f, h * 0.72f), Offset(w * 0.84f, h * 0.72f), sw, StrokeCap.Round)
-                drawCircle(ZuanDeepSpace, radius = w * 0.11f, center = Offset(w * 0.36f, h * 0.28f))
-                drawCircle(tint, radius = w * 0.11f, center = Offset(w * 0.36f, h * 0.28f), style = stroke)
-                drawCircle(ZuanDeepSpace, radius = w * 0.11f, center = Offset(w * 0.66f, h * 0.50f))
-                drawCircle(tint, radius = w * 0.11f, center = Offset(w * 0.66f, h * 0.50f), style = stroke)
-                drawCircle(ZuanDeepSpace, radius = w * 0.11f, center = Offset(w * 0.42f, h * 0.72f))
-                drawCircle(tint, radius = w * 0.11f, center = Offset(w * 0.42f, h * 0.72f), style = stroke)
+            IconType.SERVER -> {
+                drawRoundRect(tint, Offset(w * 0.16f, h * 0.18f), Size(w * 0.68f, h * 0.26f), CornerRadius(w * 0.08f), style = s)
+                drawRoundRect(tint, Offset(w * 0.16f, h * 0.56f), Size(w * 0.68f, h * 0.26f), CornerRadius(w * 0.08f), style = s)
+                drawCircle(tint, radius = w * 0.045f, center = Offset(w * 0.30f, h * 0.31f))
+                drawCircle(tint, radius = w * 0.045f, center = Offset(w * 0.30f, h * 0.69f))
             }
-            IconType.HUB -> {
-                val c = Offset(w * 0.5f, h * 0.5f)
-                val p1 = Offset(w * 0.22f, h * 0.24f)
-                val p2 = Offset(w * 0.78f, h * 0.24f)
-                val p3 = Offset(w * 0.22f, h * 0.76f)
-                val p4 = Offset(w * 0.78f, h * 0.76f)
-                drawLine(tint, c, p1, sw * 0.85f)
-                drawLine(tint, c, p2, sw * 0.85f)
-                drawLine(tint, c, p3, sw * 0.85f)
-                drawLine(tint, c, p4, sw * 0.85f)
-                drawCircle(tint, radius = w * 0.13f, center = c)
-                drawCircle(tint, radius = w * 0.09f, center = p1)
-                drawCircle(tint, radius = w * 0.09f, center = p2)
-                drawCircle(tint, radius = w * 0.09f, center = p3)
-                drawCircle(tint, radius = w * 0.09f, center = p4)
+            IconType.APPS -> {
+                val r = CornerRadius(w * 0.07f)
+                val b = w * 0.28f
+                drawRoundRect(tint, Offset(w * 0.16f, h * 0.16f), Size(b, b), r, style = s)
+                drawRoundRect(tint, Offset(w * 0.56f, h * 0.16f), Size(b, b), r, style = s)
+                drawRoundRect(tint, Offset(w * 0.16f, h * 0.56f), Size(b, b), r, style = s)
+                drawRoundRect(tint, Offset(w * 0.56f, h * 0.56f), Size(b, b), r, style = s)
             }
             IconType.TERMINAL -> {
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.12f, h * 0.16f),
-                    size = Size(w * 0.76f, h * 0.68f),
-                    cornerRadius = CornerRadius(w * 0.14f, w * 0.14f),
-                    style = stroke
-                )
+                drawRoundRect(tint, Offset(w * 0.12f, h * 0.18f), Size(w * 0.76f, h * 0.64f), CornerRadius(w * 0.10f), style = s)
                 val p = Path().apply {
-                    moveTo(w * 0.28f, h * 0.38f)
-                    lineTo(w * 0.42f, h * 0.50f)
-                    lineTo(w * 0.28f, h * 0.62f)
+                    moveTo(w * 0.26f, h * 0.38f)
+                    lineTo(w * 0.40f, h * 0.50f)
+                    lineTo(w * 0.26f, h * 0.62f)
                 }
-                drawPath(p, tint, style = stroke)
-                drawLine(tint, Offset(w * 0.48f, h * 0.62f), Offset(w * 0.68f, h * 0.62f), sw, StrokeCap.Round)
-            }
-            IconType.WIFI -> {
-                drawArc(tint, -135f, 90f, false, Offset(w * 0.10f, h * 0.20f), Size(w * 0.80f, h * 0.80f), style = stroke)
-                drawArc(tint, -135f, 90f, false, Offset(w * 0.24f, h * 0.38f), Size(w * 0.52f, h * 0.52f), style = stroke)
-                drawCircle(tint, radius = w * 0.08f, center = Offset(w * 0.5f, h * 0.76f))
-            }
-            IconType.CELLULAR -> {
-                val barW = w * 0.11f
-                val xs = listOf(0.18f, 0.36f, 0.54f, 0.72f)
-                val hs = listOf(0.28f, 0.44f, 0.60f, 0.76f)
-                for (i in 0..3) {
-                    val bh = h * hs[i]
-                    drawRoundRect(
-                        color = tint,
-                        topLeft = Offset(w * xs[i], h * 0.84f - bh),
-                        size = Size(barW, bh),
-                        cornerRadius = CornerRadius(barW * 0.4f, barW * 0.4f)
-                    )
-                }
-            }
-            IconType.HOTSPOT -> {
-                drawCircle(tint, radius = w * 0.11f, center = Offset(w * 0.5f, h * 0.54f))
-                drawArc(tint, -145f, 110f, false, Offset(w * 0.24f, h * 0.28f), Size(w * 0.52f, h * 0.52f), style = stroke)
-                drawArc(tint, -150f, 120f, false, Offset(w * 0.10f, h * 0.14f), Size(w * 0.80f, h * 0.80f), style = stroke)
-                drawLine(tint, Offset(w * 0.5f, h * 0.56f), Offset(w * 0.5f, h * 0.88f), sw, StrokeCap.Round)
+                drawPath(p, tint, style = s)
+                drawLine(tint, Offset(w * 0.48f, h * 0.62f), Offset(w * 0.66f, h * 0.62f), strokeWidth = s.width, cap = StrokeCap.Round)
             }
             IconType.ROCKET -> {
                 val p = Path().apply {
                     moveTo(w * 0.5f, h * 0.12f)
-                    cubicTo(w * 0.74f, h * 0.28f, w * 0.72f, h * 0.58f, w * 0.64f, h * 0.72f)
-                    lineTo(w * 0.36f, h * 0.72f)
-                    cubicTo(w * 0.28f, h * 0.58f, w * 0.26f, h * 0.28f, w * 0.5f, h * 0.12f)
+                    cubicTo(w * 0.74f, h * 0.28f, w * 0.74f, h * 0.56f, w * 0.64f, h * 0.74f)
+                    lineTo(w * 0.36f, h * 0.74f)
+                    cubicTo(w * 0.26f, h * 0.56f, w * 0.26f, h * 0.28f, w * 0.5f, h * 0.12f)
                     close()
                 }
-                drawPath(p, tint, style = stroke)
-                drawCircle(tint, radius = w * 0.07f, center = Offset(w * 0.5f, h * 0.44f))
-                drawLine(tint, Offset(w * 0.38f, h * 0.86f), Offset(w * 0.62f, h * 0.86f), sw, StrokeCap.Round)
+                drawPath(p, tint, style = s)
+                drawCircle(tint, radius = w * 0.07f, center = Offset(w * 0.5f, h * 0.42f))
             }
-            IconType.COPY -> {
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.30f, h * 0.28f),
-                    size = Size(w * 0.54f, h * 0.58f),
-                    cornerRadius = CornerRadius(w * 0.10f, w * 0.10f),
-                    style = stroke
-                )
-                val p = Path().apply {
-                    moveTo(w * 0.22f, h * 0.66f)
-                    lineTo(w * 0.16f, h * 0.66f)
-                    lineTo(w * 0.16f, h * 0.16f)
-                    lineTo(w * 0.64f, h * 0.16f)
-                }
-                drawPath(p, tint, style = stroke)
+            IconType.HOTSPOT -> {
+                drawCircle(tint, radius = w * 0.09f, center = Offset(w * 0.5f, h * 0.56f))
+                drawArc(tint, -145f, 110f, false, Offset(w * 0.26f, h * 0.32f), Size(w * 0.48f, h * 0.48f), style = s)
+                drawArc(tint, -145f, 110f, false, Offset(w * 0.12f, h * 0.16f), Size(w * 0.76f, h * 0.76f), style = s)
             }
             IconType.PASTE -> {
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.20f, h * 0.22f),
-                    size = Size(w * 0.60f, h * 0.66f),
-                    cornerRadius = CornerRadius(w * 0.12f, w * 0.12f),
-                    style = stroke
-                )
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.36f, h * 0.12f),
-                    size = Size(w * 0.28f, h * 0.14f),
-                    cornerRadius = CornerRadius(w * 0.06f, w * 0.06f)
-                )
-                drawLine(tint, Offset(w * 0.34f, h * 0.48f), Offset(w * 0.66f, h * 0.48f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.34f, h * 0.66f), Offset(w * 0.56f, h * 0.66f), sw, StrokeCap.Round)
+                drawRoundRect(tint, Offset(w * 0.20f, h * 0.22f), Size(w * 0.60f, h * 0.64f), CornerRadius(w * 0.08f), style = s)
+                drawRoundRect(tint, Offset(w * 0.35f, h * 0.12f), Size(w * 0.30f, h * 0.14f), CornerRadius(w * 0.04f), style = s)
             }
-            IconType.REFRESH -> {
-                drawArc(
-                    color = tint,
-                    startAngle = -30f,
-                    sweepAngle = 285f,
-                    useCenter = false,
-                    topLeft = Offset(w * 0.16f, h * 0.16f),
-                    size = Size(w * 0.68f, h * 0.68f),
-                    style = stroke
-                )
-                val arrow = Path().apply {
-                    moveTo(w * 0.64f, h * 0.14f)
-                    lineTo(w * 0.84f, h * 0.28f)
-                    lineTo(w * 0.64f, h * 0.40f)
-                }
-                drawPath(arrow, tint, style = stroke)
-            }
-            IconType.TRASH -> {
-                drawLine(tint, Offset(w * 0.18f, h * 0.24f), Offset(w * 0.82f, h * 0.24f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.38f, h * 0.14f), Offset(w * 0.62f, h * 0.14f), sw, StrokeCap.Round)
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.26f, h * 0.28f),
-                    size = Size(w * 0.48f, h * 0.58f),
-                    cornerRadius = CornerRadius(w * 0.08f, w * 0.08f),
-                    style = stroke
-                )
-            }
-            IconType.DOWN_ARROW -> {
-                drawLine(tint, Offset(w * 0.5f, h * 0.16f), Offset(w * 0.5f, h * 0.80f), sw, StrokeCap.Round)
+            IconType.BOLT -> {
                 val p = Path().apply {
-                    moveTo(w * 0.26f, h * 0.56f)
-                    lineTo(w * 0.50f, h * 0.82f)
-                    lineTo(w * 0.74f, h * 0.56f)
-                }
-                drawPath(p, tint, style = stroke)
-            }
-            IconType.UP_ARROW -> {
-                drawLine(tint, Offset(w * 0.5f, h * 0.84f), Offset(w * 0.5f, h * 0.20f), sw, StrokeCap.Round)
-                val p = Path().apply {
-                    moveTo(w * 0.26f, h * 0.44f)
-                    lineTo(w * 0.50f, h * 0.18f)
-                    lineTo(w * 0.74f, h * 0.44f)
-                }
-                drawPath(p, tint, style = stroke)
-            }
-            IconType.EXPORT -> {
-                val tray = Path().apply {
-                    moveTo(w * 0.16f, h * 0.60f)
-                    lineTo(w * 0.16f, h * 0.84f)
-                    lineTo(w * 0.84f, h * 0.84f)
-                    lineTo(w * 0.84f, h * 0.60f)
-                }
-                drawPath(tray, tint, style = stroke)
-                drawLine(tint, Offset(w * 0.5f, h * 0.64f), Offset(w * 0.5f, h * 0.16f), sw, StrokeCap.Round)
-                val head = Path().apply {
-                    moveTo(w * 0.30f, h * 0.36f)
-                    lineTo(w * 0.50f, h * 0.16f)
-                    lineTo(w * 0.70f, h * 0.36f)
-                }
-                drawPath(head, tint, style = stroke)
-            }
-            IconType.IMPORT -> {
-                val tray = Path().apply {
-                    moveTo(w * 0.16f, h * 0.60f)
-                    lineTo(w * 0.16f, h * 0.84f)
-                    lineTo(w * 0.84f, h * 0.84f)
-                    lineTo(w * 0.84f, h * 0.60f)
-                }
-                drawPath(tray, tint, style = stroke)
-                drawLine(tint, Offset(w * 0.5f, h * 0.16f), Offset(w * 0.5f, h * 0.64f), sw, StrokeCap.Round)
-                val head = Path().apply {
-                    moveTo(w * 0.30f, h * 0.44f)
-                    lineTo(w * 0.50f, h * 0.64f)
-                    lineTo(w * 0.70f, h * 0.44f)
-                }
-                drawPath(head, tint, style = stroke)
-            }
-            IconType.APPS -> {
-                val r = CornerRadius(w * 0.08f, w * 0.08f)
-                val s = Size(w * 0.32f, h * 0.32f)
-                drawRoundRect(tint, Offset(w * 0.14f, h * 0.14f), s, r, style = stroke)
-                drawRoundRect(tint, Offset(w * 0.54f, h * 0.14f), s, r, style = stroke)
-                drawRoundRect(tint, Offset(w * 0.14f, h * 0.54f), s, r, style = stroke)
-                drawRoundRect(tint, Offset(w * 0.54f, h * 0.54f), s, r, style = stroke)
-            }
-            IconType.SEARCH -> {
-                drawCircle(tint, radius = w * 0.28f, center = Offset(w * 0.44f, h * 0.44f), style = stroke)
-                drawLine(tint, Offset(w * 0.65f, h * 0.65f), Offset(w * 0.86f, h * 0.86f), sw, StrokeCap.Round)
-            }
-            IconType.EYE -> {
-                val p = Path().apply {
-                    moveTo(w * 0.10f, h * 0.50f)
-                    cubicTo(w * 0.28f, h * 0.20f, w * 0.72f, h * 0.20f, w * 0.90f, h * 0.50f)
-                    cubicTo(w * 0.72f, h * 0.80f, w * 0.28f, h * 0.80f, w * 0.10f, h * 0.50f)
-                }
-                drawPath(p, tint, style = stroke)
-                drawCircle(tint, radius = w * 0.11f, center = Offset(w * 0.5f, h * 0.5f))
-            }
-            IconType.EYE_OFF -> {
-                val p = Path().apply {
-                    moveTo(w * 0.10f, h * 0.50f)
-                    cubicTo(w * 0.28f, h * 0.20f, w * 0.72f, h * 0.20f, w * 0.90f, h * 0.50f)
-                    cubicTo(w * 0.72f, h * 0.80f, w * 0.28f, h * 0.80f, w * 0.10f, h * 0.50f)
-                }
-                drawPath(p, tint, style = stroke)
-                drawLine(tint, Offset(w * 0.18f, h * 0.82f), Offset(w * 0.82f, h * 0.18f), sw, StrokeCap.Round)
-            }
-            IconType.PLAY -> {
-                val p = Path().apply {
-                    moveTo(w * 0.28f, h * 0.20f)
-                    lineTo(w * 0.78f, h * 0.50f)
-                    lineTo(w * 0.28f, h * 0.80f)
+                    moveTo(w * 0.56f, h * 0.12f)
+                    lineTo(w * 0.24f, h * 0.52f)
+                    lineTo(w * 0.48f, h * 0.52f)
+                    lineTo(w * 0.42f, h * 0.88f)
+                    lineTo(w * 0.76f, h * 0.46f)
+                    lineTo(w * 0.52f, h * 0.46f)
                     close()
                 }
-                drawPath(p, tint)
+                drawPath(p, tint, style = s)
             }
-            IconType.PAUSE -> {
-                drawLine(tint, Offset(w * 0.34f, h * 0.22f), Offset(w * 0.34f, h * 0.78f), sw * 1.3f, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.66f, h * 0.22f), Offset(w * 0.66f, h * 0.78f), sw * 1.3f, StrokeCap.Round)
+            IconType.REFRESH -> {
+                drawArc(tint, -60f, 285f, false, Offset(w * 0.18f, h * 0.18f), Size(w * 0.64f, h * 0.64f), style = s)
+            }
+            IconType.TRASH -> {
+                drawLine(tint, Offset(w * 0.18f, h * 0.26f), Offset(w * 0.82f, h * 0.26f), strokeWidth = s.width, cap = StrokeCap.Round)
+                drawRoundRect(tint, Offset(w * 0.26f, h * 0.26f), Size(w * 0.48f, h * 0.60f), CornerRadius(w * 0.06f), style = s)
             }
             IconType.CHECK -> {
                 val p = Path().apply {
@@ -647,42 +600,220 @@ fun VectorIcon(
                     lineTo(w * 0.42f, h * 0.74f)
                     lineTo(w * 0.82f, h * 0.28f)
                 }
-                drawPath(p, tint, style = stroke)
+                drawPath(p, tint, style = s)
             }
-            IconType.SERVER -> {
-                drawRoundRect(tint, Offset(w * 0.14f, h * 0.18f), Size(w * 0.72f, h * 0.26f), CornerRadius(w * 0.08f, w * 0.08f), style = stroke)
-                drawRoundRect(tint, Offset(w * 0.14f, h * 0.56f), Size(w * 0.72f, h * 0.26f), CornerRadius(w * 0.08f, w * 0.08f), style = stroke)
-                drawCircle(tint, radius = w * 0.05f, center = Offset(w * 0.28f, h * 0.31f))
-                drawCircle(tint, radius = w * 0.05f, center = Offset(w * 0.28f, h * 0.69f))
+            IconType.COPY -> {
+                drawRoundRect(tint, Offset(w * 0.32f, h * 0.30f), Size(w * 0.50f, h * 0.54f), CornerRadius(w * 0.07f), style = s)
+                drawRoundRect(tint, Offset(w * 0.18f, h * 0.16f), Size(w * 0.48f, h * 0.52f), CornerRadius(w * 0.07f), style = s)
+            }
+            IconType.EYE -> {
+                drawOval(tint, Offset(w * 0.14f, h * 0.28f), Size(w * 0.72f, h * 0.44f), style = s)
+                drawCircle(tint, radius = w * 0.11f, center = Offset(w * 0.5f, h * 0.5f))
+            }
+            IconType.EYE_OFF -> {
+                drawOval(tint, Offset(w * 0.14f, h * 0.28f), Size(w * 0.72f, h * 0.44f), style = s)
+                drawLine(tint, Offset(w * 0.18f, h * 0.82f), Offset(w * 0.82f, h * 0.18f), strokeWidth = s.width, cap = StrokeCap.Round)
+            }
+            IconType.DOWNLOAD -> {
+                drawLine(tint, Offset(w * 0.5f, h * 0.18f), Offset(w * 0.5f, h * 0.76f), strokeWidth = s.width, cap = StrokeCap.Round)
+                val p = Path().apply {
+                    moveTo(w * 0.26f, h * 0.54f)
+                    lineTo(w * 0.50f, h * 0.78f)
+                    lineTo(w * 0.74f, h * 0.54f)
+                }
+                drawPath(p, tint, style = s)
+            }
+            IconType.UPLOAD -> {
+                drawLine(tint, Offset(w * 0.5f, h * 0.82f), Offset(w * 0.5f, h * 0.24f), strokeWidth = s.width, cap = StrokeCap.Round)
+                val p = Path().apply {
+                    moveTo(w * 0.26f, h * 0.46f)
+                    lineTo(w * 0.50f, h * 0.22f)
+                    lineTo(w * 0.74f, h * 0.46f)
+                }
+                drawPath(p, tint, style = s)
+            }
+            IconType.WIFI -> {
+                drawArc(tint, -135f, 90f, false, Offset(w * 0.14f, h * 0.24f), Size(w * 0.72f, h * 0.72f), style = s)
+                drawArc(tint, -135f, 90f, false, Offset(w * 0.28f, h * 0.42f), Size(w * 0.44f, h * 0.44f), style = s)
+                drawCircle(tint, radius = w * 0.06f, center = Offset(w * 0.5f, h * 0.76f))
+            }
+            IconType.CELLULAR -> {
+                drawLine(tint, Offset(w * 0.22f, h * 0.78f), Offset(w * 0.22f, h * 0.60f), strokeWidth = s.width * 1.2f, cap = StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.40f, h * 0.78f), Offset(w * 0.40f, h * 0.46f), strokeWidth = s.width * 1.2f, cap = StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.58f, h * 0.78f), Offset(w * 0.58f, h * 0.32f), strokeWidth = s.width * 1.2f, cap = StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.76f, h * 0.78f), Offset(w * 0.76f, h * 0.18f), strokeWidth = s.width * 1.2f, cap = StrokeCap.Round)
+            }
+            IconType.SLIDERS -> {
+                drawLine(tint, Offset(w * 0.18f, h * 0.30f), Offset(w * 0.82f, h * 0.30f), strokeWidth = s.width, cap = StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.18f, h * 0.70f), Offset(w * 0.82f, h * 0.70f), strokeWidth = s.width, cap = StrokeCap.Round)
+                drawCircle(tint, radius = w * 0.10f, center = Offset(w * 0.38f, h * 0.30f))
+                drawCircle(tint, radius = w * 0.10f, center = Offset(w * 0.64f, h * 0.70f))
+            }
+            IconType.LOCK -> {
+                drawRoundRect(tint, Offset(w * 0.22f, h * 0.44f), Size(w * 0.56f, h * 0.42f), CornerRadius(w * 0.08f), style = s)
+                drawArc(tint, 180f, 180f, false, Offset(w * 0.32f, h * 0.18f), Size(w * 0.36f, h * 0.44f), style = s)
             }
             IconType.PORT -> {
-                drawLine(tint, Offset(w * 0.36f, h * 0.18f), Offset(w * 0.28f, h * 0.82f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.68f, h * 0.18f), Offset(w * 0.60f, h * 0.82f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.18f, h * 0.38f), Offset(w * 0.82f, h * 0.38f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.18f, h * 0.62f), Offset(w * 0.82f, h * 0.62f), sw, StrokeCap.Round)
+                drawCircle(tint, radius = w * 0.34f, center = Offset(w * 0.5f, h * 0.5f), style = s)
+                drawCircle(tint, radius = w * 0.10f, center = Offset(w * 0.5f, h * 0.5f))
             }
             IconType.USER -> {
-                drawCircle(tint, radius = w * 0.18f, center = Offset(w * 0.5f, h * 0.32f), style = stroke)
-                drawArc(tint, -165f, 150f, false, Offset(w * 0.18f, h * 0.58f), Size(w * 0.64f, h * 0.50f), style = stroke)
+                drawCircle(tint, radius = w * 0.18f, center = Offset(w * 0.5f, h * 0.34f), style = s)
+                drawArc(tint, 195f, 150f, false, Offset(w * 0.20f, h * 0.56f), Size(w * 0.60f, h * 0.44f), style = s)
             }
             IconType.KEY -> {
-                drawCircle(tint, radius = w * 0.18f, center = Offset(w * 0.32f, h * 0.50f), style = stroke)
-                drawLine(tint, Offset(w * 0.50f, h * 0.50f), Offset(w * 0.86f, h * 0.50f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.74f, h * 0.50f), Offset(w * 0.74f, h * 0.68f), sw, StrokeCap.Round)
-                drawLine(tint, Offset(w * 0.86f, h * 0.50f), Offset(w * 0.86f, h * 0.64f), sw, StrokeCap.Round)
+                drawCircle(tint, radius = w * 0.18f, center = Offset(w * 0.34f, h * 0.5f), style = s)
+                drawLine(tint, Offset(w * 0.52f, h * 0.5f), Offset(w * 0.84f, h * 0.5f), strokeWidth = s.width, cap = StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.74f, h * 0.5f), Offset(w * 0.74f, h * 0.66f), strokeWidth = s.width, cap = StrokeCap.Round)
             }
         }
     }
 }
 
+@Composable
+fun ZuanIconBadge(
+    icon: IconType,
+    accent: Color,
+    size: Dp = 36.dp,
+    iconSize: Dp = 18.dp
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(accent.copy(alpha = 0.24f), accent.copy(alpha = 0.08f))
+                )
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.40f), accent.copy(alpha = 0.35f))
+                ),
+                shape = shape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        VectorIcon(icon, size = iconSize, tint = accent)
+    }
+}
+
+private fun parseProxyUri(rawInput: String): ProxySettings? {
+    val line = rawInput.trim().lines().firstOrNull { it.isNotBlank() }?.trim() ?: return null
+    return try {
+        val uri = Uri.parse(line)
+        val scheme = uri.scheme?.lowercase() ?: return null
+        when (scheme) {
+            "socks5", "socks", "socks5h" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 1080
+                val userInfo = uri.userInfo ?: ""
+                val u = userInfo.substringBefore(":", "")
+                val pw = if (userInfo.contains(":")) userInfo.substringAfter(":") else ""
+                ProxySettings(type = ProxyType.SOCKS5, host = h, port = p, username = Uri.decode(u), password = Uri.decode(pw))
+            }
+            "http", "https" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 8080
+                val userInfo = uri.userInfo ?: ""
+                val u = userInfo.substringBefore(":", "")
+                val pw = if (userInfo.contains(":")) userInfo.substringAfter(":") else ""
+                ProxySettings(type = ProxyType.HTTP, host = h, port = p, username = Uri.decode(u), password = Uri.decode(pw))
+            }
+            "vless" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 443
+                val uuid = uri.userInfo ?: ""
+                val sni = uri.getQueryParameter("sni") ?: uri.getQueryParameter("host") ?: ""
+                val pbk = uri.getQueryParameter("pbk") ?: ""
+                val sid = uri.getQueryParameter("sid") ?: ""
+                ProxySettings(type = ProxyType.VLESS, host = h, port = p, password = uuid, sni = sni, realityPublicKey = pbk, realityShortId = sid)
+            }
+            "trojan" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 443
+                val pw = uri.userInfo ?: ""
+                val sni = uri.getQueryParameter("sni") ?: ""
+                ProxySettings(type = ProxyType.TROJAN, host = h, port = p, password = Uri.decode(pw), sni = sni)
+            }
+            "hy2", "hysteria2" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 443
+                val pw = uri.userInfo ?: ""
+                val sni = uri.getQueryParameter("sni") ?: ""
+                ProxySettings(type = ProxyType.HYSTERIA2, host = h, port = p, password = Uri.decode(pw), sni = sni)
+            }
+            "ss" -> {
+                val body = line.removePrefix("ss://").substringBefore("#")
+                if (body.contains("@")) {
+                    val userPart = body.substringBefore("@")
+                    val hostPart = body.substringAfter("@")
+                    val decoded = try {
+                        String(Base64.decode(userPart, Base64.URL_SAFE or Base64.NO_WRAP or Base64.DEFAULT))
+                    } catch (_: Exception) {
+                        Uri.decode(userPart)
+                    }
+                    val method = decoded.substringBefore(":")
+                    val pass = decoded.substringAfter(":")
+                    val h = hostPart.substringBeforeLast(":")
+                    val p = hostPart.substringAfterLast(":").toIntOrNull() ?: 8388
+                    ProxySettings(type = ProxyType.SHADOWSOCKS, host = h, port = p, ssMethod = method, password = pass)
+                } else null
+            }
+            else -> null
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun formatUptime(startMs: Long): String {
+    if (startMs <= 0L) return "00:00:00"
+    val sec = ((System.currentTimeMillis() - startMs) / 1000L).coerceAtLeast(0L)
+    val h = sec / 3600
+    val m = (sec % 3600) / 60
+    val s = sec % 60
+    return String.format("%02d:%02d:%02d", h, m, s)
+}
+
+private fun formatBytes(bytes: Long): String {
+    val b = bytes.coerceAtLeast(0L)
+    return when {
+        b >= 1_073_741_824L -> String.format("%.2f GB", b / 1_073_741_824.0)
+        b >= 1_048_576L -> String.format("%.1f MB", b / 1_048_576.0)
+        b >= 1024L -> String.format("%.1f KB", b / 1024.0)
+        else -> "$b B"
+    }
+}
+
+private fun splitSpeedValue(bytesPerSec: Long): String {
+    val b = bytesPerSec.coerceAtLeast(0L)
+    return when {
+        b >= 1_048_576L -> String.format("%.2f", b / 1_048_576.0)
+        b >= 1024L -> String.format("%.1f", b / 1024.0)
+        else -> "$b"
+    }
+}
+
+private fun splitSpeedUnit(bytesPerSec: Long): String {
+    val b = bytesPerSec.coerceAtLeast(0L)
+    return when {
+        b >= 1_048_576L -> "MB/s"
+        b >= 1024L -> "KB/s"
+        else -> "B/s"
+    }
+}
+
 class MainActivity : ComponentActivity() {
 
-    private var installedApps by mutableStateOf<List<AppItem>>(emptyList())
     private var rootState by mutableStateOf(RootState.CHECKING)
     private var isProxyRunningState by mutableStateOf(false)
     private var isTransitioningState by mutableStateOf(false)
     private var runningSlotState by mutableStateOf<Int?>(null)
     private var activePidState by mutableStateOf<String?>(null)
+    private var installedApps by mutableStateOf<List<AppItem>>(emptyList())
     private var liveNetState by mutableStateOf(LiveNetworkState())
     private var handoverNonce by mutableIntStateOf(0)
 
@@ -690,34 +821,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
-
-        refreshRootStatus()
-        syncDaemonStatus()
-        loadInstalledApps()
-        registerLiveNetworkMonitor()
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val s0 = getSharedPreferences("nameless_slot_0", Context.MODE_PRIVATE)
-            if (s0.getString("host", "").isNullOrBlank()) {
-                val restored = PersistentStorage.autoRestoreAllFromRoot(this@MainActivity)
-                if (restored) {
-                    withContext(Dispatchers.Main) {
-                        syncDaemonStatus()
-                    }
-                }
-            }
-        }
-
-        val globalPrefs = getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE)
-        if (!globalPrefs.getBoolean("start_on_boot", false)) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                BootManager.removeBootScript()
-            }
-        }
 
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -726,19 +834,47 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-        setContent {
-            val scheme = darkColorScheme(
-                primary = ZuanAqua,
-                onPrimary = ZuanDeepSpace,
-                secondary = ZuanIndigo,
-                background = ZuanDeepSpace,
-                surface = ZuanGlassBase,
-                onBackground = ZuanTextPrimary,
-                onSurface = ZuanTextPrimary,
-                error = ZuanRose
-            )
+        registerNetworkHandoverWatcher()
+        probeActiveNetwork()
 
-            MaterialTheme(colorScheme = scheme) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val (state, _) = RootChecker.verifyRoot()
+            withContext(Dispatchers.Main) { rootState = state }
+
+            if (state == RootState.GRANTED) {
+                if (!ProxyController.isBinaryExecutable()) {
+                    ProxyController.extractBinaryDirectly(applicationContext)
+                }
+                val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
+                val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
+                withContext(Dispatchers.Main) {
+                    if (rSlot != null) {
+                        ProfileManager.activeSlot = rSlot
+                        runningSlotState = rSlot
+                        isProxyRunningState = true
+                        activePidState = pid
+                    } else {
+                        runningSlotState = null
+                        isProxyRunningState = false
+                        activePidState = null
+                    }
+                }
+            }
+            loadInstalledApps()
+        }
+
+        setContent {
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = ZuanAqua,
+                    secondary = ZuanMint,
+                    tertiary = ZuanIndigo,
+                    background = ZuanDeepSpace,
+                    surface = ZuanGlassBase,
+                    onBackground = ZuanTextPrimary,
+                    onSurface = ZuanTextPrimary
+                )
+            ) {
                 MainScreen(
                     rootState = rootState,
                     isProxyActive = isProxyRunningState,
@@ -751,33 +887,30 @@ class MainActivity : ComponentActivity() {
                     installedApps = installedApps,
                     onSyncStatus = { syncDaemonStatus() },
                     onStartProxy = { settings, uids, onResult ->
-                        if (isTransitioningState) return@MainScreen
                         isTransitioningState = true
                         lifecycleScope.launch(Dispatchers.IO) {
-                            val res = ProxyController.startProxy(this@MainActivity, settings, uids)
-                            val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
-                            val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
+                            val result = ProxyController.startProxy(applicationContext, settings, uids)
+                            val pid = if (result.success) ProxyController.getActivePid() else null
                             withContext(Dispatchers.Main) {
-                                isProxyRunningState = rSlot != null
-                                runningSlotState = rSlot
-                                activePidState = pid
                                 isTransitioningState = false
-                                onResult(res.success, res.errorMessage)
+                                isProxyRunningState = result.success
+                                runningSlotState = if (result.success) ProfileManager.activeSlot else null
+                                activePidState = pid
+                                onResult(result.success, result.errorMessage)
                             }
                         }
                     },
                     onStopProxy = { onResult ->
-                        if (isTransitioningState) return@MainScreen
-                        // Optimistic immediate UI response while <120ms stop completes
+                        // Optimistic instant stop (<50ms UI transition while kernel flushes in background)
                         isTransitioningState = true
                         isProxyRunningState = false
                         runningSlotState = null
                         activePidState = null
                         lifecycleScope.launch(Dispatchers.IO) {
-                            val ok = ProxyController.stopProxy(this@MainActivity)
+                            val success = ProxyController.stopProxy(applicationContext, ProfileManager.androidUserId)
                             withContext(Dispatchers.Main) {
                                 isTransitioningState = false
-                                onResult(ok)
+                                onResult(success)
                             }
                         }
                     }
@@ -788,14 +921,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            networkCallback?.let { cm.unregisterNetworkCallback(it) }
-        } catch (_: Exception) {}
+        networkCallback?.let { cb ->
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                cm.unregisterNetworkCallback(cb)
+            } catch (_: Exception) {}
+        }
     }
 
-    private fun registerLiveNetworkMonitor() {
-        probeActiveNetwork()
+    private fun registerNetworkHandoverWatcher() {
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val cb = object : ConnectivityManager.NetworkCallback() {
@@ -1219,7 +1353,7 @@ fun MainScreen(
         isFetchingIp = true
         ipFetchJob = scope.launch(Dispatchers.IO) {
             for (attempt in 1..4) {
-                delay(if (attempt == 1) 250L else 900L)
+                delay(if (attempt == 1) 200L else 850L)
                 val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId) ?: activeSlot
                 val socksPort = 10800 + (ProfileManager.androidUserId * 100) + (rSlot * 10) + 1
                 val res = IpFetcher.getPublicIpInfo(socksPort)
@@ -1270,7 +1404,7 @@ fun MainScreen(
             .fillMaxSize()
             .background(ZuanDeepSpace)
     ) {
-        // Zuan Animated Liquid Mesh Background
+        // Real GPU AGSL Fluid Background
         ZuanLiquidMeshBackground(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning
@@ -1282,12 +1416,12 @@ fun MainScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Zuan Top Enterprise Header + 5-Slot Liquid Capsule Strip
+            // Top Settled Header + Equal-Width 5-Slot Liquid Capsule Bar
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ZuanTopBar(
                     isProxyActive = isProxyActive,
@@ -1318,7 +1452,7 @@ fun MainScreen(
                 )
             }
 
-            // Main Animated Content Viewport
+            // Main Animated Content Viewport with Bouncy Spring Physics
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -1328,8 +1462,14 @@ fun MainScreen(
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
-                        (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(220)))
-                            .togetherWith(fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.96f, animationSpec = tween(150)))
+                        val forward = targetState > initialState
+                        (fadeIn(animationSpec = tween(220)) +
+                            scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f)) +
+                            slideInVertically(animationSpec = spring(dampingRatio = 0.75f, stiffness = 360f)) { if (forward) it / 14 else -it / 14 })
+                            .togetherWith(
+                                fadeOut(animationSpec = tween(150)) +
+                                    scaleOut(targetScale = 0.95f, animationSpec = tween(150))
+                            )
                     },
                     label = "zuanViewTransition"
                 ) { tabIndex ->
@@ -1379,7 +1519,7 @@ fun MainScreen(
                                 scope.launch {
                                     val res = ProxyTester.testProxy(getCurrentSettings())
                                     testLatency = when (res) {
-                                        is TestResult.Success -> "${res.latencyMs} ms • Online"
+                                        is TestResult.Success -> "${res.latencyMs} ms"
                                         is TestResult.Failure -> "Timeout"
                                     }
                                     isTesting = false
@@ -1460,7 +1600,7 @@ fun MainScreen(
                                     PersistentStorage.clearBackup(activeSlot, ProfileManager.androidUserId)
                                 }
                                 loadSlotData(activeSlot)
-                                Toast.makeText(context, "Slot P$activeSlot cleared", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Slot ${slotLabel(activeSlot)} cleared", Toast.LENGTH_SHORT).show()
                             },
                             getCurrentSettings = { getCurrentSettings() }
                         )
@@ -1566,7 +1706,7 @@ fun MainScreen(
                 }
             }
 
-            // Zuan Capsule iOS Liquid Glass Navigation Dock
+            // Zuan Capsule iOS 26 Liquid Glass Navigation Dock
             ZuanCapsuleBottomDock(
                 selectedTab = selectedTab,
                 isProxyActive = isProxyActive,
@@ -1585,42 +1725,75 @@ fun ZuanTopBar(
     liveNet: LiveNetworkState,
     onRecheckRoot: () -> Unit
 ) {
-    val rootCol by animateColorAsState(
-        targetValue = when (rootState) {
-            RootState.GRANTED -> ZuanMint
-            RootState.DENIED -> ZuanRose
-            RootState.CHECKING -> ZuanAmber
-        },
-        label = "rootColor"
+    val uid = ProfileManager.androidUserId
+    val infinite = rememberInfiniteTransition(label = "orbPulse")
+    val pulse by infinite.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse"
     )
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ZuanIconBadge(
-                icon = IconType.BOLT,
-                accent = if (isProxyActive) ZuanMint else ZuanAqua,
-                size = 42.dp,
-                iconSize = 22.dp
-            )
-            Spacer(modifier = Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .graphicsLayer {
+                        scaleX = if (isProxyActive) pulse else 1f
+                        scaleY = if (isProxyActive) pulse else 1f
+                    }
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = if (isProxyActive) {
+                                listOf(ZuanMint.copy(alpha = 0.30f), ZuanAqua.copy(alpha = 0.14f))
+                            } else {
+                                listOf(ZuanIndigo.copy(alpha = 0.30f), ZuanAqua.copy(alpha = 0.14f))
+                            }
+                        )
+                    )
+                    .border(
+                        width = 1.2.dp,
+                        brush = Brush.linearGradient(
+                            colors = listOf(Color.White.copy(alpha = 0.50f), if (isProxyActive) ZuanMint else ZuanAqua)
+                        ),
+                        shape = RoundedCornerShape(13.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                VectorIcon(
+                    type = IconType.SHIELD,
+                    size = 19.dp,
+                    tint = if (isProxyActive) ZuanMint else ZuanAqua
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
             Column {
                 Text(
-                    text = "Nameless Proxy",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    text = "NAMELESS",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.2.sp,
                     color = ZuanTextPrimary
                 )
                 Text(
-                    text = if (isProxyActive) {
-                        "Kernel Active • Slot P${runningSlot ?: activeSlot} • User #${ProfileManager.androidUserId}"
+                    text = if (isProxyActive && runningSlot != null) {
+                        "U#$uid • ${slotLabel(runningSlot)} TUNNEL ONLINE"
                     } else {
-                        "Kernel Sing-Box • Standby • User #${ProfileManager.androidUserId}"
+                        "U#$uid • ${slotLabel(activeSlot)} STANDBY"
                     },
-                    fontSize = 11.5.sp,
+                    fontSize = 10.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
                     color = if (isProxyActive) ZuanMint else ZuanTextSecondary
                 )
             }
@@ -1630,54 +1803,62 @@ fun ZuanTopBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Live Network Capsule
+            // Live Interface Pill (Wi-Fi / Cellular)
             Row(
                 modifier = Modifier
-                    .height(34.dp)
                     .clip(CircleShape)
                     .background(ZuanGlassElevated)
-                    .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
-                    .padding(horizontal = 10.dp),
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 VectorIcon(
-                    type = if (liveNet.isWifi) IconType.WIFI else IconType.CELLULAR,
-                    size = 14.dp,
+                    type = if (liveNet.isCellular) IconType.CELLULAR else IconType.WIFI,
+                    size = 13.dp,
                     tint = ZuanAqua
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = liveNet.transportLabel,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    text = liveNet.transportLabel.uppercase(),
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     color = ZuanTextPrimary
                 )
             }
 
-            // Root Status Capsule
+            // Root / Kernel Status Pill
+            val rootOk = rootState == RootState.GRANTED
+            val rootCol = if (rootOk) ZuanMint else ZuanRose
             Row(
                 modifier = Modifier
-                    .height(34.dp)
+                    .liquidInteractive(pressScale = 1.06f, highlightColor = rootCol, onClick = onRecheckRoot)
                     .clip(CircleShape)
-                    .background(ZuanGlassElevated)
-                    .border(1.dp, rootCol.copy(alpha = 0.55f), CircleShape)
-                    .clickable { onRecheckRoot() }
-                    .padding(horizontal = 10.dp),
+                    .background(rootCol.copy(alpha = 0.14f))
+                    .border(1.dp, rootCol.copy(alpha = 0.45f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(7.dp).background(rootCol, CircleShape))
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(rootCol, CircleShape)
+                )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = if (rootState == RootState.GRANTED) "ROOT" else "NO ROOT",
-                    fontSize = 11.sp,
+                    text = if (rootOk) "ROOT" else "NO ROOT",
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = ZuanTextPrimary
+                    color = rootCol
                 )
             }
         }
     }
 }
 
+/**
+ * Settled 5-Slot Equal-Width Liquid Glass Segmented Strip (`P1`..`P5`).
+ * Uses `Modifier.weight(1f)` on every slot so layout never shifts or jumps.
+ */
 @Composable
 fun ZuanSlotCapsuleStrip(
     activeSlot: Int,
@@ -1689,95 +1870,200 @@ fun ZuanSlotCapsuleStrip(
     slotProtocolMap: Map<Int, ProxyType>,
     onSelectSlot: (Int) -> Unit
 ) {
-    Row(
+    ZuanLiquidGlassCard(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        cornerRadius = 18.dp,
+        contentPadding = PaddingValues(6.dp)
     ) {
-        (0 until ProfileManager.MAX_SLOTS).forEach { idx ->
-            val sel = idx == activeSlot
-            val run = isProxyActive && runningSlot == idx
-            val isBoot = startOnBoot && bootSlot == idx
-            val isConf = configuredSlots.contains(idx)
-            val proto = slotProtocolMap[idx]?.shortBadge ?: "SOCKS5"
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (slot in 0 until ProfileManager.MAX_SLOTS) {
+                val isSelected = slot == activeSlot
+                val isRunningThis = isProxyActive && runningSlot == slot
+                val isConfigured = configuredSlots.contains(slot)
+                val proto = slotProtocolMap[slot]?.shortBadge ?: "SOCKS5"
+                val accent = when {
+                    isRunningThis -> ZuanMint
+                    isSelected -> ZuanAqua
+                    else -> Color.Transparent
+                }
 
-            val scale by animateFloatAsState(
-                targetValue = if (sel || run) 1.03f else 0.98f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                label = "slotScale"
-            )
-            val accent = when {
-                run -> ZuanMint
-                sel -> ZuanAqua
-                isBoot -> ZuanAmber
-                else -> Color.White
-            }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .scale(scale)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        if (run) ZuanMint.copy(alpha = 0.16f)
-                        else if (sel) ZuanAqua.copy(alpha = 0.14f)
-                        else ZuanGlassBase
-                    )
-                    .border(
-                        width = if (sel || run) 1.5.dp else 1.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                accent.copy(alpha = if (sel || run) 0.75f else 0.25f),
-                                accent.copy(alpha = 0.05f)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .liquidInteractive(
+                            pressScale = 1.06f,
+                            highlightColor = if (isRunningThis) ZuanMint else ZuanAqua,
+                            onClick = { onSelectSlot(slot) }
+                        )
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(
+                            when {
+                                isRunningThis -> Brush.linearGradient(
+                                    listOf(ZuanMint.copy(alpha = 0.25f), ZuanEmerald.copy(alpha = 0.12f))
+                                )
+                                isSelected -> Brush.linearGradient(
+                                    listOf(ZuanAqua.copy(alpha = 0.22f), ZuanIndigo.copy(alpha = 0.14f))
+                                )
+                                else -> Brush.linearGradient(
+                                    listOf(Color.White.copy(alpha = 0.04f), Color.Transparent)
+                                )
+                            }
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = when {
+                                isRunningThis -> ZuanMint.copy(alpha = 0.65f)
+                                isSelected -> ZuanAqua.copy(alpha = 0.55f)
+                                else -> Color.White.copy(alpha = 0.08f)
+                            },
+                            shape = RoundedCornerShape(13.dp)
+                        )
+                        .padding(vertical = 7.dp, horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            if (isRunningThis || isConfigured) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(5.dp)
+                                        .background(
+                                            when {
+                                                isRunningThis -> ZuanMint
+                                                isSelected -> ZuanAqua
+                                                else -> ZuanTextSecondary
+                                            },
+                                            CircleShape
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = slotLabel(slot),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isSelected || isRunningThis) ZuanTextPrimary else ZuanTextSecondary
                             )
-                        ),
-                        shape = RoundedCornerShape(18.dp)
-                    )
-                    .clickable { onSelectSlot(idx) }
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                            if (startOnBoot && bootSlot == slot) {
+                                Spacer(modifier = Modifier.width(3.dp))
+                                VectorIcon(IconType.ROCKET, size = 10.dp, tint = ZuanAmber)
+                            }
+                        }
+                        Text(
+                            text = if (isConfigured) proto else "EMPTY",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                isRunningThis -> ZuanMint
+                                isSelected -> ZuanAqua
+                                else -> ZuanTextMuted
+                            },
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ZuanCapsuleBottomDock(
+    selectedTab: Int,
+    isProxyActive: Boolean,
+    onSelectTab: (Int) -> Unit
+) {
+    val tabs = listOf(
+        Triple(0, IconType.POWER, "Tunnel"),
+        Triple(1, IconType.GLOBE, "IPFighter"),
+        Triple(2, IconType.SLIDERS, "Node"),
+        Triple(3, IconType.APPS, "Routing"),
+        Triple(4, IconType.TERMINAL, "Logs")
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        ZuanLiquidGlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 26.dp,
+            accentGlow = if (isProxyActive) ZuanMint else ZuanAqua,
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                tabs.forEach { (idx, icon, label) ->
+                    val isSelected = selectedTab == idx
+                    val activeAccent = if (isProxyActive && idx == 0) ZuanMint else ZuanAqua
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
-                            .background(
-                                when {
-                                    run -> ZuanMint
-                                    isBoot -> ZuanAmber
-                                    isConf -> ZuanAqua
-                                    else -> ZuanTextMuted.copy(alpha = 0.5f)
-                                },
-                                CircleShape
+                            .weight(1f)
+                            .liquidInteractive(
+                                pressScale = 1.08f,
+                                highlightColor = activeAccent,
+                                onClick = { onSelectTab(idx) }
                             )
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = "Slot P$idx",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (run) ZuanMint else if (sel) ZuanAqua else ZuanTextPrimary
-                    )
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                if (isSelected) {
+                                    Brush.linearGradient(
+                                        listOf(
+                                            activeAccent.copy(alpha = 0.24f),
+                                            ZuanIndigo.copy(alpha = 0.16f)
+                                        )
+                                    )
+                                } else {
+                                    Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                                }
+                            )
+                            .border(
+                                width = if (isSelected) 1.dp else 0.dp,
+                                color = if (isSelected) activeAccent.copy(alpha = 0.55f) else Color.Transparent,
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            VectorIcon(
+                                type = icon,
+                                size = 18.dp,
+                                tint = if (isSelected) activeAccent else ZuanTextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                color = if (isSelected) ZuanTextPrimary else ZuanTextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = when {
-                        run -> "Active • $proto"
-                        isBoot -> "Boot • $proto"
-                        isConf -> proto
-                        else -> "Empty"
-                    },
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (run) ZuanMint else if (isBoot) ZuanAmber else ZuanTextSecondary,
-                    maxLines = 1
-                )
             }
         }
     }
 }
 
 // -------------------------------------------------------------
-// TAB 0: ZUAN LIQUID GLASS BENTO DASHBOARD
+// TAB 0: SETTLED ZUAN LIQUID GLASS DASHBOARD
 // -------------------------------------------------------------
 
 @Composable
@@ -1812,38 +2098,46 @@ fun ZuanDashboardTab(
     onPingNode: () -> Unit,
     onToggleProxy: () -> Unit
 ) {
-    val context = LocalContext.current
-    val isCurrentSlotRunning = isProxyActive && runningSlot == activeSlot
+    val isSlotRunning = isProxyActive && runningSlot == activeSlot
+    val heroAccent = when {
+        isTransitioning -> ZuanAmber
+        isSlotRunning -> ZuanMint
+        else -> ZuanAqua
+    }
 
-    val infinite = rememberInfiniteTransition(label = "zuanOrb")
-    val rot1 by infinite.animateFloat(
+    var uptimeText by remember { mutableStateOf("00:00:00") }
+    LaunchedEffect(isProxyActive, sessionStartMs) {
+        while (isActive && isProxyActive) {
+            uptimeText = formatUptime(sessionStartMs)
+            delay(1000)
+        }
+        if (!isProxyActive) uptimeText = "00:00:00"
+    }
+
+    val infinite = rememberInfiniteTransition(label = "reactorRings")
+    val ringAngleCw by infinite.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(7500, easing = LinearEasing)),
-        label = "r1"
+        animationSpec = infiniteRepeatable(tween(9000, easing = LinearEasing)),
+        label = "cw"
     )
-    val rot2 by infinite.animateFloat(
+    val ringAngleCcw by infinite.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing)),
-        label = "r2"
+        animationSpec = infiniteRepeatable(tween(13000, easing = LinearEasing)),
+        label = "ccw"
     )
-    val pulse by infinite.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "pulse"
+    val coreBreath by infinite.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "breath"
     )
 
-    val orbAccent by animateColorAsState(
-        targetValue = when {
-            isTransitioning -> ZuanAmber
-            isProxyActive -> ZuanMint
-            else -> ZuanAqua
-        },
-        animationSpec = tween(500),
-        label = "orbAcc"
-    )
+    val stunIp = remember(publicIpInfo?.ip, host, isProxyActive) {
+        if (!isProxyActive) "Standby"
+        else publicIpInfo?.ip ?: StunResponder.getExitIp().ifEmpty { host.ifEmpty { "Syncing..." } }
+    }
 
     Column(
         modifier = Modifier
@@ -1851,400 +2145,475 @@ fun ZuanDashboardTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. HERO ZUAN LIQUID GLASS TUNNEL CONTROLLER CARD
+        // 1. SETTLED HERO REACTOR & TUNNEL CONTROL CARD
         ZuanLiquidGlassCard(
             modifier = Modifier.fillMaxWidth(),
-            glowColor = if (isProxyActive) ZuanMint else ZuanAqua
+            cornerRadius = 26.dp,
+            accentGlow = heroAccent,
+            isHighlighted = isSlotRunning,
+            contentPadding = PaddingValues(18.dp)
+        ) {
+            // Top Status Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(heroAccent.copy(alpha = 0.15f))
+                        .border(1.dp, heroAccent.copy(alpha = 0.45f), CircleShape)
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(heroAccent, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = when {
+                            isTransitioning -> "SWITCHING KERNEL..."
+                            isSlotRunning -> "CONNECTED • ${slotLabel(activeSlot)}"
+                            isProxyActive && runningSlot != null -> "${slotLabel(runningSlot)} RUNNING"
+                            else -> "READY • ${slotLabel(activeSlot)}"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = heroAccent
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = uptimeText,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isProxyActive) ZuanMint else ZuanTextSecondary
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ZuanIndigo.copy(alpha = 0.22f))
+                            .border(1.dp, ZuanIndigo.copy(alpha = 0.50f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = proxyType.shortBadge,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ZuanTextPrimary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Main Symmetrical Reactor + Node Info Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = when {
+                            isTransitioning -> "Updating Netfilter..."
+                            isSlotRunning -> "Kernel Tunnel Active"
+                            else -> "Tap Reactor to Start"
+                        },
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        color = ZuanTextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (host.isNotBlank()) "$host:$port" else "No node configured — tap to setup",
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (host.isNotBlank()) ZuanAqua else ZuanAmber,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { onOpenNodeTab() }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Interface: ${liveNet.transportLabel} (${liveNet.interfaceName}) • PID: ${activePid ?: "—"}",
+                        fontSize = 11.sp,
+                        color = ZuanTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                // Interactive Liquid Glass Power Reactor Orb
+                Box(
+                    modifier = Modifier
+                        .size(86.dp)
+                        .liquidInteractive(
+                            pressScale = 1.10f,
+                            highlightColor = heroAccent,
+                            onClick = onToggleProxy
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val c = Offset(size.width / 2f, size.height / 2f)
+                        val r = size.minDimension / 2f
+
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(heroAccent.copy(alpha = 0.30f), Color.Transparent),
+                                center = c,
+                                radius = r * coreBreath
+                            ),
+                            radius = r * coreBreath,
+                            center = c
+                        )
+
+                        rotate(ringAngleCw, pivot = c) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(Color.Transparent, heroAccent, Color.White, Color.Transparent)
+                                ),
+                                startAngle = 0f,
+                                sweepAngle = 240f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * 0.90f, c.y - r * 0.90f),
+                                size = Size(r * 1.80f, r * 1.80f),
+                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+
+                        rotate(ringAngleCcw, pivot = c) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(Color.Transparent, ZuanIndigo, heroAccent.copy(alpha = 0.7f), Color.Transparent)
+                                ),
+                                startAngle = 45f,
+                                sweepAngle = 180f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * 0.74f, c.y - r * 0.74f),
+                                size = Size(r * 1.48f, r * 1.48f),
+                                style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        heroAccent.copy(alpha = 0.34f),
+                                        ZuanGlassElevated
+                                    )
+                                )
+                            )
+                            .border(1.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        VectorIcon(
+                            type = IconType.POWER,
+                            size = 24.dp,
+                            tint = Color.White,
+                            strokeWidth = 2.4f
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. SETTLED EXIT IDENTITY & WEBRTC/DNS VERIFICATION CARD
+        ZuanLiquidGlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 24.dp,
+            accentGlow = if (isProxyActive) ZuanAqua else ZuanIndigo,
+            contentPadding = PaddingValues(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(8.dp).background(orbAccent, CircleShape))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = when {
-                            isTransitioning -> "Synchronizing Kernel..."
-                            isProxyActive -> "Tunnel Active • Slot P${runningSlot ?: activeSlot}"
-                            else -> "Tunnel Standby • Slot P$activeSlot"
-                        },
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isProxyActive) ZuanMint else ZuanTextSecondary
-                    )
-                }
-
-                if (isProxyActive && sessionStartMs > 0L) {
-                    UptimeBadge(sessionStartMs)
-                } else if (activePid != null) {
-                    Text(
-                        text = "PID $activePid",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = ZuanTextSecondary
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Animated Liquid Glass Plasma Power Orb
-                Box(
-                    modifier = Modifier
-                        .size(106.dp)
-                        .clip(CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            enabled = !isTransitioning
-                        ) { onToggleProxy() },
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val w = size.width
-                        val h = size.height
-                        val c = Offset(w / 2f, h / 2f)
-
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(orbAccent.copy(alpha = 0.28f), Color.Transparent),
-                                center = c,
-                                radius = w * 0.48f * pulse
-                            ),
-                            radius = w * 0.48f * pulse,
-                            center = c
-                        )
-
-                        rotate(rot1, c) {
-                            drawCircle(
-                                color = orbAccent.copy(alpha = 0.65f),
-                                radius = w * 0.43f,
-                                style = Stroke(
-                                    width = 2.2.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 14f), 0f)
-                                )
-                            )
-                        }
-
-                        rotate(rot2, c) {
-                            drawArc(
-                                color = if (isProxyActive) ZuanAqua else ZuanViolet,
-                                startAngle = 15f,
-                                sweepAngle = 125f,
-                                useCenter = false,
-                                topLeft = Offset(w * 0.13f, h * 0.13f),
-                                size = Size(w * 0.74f, h * 0.74f),
-                                style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                            drawArc(
-                                color = if (isProxyActive) ZuanAqua else ZuanViolet,
-                                startAngle = 195f,
-                                sweepAngle = 125f,
-                                useCenter = false,
-                                topLeft = Offset(w * 0.13f, h * 0.13f),
-                                size = Size(w * 0.74f, h * 0.74f),
-                                style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-
-                        drawCircle(
-                            color = ZuanGlassElevated,
-                            radius = w * 0.30f * pulse,
-                            center = c
-                        )
-                        drawCircle(
-                            color = orbAccent,
-                            radius = w * 0.30f * pulse,
-                            center = c,
-                            style = Stroke(width = 1.8.dp.toPx())
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ZuanGlassElevated)
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = publicIpInfo?.flagEmoji ?: if (isProxyActive) "🇺🇸" else "🛡️",
+                            fontSize = 22.sp
                         )
                     }
 
-                    VectorIcon(
-                        type = if (isProxyActive) IconType.BOLT else IconType.POWER,
-                        size = 30.dp,
-                        tint = orbAccent,
-                        strokeWidth = 2.4f,
-                        modifier = Modifier.scale(pulse)
-                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = when {
+                                !isProxyActive -> "Direct Connection"
+                                isFetchingIp && publicIpInfo == null -> "Verifying Exit IP..."
+                                publicIpInfo != null -> publicIpInfo.ip
+                                else -> host.ifEmpty { "Awaiting Node" }
+                            },
+                            fontSize = 18.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ZuanTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = when {
+                                !isProxyActive -> "Start tunnel to mask IP, DNS & WebRTC"
+                                publicIpInfo != null -> {
+                                    val ispPart = if (publicIpInfo.isp.isNotBlank()) " • ${publicIpInfo.isp}" else ""
+                                    "${publicIpInfo.country}$ispPart"
+                                }
+                                else -> "Resolving exit geo-location..."
+                            },
+                            fontSize = 11.5.sp,
+                            color = ZuanTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
-
-                // Right Column: Exit Node IP, Location & Quick Actions
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isProxyActive) "EXIT NODE IP" else "CONFIGURED ENDPOINT",
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = ZuanAqua
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = when {
-                            isProxyActive && publicIpInfo != null -> "${publicIpInfo.flagEmoji} ${publicIpInfo.ip}"
-                            isProxyActive && isFetchingIp -> "Verifying Tunnel IP..."
-                            host.isNotBlank() -> "${host.trim()}:${port.trim()}"
-                            else -> "Tap to Configure P$activeSlot"
-                        },
-                        fontSize = 17.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = ZuanTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable {
-                            val ipToCopy = publicIpInfo?.ip ?: host.trim()
-                            if (ipToCopy.isNotEmpty()) {
-                                val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cb.setPrimaryClip(ClipData.newPlainText("ExitIP", ipToCopy))
-                                Toast.makeText(context, "Copied: $ipToCopy", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = when {
-                            isProxyActive && publicIpInfo != null -> buildString {
-                                append(publicIpInfo.country)
-                                if (publicIpInfo.timezone.isNotEmpty()) append(" • ${publicIpInfo.timezone}")
-                            }
-                            else -> "${proxyType.displayTitle} • ${liveNet.transportLabel} (${liveNet.interfaceName})"
-                        },
-                        fontSize = 11.5.sp,
-                        color = ZuanTextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(ZuanGlassElevated)
-                                .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
-                                .clickable { onRefreshIp() }
-                                .padding(horizontal = 11.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            VectorIcon(IconType.REFRESH, size = 13.dp, tint = ZuanAqua)
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = if (isFetchingIp) "Checking..." else "Verify IP",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ZuanTextPrimary
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(ZuanAqua.copy(alpha = 0.16f))
-                                .border(1.dp, ZuanAqua.copy(alpha = 0.55f), CircleShape)
-                                .clickable { onOpenIpFighterTab() }
-                                .padding(horizontal = 11.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            VectorIcon(IconType.GLOBE, size = 13.dp, tint = ZuanAqua)
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "IPFighter",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = ZuanAqua
-                            )
-                        }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .liquidInteractive(pressScale = 1.08f, highlightColor = ZuanAqua, onClick = onRefreshIp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(ZuanGlassElevated)
+                            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        VectorIcon(IconType.REFRESH, size = 16.dp, tint = ZuanAqua)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .liquidInteractive(pressScale = 1.08f, highlightColor = ZuanMint, onClick = onOpenIpFighterTab)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(ZuanMint.copy(alpha = 0.16f))
+                            .border(1.dp, ZuanMint.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "IPFighter",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ZuanMint
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Primary Start/Stop + Ping Buttons Row
+            // 3 Equal-Width Aligned Verification Badges (DNS / WebRTC STUN / Socket Ping)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
-                    onClick = onPingNode,
-                    enabled = !isTesting && !isTransitioning,
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = ZuanGlassElevated,
-                        contentColor = ZuanTextPrimary
-                    ),
-                    modifier = Modifier
-                        .weight(0.38f)
-                        .height(48.dp)
-                ) {
-                    VectorIcon(IconType.BOLT, size = 15.dp, tint = ZuanAqua)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = testLatency ?: "Ping P$activeSlot",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                }
-
-                Button(
-                    onClick = onToggleProxy,
-                    enabled = !isTransitioning,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isCurrentSlotRunning) ZuanRose else ZuanEmerald,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .weight(0.62f)
-                        .height(48.dp)
-                ) {
-                    VectorIcon(
-                        type = if (isCurrentSlotRunning) IconType.POWER else IconType.BOLT,
-                        size = 16.dp,
-                        tint = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = when {
-                            isTransitioning -> "Syncing..."
-                            !isProxyActive -> "Start Proxy (P$activeSlot)"
-                            isCurrentSlotRunning -> "Stop Proxy (P$activeSlot)"
-                            else -> "Switch to Slot P$activeSlot"
-                        },
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
+                ZuanMetricPill(
+                    modifier = Modifier.weight(1f),
+                    label = "DNS TUNNEL",
+                    value = if (isProxyActive) "US FakeIP" else "System",
+                    accent = if (isProxyActive) ZuanMint else ZuanTextSecondary
+                )
+                ZuanMetricPill(
+                    modifier = Modifier.weight(1f),
+                    label = "WEBRTC STUN",
+                    value = stunIp,
+                    accent = if (isProxyActive) ZuanAqua else ZuanTextSecondary
+                )
+                ZuanMetricPill(
+                    modifier = Modifier.weight(1f),
+                    label = "LATENCY",
+                    value = if (isTesting) "Probing..." else (testLatency ?: "Tap Ping"),
+                    accent = ZuanAmber,
+                    onClick = onPingNode
+                )
             }
         }
 
-        // 2. ZUAN BENTO ROW 1: LIVE DOWNLOAD & UPLOAD WAVEFORM TELEMETRY CARDS
+        // 3. LIVE BANDWIDTH SPARKLINE BENTO ROW (Equal-Width RX & TX)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ZuanBentoSpeedCard(
+            ZuanSparklineBentoCard(
                 modifier = Modifier.weight(1f),
                 title = "Download",
-                icon = IconType.DOWN_ARROW,
+                icon = IconType.DOWNLOAD,
                 rate = currentRxRate,
                 total = totalRxBytes,
                 history = rxHistory,
-                accent = ZuanMint
+                accent = ZuanAqua
             )
-            ZuanBentoSpeedCard(
+            ZuanSparklineBentoCard(
                 modifier = Modifier.weight(1f),
                 title = "Upload",
-                icon = IconType.UP_ARROW,
+                icon = IconType.UPLOAD,
                 rate = currentTxRate,
                 total = totalTxBytes,
                 history = txHistory,
-                accent = ZuanAqua
+                accent = ZuanMint
             )
         }
 
-        // 3. ZUAN BENTO ROW 2: WEBRTC/DNS SHIELD & HOTSPOT BRIDGE CARDS
+        // 4. INTERACTIVE SHIELD & HOTSPOT QUICK-TOGGLE BENTO ROW
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ZuanLiquidGlassCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onToggleWebRtc() },
-                glowColor = if (strictWebRtcShield) ZuanMint else null,
-                contentPadding = PaddingValues(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ZuanIconBadge(
-                        icon = IconType.SHIELD,
-                        accent = if (strictWebRtcShield) ZuanMint else ZuanTextSecondary,
-                        size = 34.dp,
-                        iconSize = 17.dp
-                    )
-                    Text(
-                        text = if (strictWebRtcShield) "LOCKED" else "OFF",
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (strictWebRtcShield) ZuanMint else ZuanTextSecondary
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "WebRTC & DNS Shield",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ZuanTextPrimary
-                )
-                Text(
-                    text = "Zero-Leak FIB & NAT Lock",
-                    fontSize = 11.sp,
-                    color = ZuanTextSecondary
-                )
-            }
-
-            ZuanLiquidGlassCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onToggleHotspot() },
-                glowColor = if (routeHotspot) ZuanAqua else null,
-                contentPadding = PaddingValues(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ZuanIconBadge(
-                        icon = IconType.HOTSPOT,
-                        accent = if (routeHotspot) ZuanAqua else ZuanTextSecondary,
-                        size = 34.dp,
-                        iconSize = 17.dp
-                    )
-                    Text(
-                        text = if (routeHotspot) "ACTIVE" else "OFF",
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (routeHotspot) ZuanAqua else ZuanTextSecondary
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Hotspot Bridge",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ZuanTextPrimary
-                )
-                Text(
-                    text = "Wi-Fi & USB Tethering",
-                    fontSize = 11.sp,
-                    color = ZuanTextSecondary
-                )
-            }
+            ZuanQuickToggleBento(
+                modifier = Modifier.weight(1f),
+                title = "WebRTC & DNS",
+                subtitle = if (strictWebRtcShield) "US STUN Responder" else "Standard Shield",
+                icon = IconType.SHIELD,
+                active = strictWebRtcShield,
+                accent = ZuanMint,
+                onClick = onToggleWebRtc
+            )
+            ZuanQuickToggleBento(
+                modifier = Modifier.weight(1f),
+                title = "Wi-Fi Hotspot",
+                subtitle = if (routeHotspot) "Windows STUN + TCP" else "Phone Only",
+                icon = IconType.HOTSPOT,
+                active = routeHotspot,
+                accent = ZuanAqua,
+                onClick = onToggleHotspot
+            )
         }
     }
 }
 
 @Composable
-private fun ZuanBentoSpeedCard(
+fun ZuanMetricPill(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    accent: Color,
+    onClick: (() -> Unit)? = null
+) {
+    Column(
+        modifier = modifier
+            .liquidInteractive(
+                enabled = onClick != null,
+                pressScale = 1.05f,
+                highlightColor = accent,
+                onClick = onClick
+            )
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = label,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = ZuanTextMuted,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            fontSize = 11.5.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.ExtraBold,
+            color = accent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun ZuanQuickToggleBento(
+    modifier: Modifier = Modifier,
+    title: String,
+    subtitle: String,
+    icon: IconType,
+    active: Boolean,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    ZuanLiquidGlassCard(
+        modifier = modifier,
+        cornerRadius = 22.dp,
+        accentGlow = if (active) accent else ZuanIndigo,
+        isHighlighted = active,
+        contentPadding = PaddingValues(14.dp),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ZuanIconBadge(icon = icon, accent = if (active) accent else ZuanTextSecondary, size = 34.dp, iconSize = 17.dp)
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(if (active) accent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.07f))
+                    .border(1.dp, if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.15f), CircleShape)
+                    .padding(horizontal = 9.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = if (active) "ON" else "OFF",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (active) accent else ZuanTextSecondary
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = title,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = ZuanTextPrimary,
+            maxLines = 1
+        )
+        Text(
+            text = subtitle,
+            fontSize = 11.sp,
+            color = if (active) accent else ZuanTextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun ZuanSparklineBentoCard(
     modifier: Modifier = Modifier,
     title: String,
     icon: IconType,
@@ -2255,6 +2624,8 @@ private fun ZuanBentoSpeedCard(
 ) {
     ZuanLiquidGlassCard(
         modifier = modifier,
+        cornerRadius = 22.dp,
+        accentGlow = accent,
         contentPadding = PaddingValues(14.dp)
     ) {
         Row(
@@ -2296,7 +2667,7 @@ private fun ZuanBentoSpeedCard(
         }
 
         Text(
-            text = "Session: ${formatBytes(total)}",
+            text = "Total: ${formatBytes(total)}",
             fontSize = 10.5.sp,
             color = ZuanTextSecondary
         )
@@ -2337,7 +2708,7 @@ private fun ZuanBentoSpeedCard(
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(accent.copy(alpha = 0.30f), Color.Transparent)
+                        colors = listOf(accent.copy(alpha = 0.32f), Color.Transparent)
                     )
                 )
                 drawPath(
@@ -2368,8 +2739,8 @@ fun LiveEphemeralIpFighterTab(
 
     val targets = listOf(
         Triple(IconType.GLOBE, "IPFighter", "https://ipfighter.com/"),
-        Triple(IconType.EYE_OFF, "WebRTC Test", "https://browserleaks.com/webrtc"),
-        Triple(IconType.SHIELD, "DNS Test", "https://browserleaks.com/dns")
+        Triple(IconType.SHIELD, "WebRTC Test", "https://browserleaks.com/webrtc"),
+        Triple(IconType.SERVER, "DNS Test", "https://browserleaks.com/dns")
     )
 
     val targetTz = remember(isProxyActive, publicIpInfo?.timezone, publicIpInfo?.country) {
@@ -2388,17 +2759,64 @@ fun LiveEphemeralIpFighterTab(
         }
     }
 
-    val tzSyncScript = remember(targetTz, isProxyActive) {
+    val verifiedExitIp = remember(isProxyActive, publicIpInfo?.ip) {
+        if (!isProxyActive) ""
+        else publicIpInfo?.ip ?: StunResponder.getExitIp()
+    }
+
+    // Synchronizes timezone and filters out any private RFC1918/loopback host candidates while preserving
+    // the public srflx US Proxy Exit IP candidate returned by our local RFC 5389 StunResponder!
+    val shieldScript = remember(targetTz, verifiedExitIp, isProxyActive) {
         """
         (function() {
             try {
-                if (${isProxyActive} && '$targetTz' !== '') {
+                if ($isProxyActive && '$targetTz' !== '') {
                     const origResolved = Intl.DateTimeFormat.prototype.resolvedOptions;
                     Intl.DateTimeFormat.prototype.resolvedOptions = function() {
                         const res = origResolved.call(this);
                         res.timeZone = '$targetTz';
                         return res;
                     };
+                }
+                if ($isProxyActive && window.RTCPeerConnection) {
+                    const OrigPeerConnection = window.RTCPeerConnection;
+                    const filterCand = function(candStr) {
+                        if (!candStr) return candStr;
+                        if (candStr.indexOf('typ host') !== -1 && '$verifiedExitIp' !== '') {
+                            return candStr.replace(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g, '$verifiedExitIp').replace('typ host', 'typ srflx');
+                        }
+                        return candStr;
+                    };
+                    window.RTCPeerConnection = function(config, constraints) {
+                        const pc = new OrigPeerConnection(config, constraints);
+                        const origAddEventListener = pc.addEventListener.bind(pc);
+                        pc.addEventListener = function(type, listener, options) {
+                            if (type === 'icecandidate' && typeof listener === 'function') {
+                                return origAddEventListener(type, function(ev) {
+                                    if (ev && ev.candidate && ev.candidate.candidate) {
+                                        try {
+                                            const mod = filterCand(ev.candidate.candidate);
+                                            const wrapped = Object.create(ev);
+                                            Object.defineProperty(wrapped, 'candidate', {
+                                                value: {
+                                                    candidate: mod,
+                                                    sdpMid: ev.candidate.sdpMid,
+                                                    sdpMLineIndex: ev.candidate.sdpMLineIndex,
+                                                    address: '$verifiedExitIp' || ev.candidate.address
+                                                }
+                                            });
+                                            return listener.call(this, wrapped);
+                                        } catch (e) {}
+                                    }
+                                    return listener.call(this, ev);
+                                }, options);
+                            }
+                            return origAddEventListener(type, listener, options);
+                        };
+                        return pc;
+                    };
+                    window.RTCPeerConnection.prototype = OrigPeerConnection.prototype;
+                    window.webkitRTCPeerConnection = window.RTCPeerConnection;
                 }
             } catch (e) {}
         })();
@@ -2409,95 +2827,70 @@ fun LiveEphemeralIpFighterTab(
         reloadNonce++
     }
 
-    DisposableEffect(Unit) {
-        WebStorage.getInstance().deleteAllData()
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
-        onDispose {
-            WebStorage.getInstance().deleteAllData()
-            CookieManager.getInstance().removeAllCookies(null)
-            CookieManager.getInstance().flush()
-        }
-    }
-
     ZuanLiquidGlassCard(
         modifier = Modifier.fillMaxSize(),
+        cornerRadius = 24.dp,
         contentPadding = PaddingValues(12.dp)
     ) {
+        // Equal-width 3-tab switcher + Fresh reload button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(if (isProxyActive) ZuanMint else ZuanAmber, CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isProxyActive) {
-                            "Live IPFighter • ${publicIpInfo?.ip ?: "Tunnel Active"}"
-                        } else {
-                            "Live IPFighter • Direct (${liveNet.transportLabel})"
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = ZuanTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    targets.forEachIndexed { idx, (icon, label, _) ->
-                        val sel = targetSiteIndex == idx
-                        Row(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (sel) ZuanAqua.copy(alpha = 0.18f) else ZuanGlassElevated)
-                                .border(1.dp, if (sel) ZuanAqua else Color.White.copy(alpha = 0.15f), CircleShape)
-                                .clickable {
-                                    targetSiteIndex = idx
-                                    reloadNonce++
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            VectorIcon(icon, size = 13.dp, tint = if (sel) ZuanAqua else ZuanTextSecondary)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = label,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (sel) ZuanTextPrimary else ZuanTextSecondary
-                            )
-                        }
+            targets.forEachIndexed { idx, (icon, label, _) ->
+                val sel = targetSiteIndex == idx
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .liquidInteractive(
+                            pressScale = 1.05f,
+                            highlightColor = ZuanAqua,
+                            onClick = {
+                                targetSiteIndex = idx
+                                reloadNonce++
+                            }
+                        )
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (sel) ZuanAqua.copy(alpha = 0.20f) else ZuanGlassElevated)
+                        .border(1.dp, if (sel) ZuanAqua else Color.White.copy(alpha = 0.14f), RoundedCornerShape(12.dp))
+                        .padding(vertical = 8.dp, horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        VectorIcon(icon, size = 13.dp, tint = if (sel) ZuanAqua else ZuanTextSecondary)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (sel) ZuanTextPrimary else ZuanTextSecondary,
+                            maxLines = 1
+                        )
                     }
                 }
             }
 
-            Button(
-                onClick = {
-                    WebStorage.getInstance().deleteAllData()
-                    CookieManager.getInstance().removeAllCookies(null)
-                    CookieManager.getInstance().flush()
-                    reloadNonce++
-                },
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ZuanEmerald,
-                    contentColor = Color.White
-                )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .liquidInteractive(
+                        pressScale = 1.08f,
+                        highlightColor = ZuanMint,
+                        onClick = {
+                            CookieManager.getInstance().removeAllCookies(null)
+                            CookieManager.getInstance().flush()
+                            reloadNonce++
+                        }
+                    )
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ZuanMint.copy(alpha = 0.20f))
+                    .border(1.dp, ZuanMint.copy(alpha = 0.55f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                VectorIcon(IconType.REFRESH, size = 14.dp, tint = Color.White)
-                Spacer(modifier = Modifier.width(5.dp))
-                Text("Fresh", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                VectorIcon(IconType.REFRESH, size = 15.dp, tint = ZuanMint)
             }
         }
 
@@ -2531,12 +2924,11 @@ fun LiveEphemeralIpFighterTab(
                             )
                             clearCache(true)
                             clearHistory()
-                            clearFormData()
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
-                                databaseEnabled = false
-                                cacheMode = WebSettings.LOAD_NO_CACHE
+                                databaseEnabled = true
+                                cacheMode = WebSettings.LOAD_DEFAULT
                                 setSupportZoom(true)
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
@@ -2552,13 +2944,13 @@ fun LiveEphemeralIpFighterTab(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
-                                    view?.evaluateJavascript(tzSyncScript, null)
+                                    view?.evaluateJavascript(shieldScript, null)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     loadProgress = 100
-                                    view?.evaluateJavascript(tzSyncScript, null)
+                                    view?.evaluateJavascript(shieldScript, null)
                                 }
 
                                 override fun shouldOverrideUrlLoading(
@@ -2566,20 +2958,12 @@ fun LiveEphemeralIpFighterTab(
                                     request: WebResourceRequest?
                                 ): Boolean = false
                             }
-                            val noCacheHeaders = mapOf(
-                                "Cache-Control" to "no-cache, no-store, must-revalidate",
-                                "Pragma" to "no-cache",
-                                "Expires" to "0"
-                            )
-                            loadUrl("$baseUrl?_t=${System.currentTimeMillis()}", noCacheHeaders)
+                            // Load clean URL directly so Cloudflare / IPFighter SPA router never rejects the request
+                            loadUrl(baseUrl)
                         }
                     },
                     onRelease = { wv ->
                         wv.stopLoading()
-                        wv.loadUrl("about:blank")
-                        wv.clearHistory()
-                        wv.clearCache(true)
-                        wv.removeAllViews()
                         wv.destroy()
                     }
                 )
@@ -2646,7 +3030,7 @@ fun NodeConfigTab(
                     ZuanIconBadge(icon = IconType.PASTE, accent = ZuanAqua, size = 34.dp, iconSize = 17.dp)
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text("URI Import & Socket Probe", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
+                        Text("URI Import & Socket Probe", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = ZuanTextPrimary)
                         Text("Import clipboard URI or test node latency", fontSize = 11.sp, color = ZuanTextSecondary)
                     }
                 }
@@ -2742,25 +3126,25 @@ fun NodeConfigTab(
                     ZuanIconBadge(icon = IconType.SLIDERS, accent = ZuanMint, size = 34.dp, iconSize = 17.dp)
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Slot P$activeSlot Configuration",
+                        text = "Slot ${slotLabel(activeSlot)} Configuration",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = ZuanTextPrimary
                     )
                 }
 
                 Row(
                     modifier = Modifier
+                        .liquidInteractive(pressScale = 1.06f, highlightColor = ZuanRose, onClick = onResetSlot)
                         .clip(CircleShape)
                         .background(ZuanRose.copy(alpha = 0.15f))
                         .border(1.dp, ZuanRose.copy(alpha = 0.45f), CircleShape)
-                        .clickable { onResetSlot() }
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     VectorIcon(IconType.TRASH, size = 13.dp, tint = ZuanRose)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Reset P$activeSlot", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ZuanRose)
+                    Text("Reset ${slotLabel(activeSlot)}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ZuanRose)
                 }
             }
 
@@ -3039,7 +3423,7 @@ fun RoutingAndBootTab(
                     Column {
                         Text("Auto-Start on System Boot", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
                         Text(
-                            text = if (startOnBoot) "Armed for Slot P$bootSlot (/data/adb/service.d)" else "Manual launch only",
+                            text = if (startOnBoot) "Armed for Slot ${slotLabel(bootSlot)} (/data/adb/service.d)" else "Manual launch only",
                             fontSize = 11.sp,
                             color = ZuanTextSecondary
                         )
@@ -3048,36 +3432,34 @@ fun RoutingAndBootTab(
                 Switch(
                     checked = startOnBoot,
                     onCheckedChange = onStartOnBootChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = ZuanEmerald
-                    )
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ZuanAmber)
                 )
             }
 
             AnimatedVisibility(visible = startOnBoot) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    (0 until ProfileManager.MAX_SLOTS).forEach { s ->
-                        FilterChip(
-                            selected = bootSlot == s,
-                            onClick = { onBootSlotChange(s) },
-                            label = { Text("Slot P$s", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = ZuanAmber,
-                                selectedLabelColor = ZuanDeepSpace
+                Column {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (s in 0 until ProfileManager.MAX_SLOTS) {
+                            FilterChip(
+                                selected = bootSlot == s,
+                                onClick = { onBootSlotChange(s) },
+                                label = { Text(slotLabel(s), fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = ZuanAmber,
+                                    selectedLabelColor = Color.Black
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
+        }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.10f), modifier = Modifier.padding(vertical = 12.dp))
-
+        ZuanLiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -3090,31 +3472,19 @@ fun RoutingAndBootTab(
                     ZuanIconBadge(icon = IconType.HOTSPOT, accent = ZuanAqua, size = 36.dp, iconSize = 18.dp)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text("Hotspot & Tethering Bridge", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
-                        Text("Share proxy tunnel with Wi-Fi / USB clients", fontSize = 11.sp, color = ZuanTextSecondary)
+                        Text("Wi-Fi Hotspot & USB Tethering", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
+                        Text("Routes Hotspot TCP, DNS & US STUN WebRTC", fontSize = 11.sp, color = ZuanTextSecondary)
                     }
                 }
                 Switch(
                     checked = routeHotspot,
                     onCheckedChange = onRouteHotspotChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = ZuanEmerald
-                    )
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ZuanAqua)
                 )
             }
         }
 
         ZuanLiquidGlassCard(modifier = Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ZuanIconBadge(icon = IconType.EXPORT, accent = ZuanIndigo, size = 34.dp, iconSize = 17.dp)
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text("5-Slot Config Backup", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
-                    Text("/sdcard/Download/nameless_backup.json", fontSize = 11.sp, color = ZuanTextSecondary)
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -3125,22 +3495,20 @@ fun RoutingAndBootTab(
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f))
                 ) {
-                    VectorIcon(IconType.EXPORT, size = 15.dp, tint = ZuanAqua)
+                    VectorIcon(IconType.UPLOAD, size = 15.dp, tint = ZuanAqua)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Export All", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
+                    Text("Export 5 Slots", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
                 }
+
                 Button(
                     onClick = onImportBackup,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ZuanIndigo,
-                        contentColor = Color.White
-                    )
+                    colors = ButtonDefaults.buttonColors(containerColor = ZuanIndigo, contentColor = Color.White)
                 ) {
-                    VectorIcon(IconType.IMPORT, size = 15.dp, tint = Color.White)
+                    VectorIcon(IconType.DOWNLOAD, size = 15.dp, tint = Color.White)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Import Backup", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("Import Backup", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -3158,9 +3526,9 @@ fun RoutingAndBootTab(
                     ZuanIconBadge(icon = IconType.APPS, accent = ZuanMint, size = 36.dp, iconSize = 18.dp)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text("Tunnel All Apps (User #$uid)", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
+                        Text("Route Entire User #$uid Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
                         Text(
-                            text = if (routeWholeProfile) "Global Zero-Leak Profile Lock" else "${selectedPackages.size} apps selected",
+                            text = if (routeWholeProfile) "All apps in U#$uid tunnelled" else "Per-app split tunnel (${selectedPackages.size} selected)",
                             fontSize = 11.sp,
                             color = ZuanTextSecondary
                         )
@@ -3169,79 +3537,62 @@ fun RoutingAndBootTab(
                 Switch(
                     checked = routeWholeProfile,
                     onCheckedChange = onRouteWholeProfileChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = ZuanEmerald
-                    )
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ZuanMint)
                 )
             }
 
             if (!routeWholeProfile) {
                 Spacer(modifier = Modifier.height(10.dp))
-                var query by remember { mutableStateOf("") }
-                val filtered = remember(query, installedApps, selectedPackages) {
-                    val base = if (query.isEmpty()) installedApps else installedApps.filter {
-                        it.name.contains(query, true) || it.packageName.contains(query, true)
-                    }
-                    base.sortedWith(
-                        compareByDescending<AppItem> { selectedPackages.contains(it.packageName) }
-                            .thenBy { it.name.lowercase() }
-                    )
-                }
-
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    leadingIcon = { VectorIcon(IconType.SEARCH, size = 16.dp, tint = ZuanAqua) },
-                    placeholder = { Text("Search installed apps...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    singleLine = true
-                )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("${selectedPackages.size} selected", fontSize = 11.5.sp, color = ZuanTextSecondary)
-                    Row {
-                        TextButton(onClick = onSelectAll) {
-                            Text("Select All", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ZuanAqua)
-                        }
-                        TextButton(onClick = onClearAll) {
-                            Text("Clear", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ZuanRose)
-                        }
+                    OutlinedButton(
+                        onClick = onSelectAll,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Select All", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = onClearAll,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Clear", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .height(260.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(filtered, key = { it.packageName }) { app ->
-                        val checked = selectedPackages.contains(app.packageName)
+                    items(installedApps, key = { it.packageName }) { app ->
+                        val isSelected = selectedPackages.contains(app.packageName)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) ZuanAqua.copy(alpha = 0.14f) else ZuanGlassElevated)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) ZuanAqua.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.10f),
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .clickable { onToggleApp(app.packageName) }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(app.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ZuanTextPrimary, maxLines = 1)
-                                Text("${app.packageName} • UID ${app.uid}", fontSize = 10.5.sp, color = ZuanTextSecondary, maxLines = 1)
+                                Text(app.name, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary, maxLines = 1)
+                                Text("${app.packageName} • UID ${app.uid}", fontSize = 10.sp, color = ZuanTextSecondary, maxLines = 1)
                             }
-                            Checkbox(
-                                checked = checked,
-                                onCheckedChange = { onToggleApp(app.packageName) },
-                                colors = CheckboxDefaults.colors(
-                                    checkedColor = ZuanEmerald,
-                                    checkmarkColor = Color.White
-                                )
-                            )
+                            Checkbox(checked = isSelected, onCheckedChange = { onToggleApp(app.packageName) })
                         }
                     }
                 }
@@ -3251,7 +3602,7 @@ fun RoutingAndBootTab(
 }
 
 // -------------------------------------------------------------
-// TAB 4: ZUAN LIQUID GLASS KERNEL LOGS & NETFILTER AUDIT
+// TAB 4: ZUAN LIQUID GLASS KERNEL LOGS & NETFILTER CONSOLE
 // -------------------------------------------------------------
 
 @Composable
@@ -3268,7 +3619,10 @@ fun KernelLogsTab(
 ) {
     val context = LocalContext.current
 
-    ZuanLiquidGlassCard(modifier = Modifier.fillMaxSize()) {
+    ZuanLiquidGlassCard(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(14.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -3277,46 +3631,79 @@ fun KernelLogsTab(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ZuanIconBadge(
                     icon = if (showKernelAuditMode) IconType.SHIELD else IconType.TERMINAL,
-                    accent = ZuanAqua,
+                    accent = if (showKernelAuditMode) ZuanMint else ZuanAqua,
                     size = 34.dp,
                     iconSize = 17.dp
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
-                        text = if (showKernelAuditMode) "Netfilter Rule Audit" else "Kernel Logs (Slot P${runningSlot ?: activeSlot})",
+                        text = if (showKernelAuditMode) "Kernel Netfilter Audit" else "Sing-Box Kernel Stream",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = ZuanTextPrimary
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = if (liveLogStreaming) "● Live Stream" else "○ Paused",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (liveLogStreaming) ZuanMint else ZuanTextSecondary,
-                            modifier = Modifier.clickable { onToggleLiveStream() }
-                        )
-                        Text("•", fontSize = 11.sp, color = ZuanTextMuted)
-                        Text(
-                            text = if (showKernelAuditMode) "Switch to Sing-Box Logs" else "Audit Iptables Rules",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ZuanAqua,
-                            modifier = Modifier.clickable { onToggleAuditMode() }
-                        )
-                    }
+                    Text(
+                        text = "Slot ${slotLabel(runningSlot ?: activeSlot)} • ${if (liveLogStreaming) "Live 1.4s" else "Paused"}",
+                        fontSize = 10.5.sp,
+                        color = ZuanTextSecondary
+                    )
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = {
-                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cb.setPrimaryClip(ClipData.newPlainText("SingBoxLogs", logs))
-                    Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
-                }) { Text("Copy", color = ZuanTextPrimary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
-                TextButton(onClick = onClear) { Text("Clear", color = ZuanRose, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
-                TextButton(onClick = onRefresh) { Text("Refresh", color = ZuanAqua, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (showKernelAuditMode) ZuanMint.copy(alpha = 0.18f) else ZuanGlassElevated)
+                        .border(1.dp, if (showKernelAuditMode) ZuanMint else Color.White.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+                        .clickable { onToggleAuditMode() }
+                        .padding(horizontal = 9.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = if (showKernelAuditMode) "Logs" else "Audit",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (showKernelAuditMode) ZuanMint else ZuanTextPrimary
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ZuanGlassElevated)
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+                        .clickable {
+                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cb.setPrimaryClip( android.content.ClipData.newPlainText("nameless_logs", logs))
+                            Toast.makeText(context, "Copied logs", Toast.LENGTH_SHORT).show()
+                        }
+                        .padding(6.dp)
+                ) {
+                    VectorIcon(IconType.COPY, size = 15.dp, tint = ZuanAqua)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ZuanGlassElevated)
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+                        .clickable { onRefresh() }
+                        .padding(6.dp)
+                ) {
+                    VectorIcon(IconType.REFRESH, size = 15.dp, tint = ZuanMint)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ZuanRose.copy(alpha = 0.15f))
+                        .border(1.dp, ZuanRose.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                        .clickable { onClear() }
+                        .padding(6.dp)
+                ) {
+                    VectorIcon(IconType.TRASH, size = 15.dp, tint = ZuanRose)
+                }
             }
         }
 
@@ -3326,274 +3713,18 @@ fun KernelLogsTab(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(16.dp))
-                .background(ZuanDeepSpace.copy(alpha = 0.85f))
+                .background(Color(0xFF04070E))
                 .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
                 .padding(12.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Text(
                 text = logs,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
-                color = ZuanTextPrimary,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                color = ZuanTextPrimary
             )
         }
     }
-}
-
-// -------------------------------------------------------------
-// ZUAN CAPSULE LIQUID GLASS NAVIGATION DOCK
-// -------------------------------------------------------------
-
-@Composable
-fun ZuanCapsuleBottomDock(
-    selectedTab: Int,
-    isProxyActive: Boolean,
-    onSelectTab: (Int) -> Unit
-) {
-    val navItems = listOf(
-        Pair(IconType.BOLT, "Dashboard"),
-        Pair(IconType.GLOBE, "IPFighter"),
-        Pair(IconType.SLIDERS, "Nodes"),
-        Pair(IconType.HUB, "Routing"),
-        Pair(IconType.TERMINAL, "Logs")
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(CircleShape)
-                .background(ZuanGlassElevated)
-                .border(
-                    width = 1.2.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.35f),
-                            Color.White.copy(alpha = 0.08f)
-                        )
-                    ),
-                    shape = CircleShape
-                )
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            navItems.forEachIndexed { idx, (icon, label) ->
-                val sel = selectedTab == idx
-                val activeAccent = if (idx == 0 && isProxyActive) ZuanMint else ZuanAqua
-
-                Row(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(
-                            if (sel) activeAccent.copy(alpha = 0.18f) else Color.Transparent
-                        )
-                        .then(
-                            if (sel) Modifier.border(1.dp, activeAccent.copy(alpha = 0.55f), CircleShape)
-                            else Modifier
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { onSelectTab(idx) }
-                        .padding(horizontal = if (sel) 14.dp else 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    VectorIcon(
-                        type = icon,
-                        size = 18.dp,
-                        tint = if (sel) activeAccent else ZuanTextSecondary
-                    )
-                    AnimatedVisibility(visible = sel) {
-                        Row {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = label,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = ZuanTextPrimary,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun UptimeBadge(sessionStartMs: Long) {
-    var sec by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(sessionStartMs) {
-        while (isActive) {
-            sec = ((System.currentTimeMillis() - sessionStartMs) / 1000L).coerceAtLeast(0L)
-            delay(1000)
-        }
-    }
-    val hrs = sec / 3600
-    val mins = (sec % 3600) / 60
-    val s = sec % 60
-    Text(
-        text = if (hrs > 0) String.format("%02d:%02d:%02d", hrs, mins, s) else String.format("%02d:%02d", mins, s),
-        fontSize = 11.5.sp,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.ExtraBold,
-        color = ZuanMint
-    )
-}
-
-private fun parseProxyUri(rawUri: String): ProxySettings? {
-    if (rawUri.isBlank() || !rawUri.contains("://")) return null
-    return try {
-        val scheme = rawUri.substringBefore("://").lowercase()
-        val uri = Uri.parse(rawUri)
-        when (scheme) {
-            "vless" -> {
-                val host = uri.host ?: return null
-                val port = if (uri.port > 0) uri.port else 443
-                val uuid = uri.userInfo ?: ""
-                val sni = uri.getQueryParameter("sni") ?: uri.getQueryParameter("host") ?: ""
-                val pbk = uri.getQueryParameter("pbk") ?: ""
-                val sid = uri.getQueryParameter("sid") ?: ""
-                ProxySettings(
-                    type = ProxyType.VLESS,
-                    host = host,
-                    port = port,
-                    password = uuid,
-                    sni = sni,
-                    realityPublicKey = pbk,
-                    realityShortId = sid
-                )
-            }
-            "trojan" -> {
-                val host = uri.host ?: return null
-                val port = if (uri.port > 0) uri.port else 443
-                val pass = uri.userInfo ?: ""
-                val sni = uri.getQueryParameter("sni") ?: uri.getQueryParameter("peer") ?: ""
-                ProxySettings(
-                    type = ProxyType.TROJAN,
-                    host = host,
-                    port = port,
-                    password = pass,
-                    sni = sni
-                )
-            }
-            "hy2", "hysteria2" -> {
-                val host = uri.host ?: return null
-                val port = if (uri.port > 0) uri.port else 443
-                val pass = uri.userInfo ?: ""
-                val sni = uri.getQueryParameter("sni") ?: ""
-                ProxySettings(
-                    type = ProxyType.HYSTERIA2,
-                    host = host,
-                    port = port,
-                    password = pass,
-                    sni = sni
-                )
-            }
-            "socks5", "socks" -> {
-                val host = uri.host ?: return null
-                val port = if (uri.port > 0) uri.port else 1080
-                val userInfo = uri.userInfo ?: ""
-                val user = userInfo.substringBefore(":", "")
-                val pass = userInfo.substringAfter(":", "")
-                ProxySettings(
-                    type = ProxyType.SOCKS5,
-                    host = host,
-                    port = port,
-                    username = user,
-                    password = pass
-                )
-            }
-            "http", "https" -> {
-                val host = uri.host ?: return null
-                val port = if (uri.port > 0) uri.port else 8080
-                val userInfo = uri.userInfo ?: ""
-                val user = userInfo.substringBefore(":", "")
-                val pass = userInfo.substringAfter(":", "")
-                ProxySettings(
-                    type = ProxyType.HTTP,
-                    host = host,
-                    port = port,
-                    username = user,
-                    password = pass
-                )
-            }
-            "ss" -> {
-                val body = rawUri.substringAfter("ss://").substringBefore("#")
-                if (body.contains("@")) {
-                    val userInfoPart = body.substringBefore("@")
-                    val hostPortPart = body.substringAfter("@").substringBefore("?")
-                    val decodedUser = try {
-                        String(Base64.decode(userInfoPart, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
-                    } catch (_: Exception) {
-                        Uri.decode(userInfoPart)
-                    }
-                    val method = decodedUser.substringBefore(":")
-                    val pass = decodedUser.substringAfter(":")
-                    val host = hostPortPart.substringBeforeLast(":")
-                    val port = hostPortPart.substringAfterLast(":").toIntOrNull() ?: 8388
-                    ProxySettings(
-                        type = ProxyType.SHADOWSOCKS,
-                        host = host,
-                        port = port,
-                        ssMethod = method,
-                        password = pass
-                    )
-                } else {
-                    val decoded = try {
-                        String(Base64.decode(body, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
-                    } catch (_: Exception) { "" }
-                    if (decoded.contains("@") && decoded.contains(":")) {
-                        val method = decoded.substringBefore(":")
-                        val rest = decoded.substringAfter(":")
-                        val pass = rest.substringBefore("@")
-                        val hostPort = rest.substringAfter("@")
-                        val host = hostPort.substringBeforeLast(":")
-                        val port = hostPort.substringAfterLast(":").toIntOrNull() ?: 8388
-                        ProxySettings(
-                            type = ProxyType.SHADOWSOCKS,
-                            host = host,
-                            port = port,
-                            ssMethod = method,
-                            password = pass
-                        )
-                    } else null
-                }
-            }
-            else -> null
-        }
-    } catch (_: Exception) {
-        null
-    }
-}
-
-private fun splitSpeedValue(b: Long) = when {
-    b >= 1024 * 1024 -> String.format("%.1f", b / (1024.0 * 1024.0))
-    b >= 1024 -> String.format("%.1f", b / 1024.0)
-    else -> "$b"
-}
-
-private fun splitSpeedUnit(b: Long) = when {
-    b >= 1024 * 1024 -> "MB/s"
-    b >= 1024 -> "KB/s"
-    else -> "B/s"
-}
-
-private fun formatBytes(b: Long) = when {
-    b >= 1024L * 1024L * 1024L -> String.format("%.2f GB", b / (1024.0 * 1024.0 * 1024.0))
-    b >= 1024L * 1024L -> String.format("%.1f MB", b / (1024.0 * 1024.0))
-    b >= 1024L -> String.format("%.1f KB", b / 1024.0)
-    else -> "$b B"
 }

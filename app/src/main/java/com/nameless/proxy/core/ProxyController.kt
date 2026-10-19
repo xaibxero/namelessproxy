@@ -79,7 +79,12 @@ object ProxyController {
         }
         val out = executeSuWithOutput(listOf(cmd)).lineSequence().lastOrNull()?.trim() ?: ""
         val s = out.toIntOrNull()
-        return if (s != null && isRunning(user, s)) s else null
+        val running = if (s != null && isRunning(user, s)) s else null
+        if (running != null) {
+            val port = 10800 + (user * 100) + (running * 10)
+            StunResponder.ensureRunning(stunPort = port + 3, socksPort = port + 1)
+        }
+        return running
     }
 
     fun extractBinaryDirectly(context: Context): Boolean {
@@ -149,20 +154,24 @@ object ProxyController {
         slot: Int = ProfileManager.activeSlot
     ): Boolean {
         if (!isRunning(user, slot)) return false
+        val port = 10800 + (user * 100) + (slot * 10)
+        StunResponder.ensureRunning(stunPort = port + 3, socksPort = port + 1)
         return executeSu(IptablesManager.generateHandoverRefreshCommands())
     }
 
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
+        val stunIp = StunResponder.getExitIp().ifEmpty { "Awaiting Tunnel Probe" }
         val raw = executeSuWithOutput(listOf(
-            "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + slot + ") ==='",
+            "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + (slot + 1) + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
-            "  echo 'Status  : ONLINE (PID '$(cat " + pidFile + ")')'",
+            "  echo 'Status   : ONLINE (PID '$(cat " + pidFile + ")')'",
             "else",
-            "  echo 'Status  : STANDBY'",
+            "  echo 'Status   : STANDBY'",
             "fi",
-            "echo 'PrivDNS : '$(settings get global private_dns_mode 2>/dev/null)",
+            "echo 'STUN IP  : $stunIp'",
+            "echo 'PrivDNS  : '$(settings get global private_dns_mode 2>/dev/null)",
             "echo ''",
             "echo '=== SING-BOX STREAM ==='",
             "if [ -f " + logFile + " ]; then tail -n 120 " + logFile + "; else echo 'No log entries.'; fi"
@@ -174,13 +183,14 @@ object ProxyController {
         val raw = executeSuWithOutput(listOf(
             "echo '=== FIB UDP & IPv6 LEAK SHIELD RULES ==='",
             "ip rule show | grep -E '8800|22000' || true",
+            "ip route show table 2088 2>/dev/null || true",
             "ip -6 rule show | grep -E '8900|22000' || true",
             "echo ''",
             "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 NAT (${IptablesManager.CHAIN_NAT_V6}) ==='",
-            "ip6tables -w -t nat -S ${IptablesManager.CHAIN_NAT_V6} 2>&1 || true",
+            "echo '=== HOTSPOT NAT & STUN (${IptablesManager.CHAIN_HS_NAT}) ==='",
+            "iptables -w -t nat -S ${IptablesManager.CHAIN_HS_NAT} 2>&1 || true",
             "echo ''",
             "echo '=== KILL-SWITCH (${IptablesManager.CHAIN_FILTER_V4}) ==='",
             "iptables -w -S ${IptablesManager.CHAIN_FILTER_V4} 2>&1 || true",
@@ -272,6 +282,13 @@ object ProxyController {
             )
         }
 
+        // Start local RFC 5389 STUN responder on 0.0.0.0:${port + 3} for both Phone and Hotspot WebRTC!
+        StunResponder.start(
+            stunPort = port + 3,
+            socksPort = port + 1,
+            fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) }
+        )
+
         val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, resolvedHost)
         val ipSuccess = executeSu(iptablesCmds)
 
@@ -284,13 +301,14 @@ object ProxyController {
     }
 
     /**
-     * Instantaneous <120ms tunnel stop: kills sing-box and flushes canonical NAMELESS chains in one pass.
+     * Instantaneous <120ms tunnel stop: kills sing-box, stops StunResponder, and flushes canonical chains in one pass.
      */
     fun stopProxy(
         context: Context,
         user: Int = ProfileManager.androidUserId,
         restorePrivateDns: Boolean = true
     ): Boolean {
+        StunResponder.stop()
         val commands = mutableListOf<String>()
 
         // 1. Kill sing-box processes immediately so traffic stops in <10ms
@@ -298,7 +316,7 @@ object ProxyController {
         commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
         commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* 2>/dev/null || true")
 
-        // 2. Clean canonical iptables/ip6tables/ip-rule chains in a single pass (~25 commands)
+        // 2. Clean canonical iptables/ip6tables/ip-rule chains in a single pass
         commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
         if (restorePrivateDns) {

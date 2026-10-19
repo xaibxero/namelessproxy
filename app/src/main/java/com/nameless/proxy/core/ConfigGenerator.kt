@@ -60,8 +60,6 @@ object ConfigGenerator {
         })
 
         // 2. Experimental Cache File (REQUIRED in sing-box 1.12+ for type:"fakeip" Store!)
-        // As documented in SagerNet/sing-box#2514 and #2572, sing-box 1.12's fakeip transport
-        // requires experimental.cache_file with store_fakeip:true to allocate & reverse-map 198.18.0.x!
         root.put("experimental", JSONObject().apply {
             put("cache_file", JSONObject().apply {
                 put("enabled", true)
@@ -71,6 +69,9 @@ object ConfigGenerator {
         })
 
         // 3. DNS Engine (FakeIP + Remote TCP Tunnel through Proxy)
+        // Note: We allow STUN domains (stun.l.google.com, etc.) to resolve via FakeIP (198.18.0.x)
+        // so that both the phone and Hotspot clients (Windows/Mac/iOS) send STUN UDP requests to 198.18.0.x,
+        // which iptables redirects to our local StunResponder to return the US Proxy Exit IP!
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -102,17 +103,19 @@ object ConfigGenerator {
 
         val dnsRules = JSONArray()
 
-        // Hard-reject STUN/TURN and DoH canary domains at the DNS layer
+        // Return clean NOERROR for HTTPS (Type 65) & SVCB (Type 64) records so Chrome/Cloudflare never see REFUSED
+        dnsRules.put(JSONObject().apply {
+            put("query_type", JSONArray().apply {
+                put("HTTPS")
+                put("SVCB")
+            })
+            put("action", "predefined")
+            put("rcode", "NOERROR")
+        })
+
+        // Disable browser DoH auto-upgrade canary domains with clean NXDOMAIN
         dnsRules.put(JSONObject().apply {
             put("domain", JSONArray().apply {
-                put("stun.l.google.com")
-                put("stun1.l.google.com")
-                put("stun2.l.google.com")
-                put("stun3.l.google.com")
-                put("stun4.l.google.com")
-                put("stun.cloudflare.com")
-                put("stun.services.mozilla.com")
-                put("global.stun.twilio.com")
                 put("use-application-dns.net")
                 put("dns.google")
                 put("dns.google.com")
@@ -124,17 +127,8 @@ object ConfigGenerator {
                 put("dns.adguard-dns.com")
                 put("doh.opendns.com")
             })
-            put("action", "reject")
-        })
-
-        // Reject HTTPS & SVCB records to stop browsers from upgrading to DoH / ECH.
-        // Do NOT reject AAAA here so dns.strategy="ipv4_only" returns clean NOERROR (0 answers).
-        dnsRules.put(JSONObject().apply {
-            put("query_type", JSONArray().apply {
-                put("HTTPS")
-                put("SVCB")
-            })
-            put("action", "reject")
+            put("action", "predefined")
+            put("rcode", "NXDOMAIN")
         })
 
         dnsRules.put(JSONObject().apply {
@@ -318,60 +312,9 @@ object ConfigGenerator {
             put("timeout", "200ms")
         })
 
-        // WebRTC & STUN leak block
-        routeRules.put(JSONObject().apply {
-            put("protocol", JSONArray().apply { put("stun") })
-            put("action", "reject")
-        })
-        routeRules.put(JSONObject().apply {
-            put("port_range", JSONArray().apply {
-                put("3478:3497")
-                put("5349:5350")
-                put("19300:19320")
-            })
-            put("action", "reject")
-        })
-
         // Reject DoT (853) queries inside sing-box
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(853) })
-            put("action", "reject")
-        })
-
-        // Reject DoH direct IP requests to known public providers
-        routeRules.put(JSONObject().apply {
-            put("ip_cidr", JSONArray().apply {
-                put("8.8.8.8/32")
-                put("8.8.4.4/32")
-                put("1.1.1.1/32")
-                put("1.0.0.1/32")
-                put("9.9.9.9/32")
-                put("149.112.112.112/32")
-                put("208.67.222.222/32")
-                put("208.67.220.220/32")
-                put("2001:4860:4860::8888/128")
-                put("2001:4860:4860::8844/128")
-                put("2606:4700:4700::1111/128")
-                put("2606:4700:4700::1001/128")
-            })
-            put("port", JSONArray().apply { put(443); put(853) })
-            put("action", "reject")
-        })
-
-        // Reject well-known DoH & STUN domain names
-        routeRules.put(JSONObject().apply {
-            put("domain", JSONArray().apply {
-                put("dns.google")
-                put("dns.google.com")
-                put("cloudflare-dns.com")
-                put("one.one.one.one")
-                put("dns.quad9.net")
-                put("dns.nextdns.io")
-                put("dns.adguard-dns.com")
-                put("use-application-dns.net")
-                put("stun.l.google.com")
-                put("stun.cloudflare.com")
-            })
             put("action", "reject")
         })
 

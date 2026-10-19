@@ -99,6 +99,9 @@ object IpFetcher {
                         }
 
                     if (ip.isNotEmpty() && countryCode.length == 2) {
+                        if (localSocksPort != null) {
+                            StunResponder.updateExitIp(ip, isTunnelVerified = true)
+                        }
                         val locationLabel = if (city.isNotEmpty() && !city.equals(countryName, ignoreCase = true)) {
                             "$countryName • $city"
                         } else {
@@ -137,6 +140,9 @@ object IpFetcher {
                 if (conn.responseCode == 200) {
                     val ip = conn.inputStream.bufferedReader().use { it.readText().trim() }
                     if (ip.isNotEmpty()) {
+                        if (localSocksPort != null) {
+                            StunResponder.updateExitIp(ip, isTunnelVerified = true)
+                        }
                         return@withContext GeoIpResult(
                             ip = ip,
                             country = "Tunnel Verified",

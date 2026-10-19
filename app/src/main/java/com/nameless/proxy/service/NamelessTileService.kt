@@ -87,15 +87,15 @@ class NamelessTileService : TileService() {
                 val tile = qsTile ?: return@withContext
                 if (runningSlot != null) {
                     tile.state = Tile.STATE_ACTIVE
-                    tile.label = "Nameless • P$runningSlot"
+                    tile.label = "Nameless • P${runningSlot + 1}"
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        tile.subtitle = "Zero-Leak Active"
+                        tile.subtitle = "US STUN & DNS Active"
                     }
                 } else {
                     tile.state = Tile.STATE_INACTIVE
                     tile.label = "Nameless Proxy"
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        tile.subtitle = "Standby (P${ProfileManager.activeSlot})"
+                        tile.subtitle = "Standby (P${ProfileManager.activeSlot + 1})"
                     }
                 }
                 tile.updateTile()
