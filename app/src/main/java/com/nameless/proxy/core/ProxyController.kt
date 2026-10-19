@@ -2,6 +2,7 @@ package com.nameless.proxy.core
 
 import android.content.Context
 import java.io.DataOutputStream
+import java.net.InetAddress
 
 data class StartResult(
     val success: Boolean,
@@ -51,7 +52,7 @@ object ProxyController {
                 for (cmd in commands) {
                     os.write((cmd + "\n").toByteArray(Charsets.UTF_8))
                 }
-                os.write("exit\n".toByteArray(Charsets.UTF_8))
+                os.write("exit 0\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             process.waitFor() == 0
@@ -155,17 +156,16 @@ object ProxyController {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
         val raw = executeSuWithOutput(listOf(
-            "echo '=== KERNEL DAEMON STATUS (USER " + user + " • SLOT P" + slot + ") ==='",
+            "echo '=== KERNEL DAEMON (U#" + user + " • P" + slot + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
-            "  echo 'State   : ACTIVE (PID '$(cat " + pidFile + ")')'",
+            "  echo 'Status  : ONLINE (PID '$(cat " + pidFile + ")')'",
             "else",
-            "  echo 'State   : STOPPED'",
+            "  echo 'Status  : STANDBY'",
             "fi",
             "echo 'PrivDNS : '$(settings get global private_dns_mode 2>/dev/null)",
-            "echo 'ActiveIF: '$(ip route show table all 2>/dev/null | grep -E 'default via|dev (wlan|rmnet|v4-rmnet|ccmni)' | head -n 3 | tr '\\n' ' ')",
             "echo ''",
-            "echo '=== RECENT SING-BOX LOG STREAM ==='",
-            "if [ -f " + logFile + " ]; then tail -n 120 " + logFile + "; else echo 'No log file found.'; fi"
+            "echo '=== SING-BOX STREAM ==='",
+            "if [ -f " + logFile + " ]; then tail -n 120 " + logFile + "; else echo 'No log entries.'; fi"
         ))
         return raw.replace(Regex("\u001B\\[[;\\d]*m"), "")
     }
@@ -176,25 +176,22 @@ object ProxyController {
         val chainFilter = "NAMELESS_FILTER_u" + user + "_s" + slot
         val chainV6Filter = "NAMELESS_V6_FILTER_u" + user + "_s" + slot
         val raw = executeSuWithOutput(listOf(
-            "echo '=== IPv4 POLICY RULES ==='",
-            "ip rule show | grep -E '1800|1850|22000' || true",
+            "echo '=== IPv6 464XLAT SAFE RULES ==='",
+            "ip -6 rule show | grep -E '890|22000' || true",
             "echo ''",
-            "echo '=== IPv6 POLICY RULES (464XLAT SAFE) ==='",
-            "ip -6 rule show | grep -E '890|1800|22000' || true",
-            "echo ''",
-            "echo '=== NAT DNS & WEBRTC SHIELD ($chainNatV4) ==='",
+            "echo '=== NAT DNS & WEBRTC ($chainNatV4) ==='",
             "iptables -w -t nat -S $chainNatV4 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 NAT DNS SHIELD ($chainNatV6) ==='",
+            "echo '=== IPv6 NAT ($chainNatV6) ==='",
             "ip6tables -w -t nat -S $chainNatV6 2>&1 || true",
             "echo ''",
-            "echo '=== OUTPUT KILL-SWITCH ($chainFilter) ==='",
+            "echo '=== KILL-SWITCH ($chainFilter) ==='",
             "iptables -w -S $chainFilter 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 OUTPUT SHIELD ($chainV6Filter) ==='",
+            "echo '=== IPv6 SHIELD ($chainV6Filter) ==='",
             "ip6tables -w -S $chainV6Filter 2>&1 || true"
         ))
-        return raw.ifEmpty { "Unable to query kernel netfilter tables." }
+        return raw.ifEmpty { "Unable to query netfilter." }
     }
 
     fun startProxy(
@@ -220,36 +217,46 @@ object ProxyController {
                 ))
                 return StartResult(
                     success = false,
-                    errorMessage = "sing-box binary invalid or missing at $binaryPath:\n$diag"
+                    errorMessage = "sing-box binary missing at $binaryPath:\n$diag"
                 )
             }
         }
 
-        val configContent = ConfigGenerator.generateJson(settings, port)
-        val configWritten = writeConfigDirectly(configContent, configPath)
-        if (!configWritten) {
-            return StartResult(success = false, errorMessage = "Failed to write sing-box config")
-        }
-
-        // Preserve original Private DNS mode BEFORE stopProxy or overwriting
-        // Note: On factory-default Android, 'settings get global private_dns_mode' returns "null"
-        // which Android treats as "opportunistic" (DoT on port 853). We MUST always force it to 'off'!
+        // Preserve original Private DNS mode BEFORE stopping any existing tunnels
         val curDnsMode = executeSuWithOutput(listOf("settings get global private_dns_mode")).trim()
         val modeToSave = if (curDnsMode.isEmpty() || curDnsMode == "null") "opportunistic" else curDnsMode
         if (modeToSave != "off") {
             executeSu(listOf("mkdir -p $ADB_DIR && echo '$modeToSave' > $ADB_DIR/saved_private_dns_mode"))
         }
 
-        stopProxy(context, user, restorePrivateDns = false)
+        // Stop any running tunnels across ALL user profiles first so no other profile's iptables chains conflict!
+        stopProxy(context, user, restorePrivateDns = false, cleanAllUsers = true)
 
-        // Always force Private DNS off while tunnel is active so Android netd uses port 53 (hijacked to sing-box)
+        // Pre-resolve proxy server hostname (if user entered a domain instead of an IP) while network is clean
+        val rawHost = ConfigGenerator.cleanHost(settings.host)
+        val resolvedHost = if (!IptablesManager.isValidIpv4(rawHost) && !IptablesManager.isValidIpv6(rawHost)) {
+            try {
+                InetAddress.getByName(rawHost).hostAddress ?: rawHost
+            } catch (_: Exception) {
+                rawHost
+            }
+        } else {
+            rawHost
+        }
+
+        val configContent = ConfigGenerator.generateJson(settings, port, resolvedHost)
+        val configWritten = writeConfigDirectly(configContent, configPath)
+        if (!configWritten) {
+            return StartResult(success = false, errorMessage = "Failed to write sing-box config")
+        }
+
         executeSu(listOf(
             "settings put global private_dns_mode off",
             "cmd connectivity flush-dns 2>/dev/null || true",
             "ndc resolver flushdefaultif 2>/dev/null || true"
         ))
 
-        val runCmd = "mkdir -p $ADB_DIR && ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) && echo $slot > $slotFile"
+        val runCmd = "mkdir -p $ADB_DIR && rm -f $ADB_DIR/cache_u${user}_s${slot}.db && ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) && echo $slot > $slotFile"
         executeSu(listOf(runCmd))
 
         var alive = false
@@ -269,13 +276,13 @@ object ProxyController {
             )
         }
 
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, resolvedHost)
         val ipSuccess = executeSu(iptablesCmds)
 
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context, user, restorePrivateDns = true)
+            stopProxy(context, user, restorePrivateDns = true, cleanAllUsers = false)
             StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
         }
     }
@@ -283,21 +290,34 @@ object ProxyController {
     fun stopProxy(
         context: Context,
         user: Int = ProfileManager.androidUserId,
-        restorePrivateDns: Boolean = true
+        restorePrivateDns: Boolean = true,
+        cleanAllUsers: Boolean = true
     ): Boolean {
         val commands = mutableListOf<String>()
 
-        for (s in 0 until ProfileManager.MAX_SLOTS) {
-            commands.addAll(IptablesManager.generateDisableCommands(user, s))
-            val pFile = getPidFile(user, s)
-            commands.add("if [ -f " + pFile + " ]; then kill -9 $(cat " + pFile + ") 2>/dev/null; rm -f " + pFile + "; fi")
+        // Discover all users that may have active NAMELESS chains (e.g. User 0, 10, 11, 12, 999)
+        val usersToClean = if (cleanAllUsers) {
+            setOf(0, 10, 11, 12, 13, 95, 999, user)
+        } else {
+            setOf(user)
         }
 
-        commands.add("rm -f " + getActiveSlotFile(user))
-        if (user == 0) {
-            commands.add("rm -f " + ADB_DIR + "/running_slot")
+        for (u in usersToClean) {
+            for (s in 0 until ProfileManager.MAX_SLOTS) {
+                commands.addAll(IptablesManager.generateDisableCommands(u, s))
+                val pFile = getPidFile(u, s)
+                commands.add("if [ -f " + pFile + " ]; then kill -9 $(cat " + pFile + ") 2>/dev/null; rm -f " + pFile + "; fi")
+            }
+            commands.add("rm -f " + getActiveSlotFile(u))
         }
-        commands.add("pkill -9 -f 'config_u" + user + "_' 2>/dev/null || true")
+
+        commands.add("rm -f " + ADB_DIR + "/running_slot")
+        if (cleanAllUsers) {
+            commands.add("killall -9 sing-box 2>/dev/null || true")
+            commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
+        } else {
+            commands.add("pkill -9 -f 'config_u" + user + "_' 2>/dev/null || true")
+        }
 
         if (restorePrivateDns) {
             commands.add(

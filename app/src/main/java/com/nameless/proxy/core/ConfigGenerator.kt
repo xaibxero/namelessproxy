@@ -42,9 +42,16 @@ object ConfigGenerator {
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
 
-    fun generateJson(settings: ProxySettings, inboundPort: Int): String {
+    fun generateJson(
+        settings: ProxySettings,
+        inboundPort: Int,
+        resolvedServerHost: String? = null
+    ): String {
         val root = JSONObject()
-        val serverHost = cleanHost(settings.host)
+        val rawCleanedHost = cleanHost(settings.host)
+        val serverHost = resolvedServerHost?.takeIf { it.isNotBlank() } ?: rawCleanedHost
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -52,7 +59,17 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. DNS Engine (FakeIP + Zero-Leak Remote Tunnel + Marked Bootstrap Resolver)
+        // 2. Experimental Cache File (CRITICAL for sing-box 1.11/1.12 FakeIP reverse mapping!)
+        // Without store_fakeip: true, sing-box cannot map 198.18.0.x back to the original domain name!
+        root.put("experimental", JSONObject().apply {
+            put("cache_file", JSONObject().apply {
+                put("enabled", true)
+                put("path", "/data/adb/nameless_proxy/cache_u${user}_s${slot}.db")
+                put("store_fakeip", true)
+            })
+        })
+
+        // 3. DNS Engine (Fast FakeIP + Remote TCP Tunnel through Proxy)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -79,14 +96,12 @@ object ConfigGenerator {
             put("type", "udp")
             put("server", directDnsServer)
             put("server_port", 53)
-            put("routing_mark", ProfileManager.SINGBOX_BYPASS_MARK_INT)
         })
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
 
-        // Hard-reject STUN/TURN and DoH bootstrap/canary domains at the DNS layer
-        // so browsers never even receive a FakeIP for WebRTC STUN or encrypted DNS bypass
+        // Hard-reject STUN/TURN and DoH canary domains at the DNS layer
         dnsRules.put(JSONObject().apply {
             put("domain_keyword", JSONArray().apply {
                 put("stun")
@@ -117,33 +132,30 @@ object ConfigGenerator {
                 put("doh.opendns.com")
                 put("dns.alidns.com")
                 put("doh.pub")
-                put("resolver.arpa")
             })
             put("action", "reject")
         })
 
-        // Reject HTTPS & SVCB records to stop browsers from upgrading to DoH / ECH / HTTP3
+        // IMPORTANT: Only reject HTTPS & SVCB query types here!
+        // Do NOT put "AAAA" in action:"reject" because returning RCODE=REFUSED on AAAA causes
+        // Android's netd resolver to think the DNS server failed and stall/retry for 10+ seconds!
+        // Instead, dns.strategy = "ipv4_only" below natively returns instant NOERROR (0 answers) for AAAA!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
                 put("SVCB")
-                if (settings.ipMode == IpMode.IPV4_ONLY) {
-                    put("AAAA")
-                } else if (settings.ipMode == IpMode.IPV6_ONLY) {
-                    put("A")
-                }
             })
             put("action", "reject")
         })
 
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
-                if (settings.ipMode != IpMode.IPV6_ONLY) put("A")
-                if (settings.ipMode != IpMode.IPV4_ONLY) put("AAAA")
+                put("A")
+                put("AAAA")
             })
             put("action", "route")
             put("server", "dns-fakeip")
-            put("rewrite_ttl", 1)
+            put("rewrite_ttl", 60)
         })
         dns.put("rules", dnsRules)
 
@@ -155,10 +167,9 @@ object ConfigGenerator {
 
         dns.put("final", "dns-remote")
         dns.put("reverse_mapping", true)
-        dns.put("independent_cache", true)
         root.put("dns", dns)
 
-        // 3. Inbounds
+        // 4. Inbounds
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -201,12 +212,10 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 4. Outbounds (Marked with SINGBOX_BYPASS_MARK_INT so iptables never loops sing-box traffic
-        // while still intercepting UID 0 netd DNS queries on Cellular & Wi-Fi)
+        // 5. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
-            put("routing_mark", ProfileManager.SINGBOX_BYPASS_MARK_INT)
         }
 
         when (settings.type) {
@@ -248,12 +257,12 @@ object ConfigGenerator {
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
                 proxyOutbound.put("packet_encoding", "xudp")
-                if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
+                if (settings.realityPublicKey.isNotEmpty()) {
                     proxyOutbound.put("flow", "xtls-rprx-vision")
                 }
                 val tlsObj = JSONObject().apply {
                     put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { serverHost })
+                    put("server_name", settings.sni.ifEmpty { rawCleanedHost })
                     if (settings.realityPublicKey.isNotEmpty()) {
                         put("utls", JSONObject().apply {
                             put("enabled", true)
@@ -275,7 +284,7 @@ object ConfigGenerator {
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
                     put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { serverHost })
+                    put("server_name", settings.sni.ifEmpty { rawCleanedHost })
                 })
             }
             ProxyType.HYSTERIA2 -> {
@@ -285,7 +294,7 @@ object ConfigGenerator {
                 proxyOutbound.put("password", settings.password)
                 proxyOutbound.put("tls", JSONObject().apply {
                     put("enabled", true)
-                    put("server_name", settings.sni.ifEmpty { serverHost })
+                    put("server_name", settings.sni.ifEmpty { rawCleanedHost })
                 })
             }
         }
@@ -294,14 +303,15 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
-            put("routing_mark", ProfileManager.SINGBOX_BYPASS_MARK_INT)
         })
         root.put("outbounds", outbounds)
 
-        // 5. Routing Rules
+        // 6. Routing Rules
+        // CRITICAL: default_domain_resolver is set to "dns-remote" (tunneled through proxy-out)
+        // so sing-box NEVER resolves traffic domains via local ISP UDP!
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-direct")
+            put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
 
@@ -316,14 +326,21 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
+        // CRITICAL: override_destination: true ensures FakeIP (198.18.0.x) connections on redirect-in
+        // have their destination rewritten to the sniffed TLS SNI / HTTP Host / FakeIP domain
+        // so the remote proxy server resolves the domain at the exit node with 0ms local delay!
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("timeout", "300ms")
+            put("override_destination", true)
+            put("timeout", "150ms")
         })
 
         // WebRTC & STUN protocol + port leak block
         routeRules.put(JSONObject().apply {
-            put("protocol", JSONArray().apply { put("stun") })
+            put("protocol", JSONArray().apply {
+                put("stun")
+                put("quic")
+            })
             put("action", "reject")
         })
         routeRules.put(JSONObject().apply {
@@ -383,21 +400,13 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        val rejectQuicUdp = settings.transportMode == TransportMode.TCP_ONLY ||
-            settings.strictWebRtcShield ||
-            settings.type == ProxyType.SOCKS5 ||
-            settings.type == ProxyType.SOCKS4 ||
-            settings.type == ProxyType.HTTP
-
-        // Block QUIC / HTTP3 UDP port 80/443 when UDP WebRTC shield is active or proxy is TCP-based
+        // Block QUIC / HTTP3 UDP port 80/443/853 so browsers instantly use TCP 443 through the proxy
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {
+                put(80)
+                put(443)
                 put(853)
-                if (rejectQuicUdp) {
-                    put(80)
-                    put(443)
-                }
             })
             put("action", "reject")
         })

@@ -2,6 +2,7 @@ package com.nameless.proxy.core
 
 import android.content.Context
 import java.io.DataOutputStream
+import java.net.InetAddress
 
 object BootManager {
 
@@ -16,7 +17,7 @@ object BootManager {
                 for (cmd in commands) {
                     os.write((cmd + "\n").toByteArray(Charsets.UTF_8))
                 }
-                os.write("exit\n".toByteArray(Charsets.UTF_8))
+                os.write("exit 0\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             process.waitFor() == 0
@@ -30,7 +31,7 @@ object BootManager {
             val process = ProcessBuilder("su").redirectErrorStream(true).start()
             DataOutputStream(process.outputStream).use { os ->
                 os.write("if [ -f $BOOT_SCRIPT ]; then echo 'EXISTS'; fi\n".toByteArray(Charsets.UTF_8))
-                os.write("exit\n".toByteArray(Charsets.UTF_8))
+                os.write("exit 0\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             val output = process.inputStream.bufferedReader().use { it.readText() }
@@ -67,12 +68,22 @@ object BootManager {
         val logFile = ProxyController.getLogFile(user, targetSlot)
         val slotFile = ProxyController.getActiveSlotFile(user)
 
-        val configJson = ConfigGenerator.generateJson(settings, port)
-        ProxyController.writeConfigDirectly(configJson, configPath)
+        val rawHost = ConfigGenerator.cleanHost(settings.host)
+        val resolvedHost = if (!IptablesManager.isValidIpv4(rawHost) && !IptablesManager.isValidIpv6(rawHost)) {
+            try {
+                InetAddress.getByName(rawHost).hostAddress ?: rawHost
+            } catch (_: Exception) {
+                rawHost
+            }
+        } else {
+            rawHost
+        }
 
         val previousSlot = ProfileManager.activeSlot
         ProfileManager.activeSlot = targetSlot
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids)
+        val configJson = ConfigGenerator.generateJson(settings, port, resolvedHost)
+        ProxyController.writeConfigDirectly(configJson, configPath)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, resolvedHost)
         val disableCmds = IptablesManager.generateDisableCommands(user, targetSlot)
         ProfileManager.activeSlot = previousSlot
 
@@ -105,7 +116,6 @@ object BootManager {
         sb.append("killall -9 sing-box 2>/dev/null\n")
         sb.append("pkill -9 -f sing-box 2>/dev/null\n\n")
 
-        // Private DNS handling for system boot (handles "null" factory default properly)
         sb.append("cur_dns=\$(settings get global private_dns_mode 2>/dev/null)\n")
         sb.append("if [ -z \"\$cur_dns\" ] || [ \"\$cur_dns\" = \"null\" ]; then\n")
         sb.append("    echo \"opportunistic\" > $ADB_DIR/saved_private_dns_mode\n")
@@ -115,6 +125,7 @@ object BootManager {
         sb.append("settings put global private_dns_mode off 2>/dev/null\n")
         sb.append("cmd connectivity flush-dns 2>/dev/null || true\n\n")
 
+        sb.append("rm -f $ADB_DIR/cache_u${user}_s${targetSlot}.db\n")
         sb.append("( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )\n")
         sb.append("PID=\$(cat $pidFile 2>/dev/null)\n")
         sb.append("echo $targetSlot > $slotFile\n")
