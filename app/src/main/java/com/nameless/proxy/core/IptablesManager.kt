@@ -48,7 +48,8 @@ object IptablesManager {
         val hsTableId = ProfileManager.getHotspotTableId(slot)
         val hsMarkHex = ProfileManager.getHotspotMarkHex(slot)
 
-        val tetherInterfaces = listOf("wlan+", "ap+", "rndis+", "usb+", "softap+", "swlan+", "wigig+", "p2p+", "ncm+")
+        // Do not include wlan+ here; wlan0 is the device's upstream Wi-Fi interface.
+        val tetherInterfaces = listOf("ap+", "swlan+", "softap+", "rndis+", "usb+", "p2p+", "ncm+")
 
         val reservedV4 = listOf(
             "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
@@ -57,7 +58,6 @@ object IptablesManager {
         val reservedV6 = listOf("::1/128", "fe80::/10", "ff00::/8")
 
         val supportsUdp = settings.transportMode == TransportMode.TCP_AND_UDP &&
-            settings.type != ProxyType.SOCKS5 &&
             settings.type != ProxyType.SOCKS4 &&
             settings.type != ProxyType.HTTP
 
@@ -73,13 +73,15 @@ object IptablesManager {
 
         val commands = mutableListOf<String>()
 
-        // 1. Clean existing chains
+        // 1. Clean existing rules
         commands.addAll(generateDisableCommands(user, slot))
 
-        // 2. Kernel interface tuning (Safe)
+        // 2. Kernel interface tuning (Disable rp_filter across ALL interfaces so TPROXY works on cellular and Wi-Fi)
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true")
+        commands.add("for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > \$f 2>/dev/null || true; done")
         commands.add("echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null || true")
+        commands.add("for f in /proc/sys/net/ipv4/conf/*/route_localnet; do echo 1 > \$f 2>/dev/null || true; done")
         commands.add("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true")
 
         // 3. Policy Routing for TPROXY
@@ -88,8 +90,8 @@ object IptablesManager {
         commands.add("ip route add local 0.0.0.0/0 dev lo table $tableId")
 
         if (settings.ipMode != IpMode.IPV4_ONLY) {
-            commands.add("ip -6 rule add fwmark $markHex table $tableId pref $rulePref")
-            commands.add("ip -6 route add local ::/0 dev lo table $tableId")
+            commands.add("ip -6 rule add fwmark $markHex table $tableId pref $rulePref 2>/dev/null || true")
+            commands.add("ip -6 route add local ::/0 dev lo table $tableId 2>/dev/null || true")
         }
 
         // Ingress TPROXY Mangle for Phone
@@ -118,7 +120,7 @@ object IptablesManager {
         }
         commands.add("iptables -t mangle -I OUTPUT 1 -j $chainOutMangle")
 
-        // 5. PHONE FILTER SHIELD
+        // 5. PHONE FILTER SHIELD (Anti-Leak, STUN Block, WebRTC Leak Block, Private DNS DoT Block)
         commands.add("iptables -N $chainFilter 2>/dev/null")
         commands.add("iptables -A $chainFilter -o lo -j RETURN")
         commands.add("iptables -A $chainFilter -d 127.0.0.0/8 -j RETURN")
@@ -129,29 +131,32 @@ object IptablesManager {
         commands.add("iptables -A $chainFilter -p udp --dport $tproxyPort -j RETURN")
         commands.add("iptables -A $chainFilter -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN")
 
-        if (hostIsIpv4 && settings.type == ProxyType.HYSTERIA2) {
-            commands.add("iptables -A $chainFilter -p udp -d $cleanedHost -j RETURN")
+        if (hostIsIpv4) {
+            commands.add("iptables -A $chainFilter -d $cleanedHost -j RETURN")
         }
         if (supportsUdp) {
             commands.add("iptables -A $chainFilter -p udp -m mark --mark $markHex -j RETURN")
         }
 
-        // Allow essential system UDP services (DHCP/NTP)
+        // Allow essential system DHCP & NTP
         commands.add("iptables -A $chainFilter -p udp --dport 67:68 -j RETURN")
         commands.add("iptables -A $chainFilter -p udp --dport 123 -j RETURN")
 
-        // Block STUN / WebRTC leaks
+        // Hard Block Private DNS (DoT Port 853) to force fallback to hijacked Port 53
         commands.add("iptables -A $chainFilter -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 853 -j DROP")
         commands.add("iptables -A $chainFilter -p udp --dport 853 -j DROP")
+
+        // Hard Block WebRTC / STUN / TURN Ports on both TCP and UDP
         commands.add("iptables -A $chainFilter -p udp --dport 3478:3497 -j DROP")
         commands.add("iptables -A $chainFilter -p udp --dport 5349:5350 -j DROP")
         commands.add("iptables -A $chainFilter -p udp --dport 19302:19309 -j DROP")
+        commands.add("iptables -A $chainFilter -p tcp --dport 3478:3497 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 3478:3497 -j DROP")
+        commands.add("iptables -A $chainFilter -p tcp --dport 5349:5350 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 5349:5350 -j DROP")
+        commands.add("iptables -A $chainFilter -p tcp --dport 19302:19309 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp --dport 19302:19309 -j DROP")
 
         commands.add("iptables -A $chainFilter -m owner --uid-owner 0-9999 -j RETURN")
-        if (hostIsIpv4) {
-            commands.add("iptables -A $chainFilter -d $cleanedHost -j RETURN")
-        }
 
+        // Kill-switch for target apps
         for (uRange in uidRanges) {
             commands.add("iptables -A $chainFilter -p tcp -m owner --uid-owner $uRange -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -A $chainFilter -p tcp -m owner --uid-owner $uRange -j DROP")
             commands.add("iptables -A $chainFilter -p udp -m owner --uid-owner $uRange -j DROP")
@@ -159,18 +164,18 @@ object IptablesManager {
         }
         commands.add("iptables -I OUTPUT 1 -j $chainFilter")
 
-        // 6. PHONE NAT OUTPUT
+        // 6. PHONE NAT OUTPUT (DNS Hijacking + TCP Redirect)
         commands.add("iptables -t nat -N $chainNatV4")
         if (hostIsIpv4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $cleanedHost -j RETURN")
         }
         commands.add("iptables -t nat -A $chainNatV4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN")
-
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 3478:3497 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 5349:5350 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 19302:19309 -j RETURN")
 
+        // Redirect DNS into sing-box dns-in
         if (user == 0 && selectedUids.isNullOrEmpty()) {
             commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
             commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
@@ -197,56 +202,20 @@ object IptablesManager {
         commands.add("iptables -t nat -I OUTPUT 1 -j $chainNatV4")
 
         // 7. IPV6 RULES
-        if (settings.ipMode != IpMode.IPV4_ONLY && supportsUdp) {
-            commands.add("ip6tables -t mangle -N $chainPreMangleV6 2>/dev/null || true")
-            commands.add("ip6tables -t mangle -A $chainPreMangleV6 -p tcp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex 2>/dev/null || true")
-            commands.add("ip6tables -t mangle -A $chainPreMangleV6 -p udp -m mark --mark $markHex -j TPROXY --on-port $tproxyPort --tproxy-mark $markHex 2>/dev/null || true")
-            commands.add("ip6tables -t mangle -I PREROUTING 1 -j $chainPreMangleV6 2>/dev/null || true")
-
-            commands.add("ip6tables -t mangle -N $chainOutMangleV6 2>/dev/null || true")
-            commands.add("ip6tables -t mangle -A $chainOutMangleV6 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
-            if (hostIsIpv6) {
-                commands.add("ip6tables -t mangle -A $chainOutMangleV6 -d $cleanedHost -j RETURN 2>/dev/null || true")
-            }
-            commands.add("ip6tables -t mangle -A $chainOutMangleV6 -p udp --dport 53 -j RETURN 2>/dev/null || true")
-            commands.add("ip6tables -t mangle -A $chainOutMangleV6 -p udp --dport $dnsPort -j RETURN 2>/dev/null || true")
-            for (r6 in reservedV6) {
-                commands.add("ip6tables -t mangle -A $chainOutMangleV6 -d $r6 -j RETURN 2>/dev/null || true")
-            }
+        commands.add("ip6tables -N $chainV6Filter 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p tcp --dport 853 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 853 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 3478:3497 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 5349:5350 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -A $chainV6Filter -p udp --dport 19302:19309 -j DROP 2>/dev/null || true")
+        if (settings.ipMode == IpMode.IPV4_ONLY) {
             for (uRange in uidRanges) {
-                commands.add("ip6tables -t mangle -A $chainOutMangleV6 -p udp -m owner --uid-owner $uRange -j MARK --set-mark $markHex 2>/dev/null || true")
-            }
-            commands.add("ip6tables -t mangle -I OUTPUT 1 -j $chainOutMangleV6 2>/dev/null || true")
-        }
-
-        commands.add("ip6tables -t nat -N $chainNatV6 2>/dev/null || true")
-        if (hostIsIpv6) {
-            commands.add("ip6tables -t nat -A $chainNatV6 -d $cleanedHost -j RETURN 2>/dev/null || true")
-        }
-        commands.add("ip6tables -t nat -A $chainNatV6 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV6} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
-        for (r6 in reservedV6) {
-            commands.add("ip6tables -t nat -A $chainNatV6 -d $r6 -j RETURN 2>/dev/null || true")
-        }
-
-        if (user == 0 && selectedUids.isNullOrEmpty()) {
-            commands.add("ip6tables -t nat -A $chainNatV6 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort 2>/dev/null || true")
-            commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort 2>/dev/null || true")
-        } else {
-            for (uRange in uidRanges) {
-                commands.add("ip6tables -t nat -A $chainNatV6 -p udp --dport 53 -m owner --uid-owner $uRange -j REDIRECT --to-ports $dnsPort 2>/dev/null || true")
-                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp --dport 53 -m owner --uid-owner $uRange -j REDIRECT --to-ports $dnsPort 2>/dev/null || true")
+                commands.add("ip6tables -A $chainV6Filter -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
             }
         }
+        commands.add("ip6tables -I OUTPUT 1 -j $chainV6Filter 2>/dev/null || true")
 
-        commands.add("ip6tables -t nat -A $chainNatV6 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
-        if (settings.ipMode != IpMode.IPV4_ONLY) {
-            for (uRange in uidRanges) {
-                commands.add("ip6tables -t nat -A $chainNatV6 -p tcp -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
-            }
-        }
-        commands.add("ip6tables -t nat -I OUTPUT 1 -j $chainNatV6 2>/dev/null || true")
-
-        // 8. HOTSPOT ROUTING (Safe Netd-Compatible Design)
+        // 8. HOTSPOT ROUTING & LEAK PREVENTION
         if (settings.routeHotspot && user == 0) {
             commands.add("ip rule add fwmark $hsMarkHex table $hsTableId pref 18500")
             commands.add("ip route add local 0.0.0.0/0 dev lo table $hsTableId")
@@ -264,9 +233,7 @@ object IptablesManager {
                 commands.add("iptables -t nat -A $chainHotspotNat -d $cleanedHost -j RETURN")
             }
             for (iface in tetherInterfaces) {
-                // Allow DHCP traffic directly so devices can obtain IPs
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p udp --dport 67:68 -j RETURN")
-                // Redirect DNS & TCP
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p udp --dport 53 -j REDIRECT --to-ports $dnsPort")
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort")
                 commands.add("iptables -t nat -A $chainHotspotNat -i $iface -p tcp -d 198.18.0.0/15 -j REDIRECT --to-ports $inboundPort")
@@ -299,18 +266,20 @@ object IptablesManager {
             }
             commands.add("iptables -t mangle -I PREROUTING 1 -j $chainHotspotMangle")
 
-            // Hotspot Leak-Shield in FORWARD chain
+            // Hotspot FORWARD chain Leak-Shield
             commands.add("iptables -N $chainHotspotFwd 2>/dev/null || true")
             for (iface in tetherInterfaces) {
-                // Allow DHCP and local LAN
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 67:68 -j ACCEPT")
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --sport 67:68 -j ACCEPT")
-                // Block direct STUN & DoH bypass
+                // Block DoT & STUN leaks on connected hotspot clients
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p tcp --dport 853 -j DROP")
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 853 -j DROP")
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 3478:3497 -j DROP")
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 5349:5350 -j DROP")
                 commands.add("iptables -A $chainHotspotFwd -i $iface -p udp --dport 19302:19309 -j DROP")
+                commands.add("iptables -A $chainHotspotFwd -i $iface -p tcp --dport 3478:3497 -j DROP")
+                commands.add("iptables -A $chainHotspotFwd -i $iface -p tcp --dport 5349:5350 -j DROP")
+                commands.add("iptables -A $chainHotspotFwd -i $iface -p tcp --dport 19302:19309 -j DROP")
                 if (!supportsUdp) {
                     commands.add("iptables -A $chainHotspotFwd -i $iface -p udp ! --dport 53 -j DROP")
                 }
@@ -364,6 +333,9 @@ object IptablesManager {
             "iptables -D OUTPUT -j $chainFilter 2>/dev/null",
             "iptables -F $chainFilter 2>/dev/null",
             "iptables -X $chainFilter 2>/dev/null",
+            "ip6tables -D OUTPUT -j $chainV6Filter 2>/dev/null",
+            "ip6tables -F $chainV6Filter 2>/dev/null",
+            "ip6tables -X $chainV6Filter 2>/dev/null",
             "iptables -t nat -D OUTPUT -j $chainNatV4 2>/dev/null",
             "iptables -t nat -F $chainNatV4 2>/dev/null",
             "iptables -t nat -X $chainNatV4 2>/dev/null",
@@ -385,9 +357,6 @@ object IptablesManager {
             "ip -6 route flush table $tableId 2>/dev/null",
             "ip rule del fwmark $hsMarkHex table $hsTableId 2>/dev/null",
             "ip route flush table $hsTableId 2>/dev/null",
-            "ip6tables -D OUTPUT -j $chainV6Filter 2>/dev/null",
-            "ip6tables -F $chainV6Filter 2>/dev/null",
-            "ip6tables -X $chainV6Filter 2>/dev/null",
             "ip6tables -t nat -D OUTPUT -j $chainNatV6 2>/dev/null",
             "ip6tables -t nat -F $chainNatV6 2>/dev/null",
             "ip6tables -t nat -X $chainNatV6 2>/dev/null"
