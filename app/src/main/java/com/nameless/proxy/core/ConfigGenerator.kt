@@ -50,8 +50,6 @@ object ConfigGenerator {
         val root = JSONObject()
         val rawCleanedHost = cleanHost(settings.host)
         val serverHost = resolvedServerHost?.takeIf { it.isNotBlank() } ?: rawCleanedHost
-        val user = ProfileManager.androidUserId
-        val slot = ProfileManager.activeSlot
 
         // 1. Logging
         root.put("log", JSONObject().apply {
@@ -59,17 +57,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. Experimental Cache File (CRITICAL for sing-box 1.11/1.12 FakeIP reverse mapping!)
-        // Without store_fakeip: true, sing-box cannot map 198.18.0.x back to the original domain name!
-        root.put("experimental", JSONObject().apply {
-            put("cache_file", JSONObject().apply {
-                put("enabled", true)
-                put("path", "/data/adb/nameless_proxy/cache_u${user}_s${slot}.db")
-                put("store_fakeip", true)
-            })
-        })
-
-        // 3. DNS Engine (Fast FakeIP + Remote TCP Tunnel through Proxy)
+        // 2. DNS Engine (FakeIP + Remote TCP Tunnel through Proxy)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -103,15 +91,7 @@ object ConfigGenerator {
 
         // Hard-reject STUN/TURN and DoH canary domains at the DNS layer
         dnsRules.put(JSONObject().apply {
-            put("domain_keyword", JSONArray().apply {
-                put("stun")
-                put("turn")
-            })
-            put("action", "reject")
-        })
-
-        dnsRules.put(JSONObject().apply {
-            put("domain_suffix", JSONArray().apply {
+            put("domain", JSONArray().apply {
                 put("stun.l.google.com")
                 put("stun1.l.google.com")
                 put("stun2.l.google.com")
@@ -130,16 +110,13 @@ object ConfigGenerator {
                 put("dns.nextdns.io")
                 put("dns.adguard-dns.com")
                 put("doh.opendns.com")
-                put("dns.alidns.com")
-                put("doh.pub")
             })
             put("action", "reject")
         })
 
-        // IMPORTANT: Only reject HTTPS & SVCB query types here!
-        // Do NOT put "AAAA" in action:"reject" because returning RCODE=REFUSED on AAAA causes
-        // Android's netd resolver to think the DNS server failed and stall/retry for 10+ seconds!
-        // Instead, dns.strategy = "ipv4_only" below natively returns instant NOERROR (0 answers) for AAAA!
+        // Reject HTTPS & SVCB records to stop browsers from upgrading to DoH / ECH.
+        // Note: Do NOT put "AAAA" in action:"reject" so dns.strategy="ipv4_only" returns
+        // instant NOERROR (0 answers) instead of RCODE=REFUSED (which stalls Android netd).
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -155,7 +132,7 @@ object ConfigGenerator {
             })
             put("action", "route")
             put("server", "dns-fakeip")
-            put("rewrite_ttl", 60)
+            put("rewrite_ttl", 30)
         })
         dns.put("rules", dnsRules)
 
@@ -169,7 +146,7 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds
+        // 3. Inbounds
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -212,7 +189,7 @@ object ConfigGenerator {
 
         root.put("inbounds", inbounds)
 
-        // 5. Outbounds
+        // 4. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -257,7 +234,7 @@ object ConfigGenerator {
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
                 proxyOutbound.put("packet_encoding", "xudp")
-                if (settings.realityPublicKey.isNotEmpty()) {
+                if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
                     proxyOutbound.put("flow", "xtls-rprx-vision")
                 }
                 val tlsObj = JSONObject().apply {
@@ -306,12 +283,10 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 6. Routing Rules
-        // CRITICAL: default_domain_resolver is set to "dns-remote" (tunneled through proxy-out)
-        // so sing-box NEVER resolves traffic domains via local ISP UDP!
+        // 5. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-remote")
+            put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
 
@@ -326,21 +301,14 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // CRITICAL: override_destination: true ensures FakeIP (198.18.0.x) connections on redirect-in
-        // have their destination rewritten to the sniffed TLS SNI / HTTP Host / FakeIP domain
-        // so the remote proxy server resolves the domain at the exit node with 0ms local delay!
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("override_destination", true)
-            put("timeout", "150ms")
+            put("timeout", "300ms")
         })
 
-        // WebRTC & STUN protocol + port leak block
+        // WebRTC & STUN leak block
         routeRules.put(JSONObject().apply {
-            put("protocol", JSONArray().apply {
-                put("stun")
-                put("quic")
-            })
+            put("protocol", JSONArray().apply { put("stun") })
             put("action", "reject")
         })
         routeRules.put(JSONObject().apply {
@@ -358,7 +326,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // Reject DoH direct IP requests to known public DNS resolvers (forces port 53 hijack)
+        // Reject DoH direct IP requests to known public providers
         routeRules.put(JSONObject().apply {
             put("ip_cidr", JSONArray().apply {
                 put("8.8.8.8/32")
@@ -369,14 +337,10 @@ object ConfigGenerator {
                 put("149.112.112.112/32")
                 put("208.67.222.222/32")
                 put("208.67.220.220/32")
-                put("94.140.14.14/32")
-                put("94.140.15.15/32")
                 put("2001:4860:4860::8888/128")
                 put("2001:4860:4860::8844/128")
                 put("2606:4700:4700::1111/128")
                 put("2606:4700:4700::1001/128")
-                put("2620:fe::fe/128")
-                put("2620:fe::9/128")
             })
             put("port", JSONArray().apply { put(443); put(853) })
             put("action", "reject")
@@ -384,7 +348,7 @@ object ConfigGenerator {
 
         // Reject well-known DoH & STUN domain names
         routeRules.put(JSONObject().apply {
-            put("domain_suffix", JSONArray().apply {
+            put("domain", JSONArray().apply {
                 put("dns.google")
                 put("dns.google.com")
                 put("cloudflare-dns.com")
@@ -392,7 +356,6 @@ object ConfigGenerator {
                 put("dns.quad9.net")
                 put("dns.nextdns.io")
                 put("dns.adguard-dns.com")
-                put("doh.opendns.com")
                 put("use-application-dns.net")
                 put("stun.l.google.com")
                 put("stun.cloudflare.com")
@@ -400,7 +363,7 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // Block QUIC / HTTP3 UDP port 80/443/853 so browsers instantly use TCP 443 through the proxy
+        // Block QUIC UDP port 80/443/853 so browsers use TCP 443 through the proxy
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {
