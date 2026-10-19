@@ -78,6 +78,7 @@ object ConfigGenerator {
             put("type", "udp")
             put("server", directDnsServer)
             put("server_port", 53)
+            put("detour", "direct-out")
         })
         dns.put("servers", dnsServers)
 
@@ -256,7 +257,7 @@ object ConfigGenerator {
 
         // 5. Routing Rules (auto_detect_interface enabled for seamless Mobile & Wi-Fi handover)
         val route = JSONObject().apply {
-            put("auto_detect_interface", true)
+            put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }

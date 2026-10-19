@@ -169,7 +169,9 @@ object IptablesManager {
         if (hostIsIpv4) {
             commands.add("iptables -t nat -A $chainNatV4 -d $cleanedHost -j RETURN")
         }
-        commands.add("iptables -t nat -A $chainNatV4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN")
+        // UID 0 (sing-box daemon) must NEVER be redirected back to local DNS port
+        commands.add("iptables -t nat -A $chainNatV4 -p udp --dport 53 -m owner --uid-owner 0 -j RETURN")
+        commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 53 -m owner --uid-owner 0 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 853 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 3478:3497 -j RETURN")
         commands.add("iptables -t nat -A $chainNatV4 -p tcp --dport 5349:5350 -j RETURN")
