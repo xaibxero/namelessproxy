@@ -181,10 +181,8 @@ object ProxyController {
 
     fun getKernelAuditReport(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val raw = executeSuWithOutput(listOf(
-            "echo '=== FIB UDP & IPv6 LEAK SHIELD RULES ==='",
-            "ip rule show | grep -E '8800|22000' || true",
-            "ip route show table 2088 2>/dev/null || true",
-            "ip -6 rule show | grep -E '8900|22000' || true",
+            "echo '=== ROUTING RULES ==='",
+            "ip rule show | grep -E '8500|8501|8502|8503|22000' || true",
             "echo ''",
             "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
@@ -192,10 +190,10 @@ object ProxyController {
             "echo '=== HOTSPOT NAT & STUN (${IptablesManager.CHAIN_HS_NAT}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_HS_NAT} 2>&1 || true",
             "echo ''",
-            "echo '=== KILL-SWITCH (${IptablesManager.CHAIN_FILTER_V4}) ==='",
+            "echo '=== FILTER (${IptablesManager.CHAIN_FILTER_V4}) ==='",
             "iptables -w -S ${IptablesManager.CHAIN_FILTER_V4} 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 SHIELD (${IptablesManager.CHAIN_FILTER_V6}) ==='",
+            "echo '=== IPv6 FILTER (${IptablesManager.CHAIN_FILTER_V6}) ==='",
             "ip6tables -w -S ${IptablesManager.CHAIN_FILTER_V6} 2>&1 || true"
         ))
         return raw.ifEmpty { "Unable to query netfilter." }
@@ -235,7 +233,6 @@ object ProxyController {
             executeSu(listOf("mkdir -p $ADB_DIR && echo '$modeToSave' > $ADB_DIR/saved_private_dns_mode"))
         }
 
-        // Fast <120ms cleanup before starting
         stopProxy(context, user, restorePrivateDns = false)
 
         val rawHost = ConfigGenerator.cleanHost(settings.host)
@@ -258,6 +255,7 @@ object ProxyController {
         val runCmd = listOf(
             "mkdir -p $ADB_DIR",
             "rm -f $ADB_DIR/cache_u${user}_s${slot}.db",
+            "echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true",
             "settings put global private_dns_mode off 2>/dev/null || true",
             "( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
             "echo $slot > $slotFile",
@@ -267,7 +265,7 @@ object ProxyController {
 
         var alive = false
         for (attempt in 1..6) {
-            Thread.sleep(120)
+            Thread.sleep(100)
             if (isRunning(user, slot)) {
                 alive = true
                 if (attempt >= 2) break
@@ -282,14 +280,19 @@ object ProxyController {
             )
         }
 
-        // Start local RFC 5389 STUN responder on 0.0.0.0:${port + 3} for both Phone and Hotspot WebRTC!
         StunResponder.start(
             stunPort = port + 3,
             socksPort = port + 1,
             fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) }
         )
 
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, resolvedHost)
+        val iptablesCmds = IptablesManager.generateEnableCommands(
+            inboundPort = port,
+            settings = settings,
+            selectedUids = selectedUids,
+            resolvedServerHost = resolvedHost,
+            skipInitialClean = true
+        )
         val ipSuccess = executeSu(iptablesCmds)
 
         return if (ipSuccess) {
@@ -300,9 +303,6 @@ object ProxyController {
         }
     }
 
-    /**
-     * Instantaneous <120ms tunnel stop: kills sing-box, stops StunResponder, and flushes canonical chains in one pass.
-     */
     fun stopProxy(
         context: Context,
         user: Int = ProfileManager.androidUserId,
@@ -311,12 +311,10 @@ object ProxyController {
         StunResponder.stop()
         val commands = mutableListOf<String>()
 
-        // 1. Kill sing-box processes immediately so traffic stops in <10ms
         commands.add("killall -9 sing-box 2>/dev/null || true")
         commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
         commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* 2>/dev/null || true")
 
-        // 2. Clean canonical iptables/ip6tables/ip-rule chains in a single pass
         commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
         if (restorePrivateDns) {

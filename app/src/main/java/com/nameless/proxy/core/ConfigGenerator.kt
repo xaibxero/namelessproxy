@@ -59,7 +59,7 @@ object ConfigGenerator {
             put("timestamp", true)
         })
 
-        // 2. Experimental Cache File (REQUIRED in sing-box 1.12+ for type:"fakeip" Store!)
+        // 2. Experimental Cache File for FakeIP persistence
         root.put("experimental", JSONObject().apply {
             put("cache_file", JSONObject().apply {
                 put("enabled", true)
@@ -68,7 +68,7 @@ object ConfigGenerator {
             })
         })
 
-        // 3. DNS Engine (FakeIP + Remote TCP Tunnel through Proxy)
+        // 3. DNS Configuration
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -78,12 +78,8 @@ object ConfigGenerator {
         dnsServers.put(JSONObject().apply {
             put("type", "fakeip")
             put("tag", "dns-fakeip")
-            if (settings.ipMode != IpMode.IPV6_ONLY) {
-                put("inet4_range", "198.18.0.0/15")
-            }
-            if (settings.ipMode != IpMode.IPV4_ONLY) {
-                put("inet6_range", "fc00::/18")
-            }
+            put("inet4_range", "198.18.0.0/15")
+            put("inet6_range", "fc00::/18")
         })
 
         dnsServers.put(JSONObject().apply {
@@ -104,9 +100,7 @@ object ConfigGenerator {
 
         val dnsRules = JSONArray()
 
-        // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
-        // Crucial on IPv6 cellular networks (like Jazz LTE 2404:3100:...) so apps never get an IPv6 FakeIP
-        // and never see RCODE=REFUSED!
+        // Filter HTTPS, SVCB, and AAAA (when IPv4_ONLY)
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -118,11 +112,10 @@ object ConfigGenerator {
                     put("A")
                 }
             })
-            put("action", "predefined")
-            put("rcode", "NOERROR")
+            put("action", "reject")
         })
 
-        // Disable browser DoH auto-upgrade canary domains with clean NXDOMAIN
+        // Filter application DNS upgrade domains
         dnsRules.put(JSONObject().apply {
             put("domain", JSONArray().apply {
                 put("use-application-dns.net")
@@ -136,8 +129,7 @@ object ConfigGenerator {
                 put("dns.adguard-dns.com")
                 put("doh.opendns.com")
             })
-            put("action", "predefined")
-            put("rcode", "NXDOMAIN")
+            put("action", "reject")
         })
 
         dnsRules.put(JSONObject().apply {
@@ -161,7 +153,7 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds (redirect-in, internal-socks-in, dns-in)
+        // 4. Inbounds
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -178,11 +170,26 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
+        // Local loopback DNS inbound for Phone OUTPUT REDIRECT (ensures UDP reply source IP is 127.0.0.1 for conntrack)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
-            put("listen", "::")
+            put("listen", "127.0.0.1")
             put("listen_port", inboundPort + 2)
+            put("network", JSONArray().apply {
+                put("tcp")
+                put("udp")
+            })
+            put("override_address", "1.1.1.1")
+            put("override_port", 53)
+        })
+
+        // Hotspot DNS inbound for PREROUTING REDIRECT on tether interfaces
+        inbounds.put(JSONObject().apply {
+            put("type", "direct")
+            put("tag", "dns-hs-in")
+            put("listen", "::")
+            put("listen_port", inboundPort + 4)
             put("network", JSONArray().apply {
                 put("tcp")
                 put("udp")
@@ -297,7 +304,10 @@ object ConfigGenerator {
         val routeRules = JSONArray()
 
         routeRules.put(JSONObject().apply {
-            put("inbound", JSONArray().apply { put("dns-in") })
+            put("inbound", JSONArray().apply {
+                put("dns-in")
+                put("dns-hs-in")
+            })
             put("action", "hijack-dns")
         })
         routeRules.put(JSONObject().apply {
@@ -310,14 +320,11 @@ object ConfigGenerator {
             put("timeout", "200ms")
         })
 
-        // Reject DoT (853) queries inside sing-box
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(853) })
             put("action", "reject")
         })
 
-        // Block direct-IP DNS-over-HTTPS (DoH) endpoints (e.g. Chrome 155 auto-upgrading 8.8.8.8 to DoH)
-        // so browsers on Phone and Windows Hotspot MUST use Port 53 DNS through sing-box!
         routeRules.put(JSONObject().apply {
             put("ip_cidr", JSONArray().apply {
                 put("8.8.8.8/32")
@@ -356,7 +363,6 @@ object ConfigGenerator {
             put("action", "reject")
         })
 
-        // Block QUIC UDP port 80/443/853 so browsers use TCP 443 through the proxy
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {

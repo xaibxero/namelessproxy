@@ -22,18 +22,22 @@ import java.util.zip.CRC32
 /**
  * Local RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Synthesizes valid 52-byte STUN Binding Success Responses (0x0101) containing
- * XOR-MAPPED-ADDRESS (0x0020), MAPPED-ADDRESS (0x0001), and FINGERPRINT (0x8028)
- * set to the live Proxy Exit IPv4 address for both the Android phone and all Wi-Fi Hotspot clients.
+ * Runs two UDP listeners:
+ * 1) 127.0.0.1:stunPort for local Android phone OUTPUT REDIRECT (ensuring reply source IP is 127.0.0.1)
+ * 2) 0.0.0.0:(stunPort + 2) for Wi-Fi Hotspot PREROUTING REDIRECT
  */
 object StunResponder {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var serverJob: Job? = null
+    private var localServerJob: Job? = null
+    private var hotspotServerJob: Job? = null
     private var ipProbeJob: Job? = null
 
     @Volatile
-    private var activeSocket: DatagramSocket? = null
+    private var localSocket: DatagramSocket? = null
+
+    @Volatile
+    private var hotspotSocket: DatagramSocket? = null
 
     @Volatile
     private var activeStunPort: Int = -1
@@ -81,8 +85,9 @@ object StunResponder {
 
     @Synchronized
     fun ensureRunning(stunPort: Int, socksPort: Int, fallbackHostIp: String? = null) {
-        val sock = activeSocket
-        if (sock != null && !sock.isClosed && activeStunPort == stunPort) {
+        val lSock = localSocket
+        val hSock = hotspotSocket
+        if (lSock != null && !lSock.isClosed && hSock != null && !hSock.isClosed && activeStunPort == stunPort) {
             if (currentExitIpBytes == null && !fallbackHostIp.isNullOrBlank()) {
                 updateExitIp(fallbackHostIp, isTunnelVerified = false)
             }
@@ -115,39 +120,46 @@ object StunResponder {
 
         triggerTunnelIpProbe(socksPort)
 
-        serverJob = scope.launch {
-            var socket: DatagramSocket? = null
+        localServerJob = startSocketLoop("127.0.0.1", stunPort) { localSocket = it }
+        hotspotServerJob = startSocketLoop("0.0.0.0", stunPort + 2) { hotspotSocket = it }
+    }
+
+    private fun startSocketLoop(
+        bindHost: String,
+        bindPort: Int,
+        assignSocket: (DatagramSocket) -> Unit
+    ): Job = scope.launch {
+        var socket: DatagramSocket? = null
+        try {
+            socket = DatagramSocket(null).apply {
+                reuseAddress = true
+                bind(InetSocketAddress(bindHost, bindPort))
+            }
+            assignSocket(socket)
+            val buf = ByteArray(512)
+
+            while (isActive && !socket.isClosed) {
+                val packet = DatagramPacket(buf, buf.size)
+                socket.receive(packet)
+                val len = packet.length
+                if (len < 20) continue
+
+                val msgType = ((buf[0].toInt() and 0xFF) shl 8) or (buf[1].toInt() and 0xFF)
+                if (msgType != 0x0001) continue
+
+                val reqCopy = buf.copyOfRange(0, 20)
+                val clientAddr = packet.address
+                val clientPort = packet.port
+
+                scope.launch {
+                    handleStunRequest(socket, reqCopy, clientAddr, clientPort)
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
             try {
-                socket = DatagramSocket(null).apply {
-                    reuseAddress = true
-                    bind(InetSocketAddress("0.0.0.0", stunPort))
-                }
-                activeSocket = socket
-                val buf = ByteArray(512)
-
-                while (isActive && !socket.isClosed) {
-                    val packet = DatagramPacket(buf, buf.size)
-                    socket.receive(packet)
-                    val len = packet.length
-                    if (len < 20) continue
-
-                    val msgType = ((buf[0].toInt() and 0xFF) shl 8) or (buf[1].toInt() and 0xFF)
-                    if (msgType != 0x0001) continue
-
-                    val reqCopy = buf.copyOfRange(0, 20)
-                    val clientAddr = packet.address
-                    val clientPort = packet.port
-
-                    scope.launch {
-                        handleStunRequest(socket, reqCopy, clientAddr, clientPort)
-                    }
-                }
+                socket?.close()
             } catch (_: Exception) {
-            } finally {
-                try {
-                    socket?.close()
-                } catch (_: Exception) {
-                }
             }
         }
     }
@@ -166,8 +178,6 @@ object StunResponder {
 
         val ipBytes = currentExitIpBytes ?: return
 
-        // 52-byte RFC 5389 / RFC 3489 STUN Binding Success Response (0x0101):
-        // Header (20B) + XOR-MAPPED-ADDRESS (12B) + MAPPED-ADDRESS (12B) + FINGERPRINT (8B)
         val resp = ByteArray(52)
         resp[0] = 0x01
         resp[1] = 0x01
@@ -204,7 +214,7 @@ object StunResponder {
         resp[42] = ipBytes[2]
         resp[43] = ipBytes[3]
 
-        // Attribute 3: FINGERPRINT (Type 0x8028, Length 0x0004) = CRC32(resp[0..43]) XOR 0x5354554e
+        // Attribute 3: FINGERPRINT (Type 0x8028, Length 0x0004)
         val crc = CRC32()
         crc.update(resp, 0, 44)
         val fp = (crc.value.toInt()) xor 0x5354554e
@@ -275,13 +285,20 @@ object StunResponder {
     fun stop() {
         ipProbeJob?.cancel()
         ipProbeJob = null
-        serverJob?.cancel()
-        serverJob = null
+        localServerJob?.cancel()
+        localServerJob = null
+        hotspotServerJob?.cancel()
+        hotspotServerJob = null
         try {
-            activeSocket?.close()
+            localSocket?.close()
         } catch (_: Exception) {
         }
-        activeSocket = null
+        try {
+            hotspotSocket?.close()
+        } catch (_: Exception) {
+        }
+        localSocket = null
+        hotspotSocket = null
         activeStunPort = -1
         verifiedFromTunnel.set(false)
     }
