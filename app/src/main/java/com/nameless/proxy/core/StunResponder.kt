@@ -17,13 +17,14 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.CRC32
 
 /**
  * Local RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Synthesizes valid 44-byte STUN Binding Success Responses (0x0101) containing
- * XOR-MAPPED-ADDRESS (0x0020) and MAPPED-ADDRESS (0x0001) set to the live
- * Proxy Exit IPv4 address for both the Android phone and all Wi-Fi Hotspot clients.
+ * Synthesizes valid 52-byte STUN Binding Success Responses (0x0101) containing
+ * XOR-MAPPED-ADDRESS (0x0020), MAPPED-ADDRESS (0x0001), and FINGERPRINT (0x8028)
+ * set to the live Proxy Exit IPv4 address for both the Android phone and all Wi-Fi Hotspot clients.
  */
 object StunResponder {
 
@@ -158,18 +159,20 @@ object StunResponder {
         clientPort: Int
     ) {
         var attempts = 0
-        while (!verifiedFromTunnel.get() && attempts < 25) {
-            delay(30)
+        while (currentExitIpBytes == null && attempts < 15) {
+            delay(25)
             attempts++
         }
 
         val ipBytes = currentExitIpBytes ?: return
 
-        val resp = ByteArray(44)
+        // 52-byte RFC 5389 / RFC 3489 STUN Binding Success Response (0x0101):
+        // Header (20B) + XOR-MAPPED-ADDRESS (12B) + MAPPED-ADDRESS (12B) + FINGERPRINT (8B)
+        val resp = ByteArray(52)
         resp[0] = 0x01
         resp[1] = 0x01
         resp[2] = 0x00
-        resp[3] = 0x18
+        resp[3] = 0x20
 
         System.arraycopy(reqHeader, 4, resp, 4, 16)
 
@@ -200,6 +203,19 @@ object StunResponder {
         resp[41] = ipBytes[1]
         resp[42] = ipBytes[2]
         resp[43] = ipBytes[3]
+
+        // Attribute 3: FINGERPRINT (Type 0x8028, Length 0x0004) = CRC32(resp[0..43]) XOR 0x5354554e
+        val crc = CRC32()
+        crc.update(resp, 0, 44)
+        val fp = (crc.value.toInt()) xor 0x5354554e
+        resp[44] = 0x80.toByte()
+        resp[45] = 0x28.toByte()
+        resp[46] = 0x00
+        resp[47] = 0x04
+        resp[48] = (fp ushr 24).toByte()
+        resp[49] = (fp ushr 16).toByte()
+        resp[50] = (fp ushr 8).toByte()
+        resp[51] = (fp and 0xFF).toByte()
 
         try {
             if (!socket.isClosed) {
