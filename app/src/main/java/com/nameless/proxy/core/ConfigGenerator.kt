@@ -69,9 +69,6 @@ object ConfigGenerator {
         })
 
         // 3. DNS Engine (FakeIP + Remote TCP Tunnel through Proxy)
-        // Note: We allow STUN domains (stun.l.google.com, etc.) to resolve via FakeIP (198.18.0.x)
-        // so that both the phone and Hotspot clients (Windows/Mac/iOS) send STUN UDP requests to 198.18.0.x,
-        // which iptables redirects to our local StunResponder to return the US Proxy Exit IP!
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -81,8 +78,12 @@ object ConfigGenerator {
         dnsServers.put(JSONObject().apply {
             put("type", "fakeip")
             put("tag", "dns-fakeip")
-            put("inet4_range", "198.18.0.0/15")
-            put("inet6_range", "fc00::/18")
+            if (settings.ipMode != IpMode.IPV6_ONLY) {
+                put("inet4_range", "198.18.0.0/15")
+            }
+            if (settings.ipMode != IpMode.IPV4_ONLY) {
+                put("inet6_range", "fc00::/18")
+            }
         })
 
         dnsServers.put(JSONObject().apply {
@@ -103,11 +104,19 @@ object ConfigGenerator {
 
         val dnsRules = JSONArray()
 
-        // Return clean NOERROR for HTTPS (Type 65) & SVCB (Type 64) records so Chrome/Cloudflare never see REFUSED
+        // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
+        // Crucial on IPv6 cellular networks (like Jazz LTE 2404:3100:...) so apps never get an IPv6 FakeIP
+        // and never see RCODE=REFUSED!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
                 put("SVCB")
+                if (settings.ipMode == IpMode.IPV4_ONLY) {
+                    put("AAAA")
+                }
+                if (settings.ipMode == IpMode.IPV6_ONLY) {
+                    put("A")
+                }
             })
             put("action", "predefined")
             put("rcode", "NOERROR")
@@ -133,8 +142,8 @@ object ConfigGenerator {
 
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
-                put("A")
-                put("AAAA")
+                if (settings.ipMode != IpMode.IPV6_ONLY) put("A")
+                if (settings.ipMode != IpMode.IPV4_ONLY) put("AAAA")
             })
             put("action", "route")
             put("server", "dns-fakeip")
@@ -152,7 +161,7 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds
+        // 4. Inbounds (redirect-in, internal-socks-in, dns-in)
         val inbounds = JSONArray()
 
         inbounds.put(JSONObject().apply {
@@ -180,17 +189,6 @@ object ConfigGenerator {
             })
             put("override_address", "1.1.1.1")
             put("override_port", 53)
-        })
-
-        inbounds.put(JSONObject().apply {
-            put("type", "tproxy")
-            put("tag", "tproxy-in")
-            put("listen", "::")
-            put("listen_port", inboundPort + 8)
-            put("network", JSONArray().apply {
-                put("tcp")
-                put("udp")
-            })
         })
 
         root.put("inbounds", inbounds)
@@ -315,6 +313,46 @@ object ConfigGenerator {
         // Reject DoT (853) queries inside sing-box
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(853) })
+            put("action", "reject")
+        })
+
+        // Block direct-IP DNS-over-HTTPS (DoH) endpoints (e.g. Chrome 155 auto-upgrading 8.8.8.8 to DoH)
+        // so browsers on Phone and Windows Hotspot MUST use Port 53 DNS through sing-box!
+        routeRules.put(JSONObject().apply {
+            put("ip_cidr", JSONArray().apply {
+                put("8.8.8.8/32")
+                put("8.8.4.4/32")
+                put("1.1.1.1/32")
+                put("1.0.0.1/32")
+                put("9.9.9.9/32")
+                put("149.112.112.112/32")
+                put("208.67.222.222/32")
+                put("208.67.220.220/32")
+                put("2001:4860:4860::8888/128")
+                put("2001:4860:4860::8844/128")
+                put("2606:4700:4700::1111/128")
+                put("2606:4700:4700::1001/128")
+            })
+            put("port", JSONArray().apply {
+                put(443)
+                put(853)
+            })
+            put("action", "reject")
+        })
+
+        routeRules.put(JSONObject().apply {
+            put("domain", JSONArray().apply {
+                put("dns.google")
+                put("dns.google.com")
+                put("cloudflare-dns.com")
+                put("one.one.one.one")
+                put("1dot1dot1dot1.cloudflare-dns.com")
+                put("dns.quad9.net")
+                put("dns.nextdns.io")
+                put("dns.adguard-dns.com")
+                put("doh.opendns.com")
+                put("use-application-dns.net")
+            })
             put("action", "reject")
         })
 

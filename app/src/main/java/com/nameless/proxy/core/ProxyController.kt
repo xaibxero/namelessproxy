@@ -162,7 +162,7 @@ object ProxyController {
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
-        val stunIp = StunResponder.getExitIp().ifEmpty { "Awaiting Tunnel Probe" }
+        val stunIp: String = StunResponder.getExitIp().ifEmpty { "Awaiting Tunnel Probe" }
         val raw = executeSuWithOutput(listOf(
             "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + (slot + 1) + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
