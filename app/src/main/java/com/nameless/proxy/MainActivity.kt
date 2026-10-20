@@ -101,7 +101,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.intellij.lang.annotations.Language
 import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
@@ -165,7 +164,6 @@ private val ZuanTextPrimary = Color(0xFFF8FAFC)
 private val ZuanTextSecondary = Color(0xFFA5B8D0)
 private val ZuanTextMuted = Color(0xFF64748B)
 
-@Language("AGSL")
 private const val LIQUID_AURORA_AGSL = """
     uniform float2 resolution;
     uniform float time;
@@ -2134,7 +2132,7 @@ fun ZuanDashboardTab(
         label = "breath"
     )
 
-    val stunIp = remember(publicIpInfo?.ip, host, isProxyActive) {
+    val stunIp: String = remember(publicIpInfo?.ip, host, isProxyActive) {
         if (!isProxyActive) "Standby"
         else publicIpInfo?.ip ?: StunResponder.getExitIp().ifEmpty { host.ifEmpty { "Syncing..." } }
     }
@@ -2759,7 +2757,7 @@ fun LiveEphemeralIpFighterTab(
         }
     }
 
-    val verifiedExitIp = remember(isProxyActive, publicIpInfo?.ip) {
+    val verifiedExitIp: String = remember(isProxyActive, publicIpInfo?.ip) {
         if (!isProxyActive) ""
         else publicIpInfo?.ip ?: StunResponder.getExitIp()
     }
