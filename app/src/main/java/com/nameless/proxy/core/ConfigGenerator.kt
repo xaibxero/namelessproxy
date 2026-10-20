@@ -38,10 +38,14 @@ object ConfigGenerator {
 
     const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
     const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
-    const val SINGBOX_ROUTING_MARK = 6666
 
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
+
+    fun resolveAutoIpMode(settings: ProxySettings, resolvedServerHost: String? = null): IpMode {
+        val candidate = resolvedServerHost?.takeIf { it.isNotBlank() } ?: cleanHost(settings.host)
+        return if (IptablesManager.isValidIpv6(candidate)) IpMode.IPV6_ONLY else IpMode.IPV4_ONLY
+    }
 
     fun generateJson(
         settings: ProxySettings,
@@ -51,6 +55,7 @@ object ConfigGenerator {
         val root = JSONObject()
         val rawCleanedHost = cleanHost(settings.host)
         val serverHost = resolvedServerHost?.takeIf { it.isNotBlank() } ?: rawCleanedHost
+        val effectiveIpMode = resolveAutoIpMode(settings, serverHost)
         val user = ProfileManager.androidUserId
         val slot = ProfileManager.activeSlot
 
@@ -73,8 +78,8 @@ object ConfigGenerator {
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        val remoteDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
-        val directDnsServer = if (settings.ipMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
+        val remoteDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
+        val directDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
 
         dnsServers.put(JSONObject().apply {
             put("type", "fakeip")
@@ -96,21 +101,21 @@ object ConfigGenerator {
             put("type", "udp")
             put("server", directDnsServer)
             put("server_port", 53)
-            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
 
         // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
+        // so Chromium's parallel HostResolverDnsTask never aborts on RCODE=REFUSED!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
                 put("SVCB")
-                if (settings.ipMode == IpMode.IPV4_ONLY) {
+                if (effectiveIpMode == IpMode.IPV4_ONLY) {
                     put("AAAA")
                 }
-                if (settings.ipMode == IpMode.IPV6_ONLY) {
+                if (effectiveIpMode == IpMode.IPV6_ONLY) {
                     put("A")
                 }
             })
@@ -120,8 +125,8 @@ object ConfigGenerator {
 
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
-                if (settings.ipMode != IpMode.IPV6_ONLY) put("A")
-                if (settings.ipMode != IpMode.IPV4_ONLY) put("AAAA")
+                if (effectiveIpMode != IpMode.IPV6_ONLY) put("A")
+                if (effectiveIpMode != IpMode.IPV4_ONLY) put("AAAA")
             })
             put("action", "route")
             put("server", "dns-fakeip")
@@ -129,7 +134,7 @@ object ConfigGenerator {
         })
         dns.put("rules", dnsRules)
 
-        when (settings.ipMode) {
+        when (effectiveIpMode) {
             IpMode.IPV4_ONLY -> dns.put("strategy", "ipv4_only")
             IpMode.IPV6_ONLY -> dns.put("strategy", "ipv6_only")
             IpMode.DUAL_STACK -> dns.put("strategy", "prefer_ipv4")
@@ -139,18 +144,19 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds
+        // 4. Inbounds — Dedicated AF_INET (127.0.0.1 / 0.0.0.0) sockets so disable_ipv6=1 on rmnet_data0
+        // never blocks TCP/UDP socket delivery on the Phone or Hotspot!
         val inbounds = JSONArray()
 
-        // Dual-stack redirect listener for both Phone OUTPUT and Hotspot PREROUTING
+        // Phone OUTPUT TCP REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
-            put("listen", "::")
+            put("listen", "127.0.0.1")
             put("listen_port", inboundPort)
         })
 
-        // Local Mixed (SOCKS5 + HTTP CONNECT) proxy for in-app WebView, IpFetcher & StunResponder
+        // Local Mixed (SOCKS5 + HTTP/HTTPS CONNECT) proxy inbound for IpFetcher, StunResponder & WebView
         inbounds.put(JSONObject().apply {
             put("type", "mixed")
             put("tag", "internal-socks-in")
@@ -158,7 +164,7 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Phone OUTPUT DNS listener bound to 127.0.0.1 so UDP reply source IP matches conntrack
+        // Phone OUTPUT DNS REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -172,11 +178,11 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING DNS listener
+        // Hotspot PREROUTING DNS REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-hs-in")
-            put("listen", "::")
+            put("listen", "0.0.0.0")
             put("listen_port", inboundPort + 4)
             put("network", JSONArray().apply {
                 put("tcp")
@@ -186,13 +192,20 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
+        // Hotspot PREROUTING TCP REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
+        inbounds.put(JSONObject().apply {
+            put("type", "redirect")
+            put("tag", "redirect-hs-in")
+            put("listen", "0.0.0.0")
+            put("listen_port", inboundPort + 6)
+        })
+
         root.put("inbounds", inbounds)
 
-        // 5. Outbounds (All tagged with routing_mark = 6666 so iptables exempts sing-box at Rule #1)
+        // 5. Outbounds (Never set routing_mark on Android so fwmark 0x0/0xffff matches netd Rule 22000!)
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
-            put("routing_mark", SINGBOX_ROUTING_MARK)
         }
 
         when (settings.type) {
@@ -220,13 +233,11 @@ object ConfigGenerator {
                     proxyOutbound.put("username", settings.username)
                     proxyOutbound.put("password", settings.password)
                 }
-                if (settings.sni.isNotEmpty() || settings.port == 443 || settings.port == 8443) {
-                    if (settings.sni.isNotEmpty()) {
-                        proxyOutbound.put("tls", JSONObject().apply {
-                            put("enabled", true)
-                            put("server_name", settings.sni)
-                        })
-                    }
+                if (settings.sni.isNotEmpty()) {
+                    proxyOutbound.put("tls", JSONObject().apply {
+                        put("enabled", true)
+                        put("server_name", settings.sni)
+                    })
                 }
             }
             ProxyType.SHADOWSOCKS -> {
@@ -318,14 +329,10 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
-            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         root.put("outbounds", outbounds)
 
         // 6. Routing Rules
-        // Notice: TCP Port 853 (Android Private DNS DoT) and TCP Port 443 (Chrome DoH to 8.8.8.8 / 1.1.1.1)
-        // are NOT rejected — they flow through 'final: proxy-out' so Private DNS & Chrome DoH resolve
-        // from the proxy's exit IP with zero DNS leaks while keeping Android Private DNS ON!
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
