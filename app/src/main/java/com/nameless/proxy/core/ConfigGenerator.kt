@@ -100,7 +100,8 @@ object ConfigGenerator {
 
         val dnsRules = JSONArray()
 
-        // Filter HTTPS, SVCB, and AAAA (when IPv4_ONLY)
+        // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
+        // so Chromium's parallel HostResolverDnsTask never aborts on RCODE=REFUSED!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -112,10 +113,11 @@ object ConfigGenerator {
                     put("A")
                 }
             })
-            put("action", "reject")
+            put("action", "predefined")
+            put("rcode", "NOERROR")
         })
 
-        // Filter application DNS upgrade domains
+        // Return clean NXDOMAIN for browser DNS-upgrade probe domains
         dnsRules.put(JSONObject().apply {
             put("domain", JSONArray().apply {
                 put("use-application-dns.net")
@@ -129,7 +131,8 @@ object ConfigGenerator {
                 put("dns.adguard-dns.com")
                 put("doh.opendns.com")
             })
-            put("action", "reject")
+            put("action", "predefined")
+            put("rcode", "NXDOMAIN")
         })
 
         dnsRules.put(JSONObject().apply {
@@ -153,24 +156,27 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds
+        // 4. Inbounds — Dedicated AF_INET (127.0.0.1 / 0.0.0.0) sockets so disable_ipv6=1 on rmnet_data0
+        // never blocks TCP/UDP socket delivery on the Phone or Hotspot!
         val inbounds = JSONArray()
 
+        // Phone OUTPUT TCP REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
-            put("listen", "::")
+            put("listen", "127.0.0.1")
             put("listen_port", inboundPort)
         })
 
+        // Local Mixed (SOCKS5 + HTTP/HTTPS CONNECT) proxy inbound for IpFetcher, StunResponder & WebView
         inbounds.put(JSONObject().apply {
-            put("type", "socks")
+            put("type", "mixed")
             put("tag", "internal-socks-in")
             put("listen", "127.0.0.1")
             put("listen_port", inboundPort + 1)
         })
 
-        // Local loopback DNS inbound for Phone OUTPUT REDIRECT (ensures UDP reply source IP is 127.0.0.1 for conntrack)
+        // Phone OUTPUT DNS REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -184,11 +190,11 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot DNS inbound for PREROUTING REDIRECT on tether interfaces
+        // Hotspot PREROUTING DNS REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-hs-in")
-            put("listen", "::")
+            put("listen", "0.0.0.0")
             put("listen_port", inboundPort + 4)
             put("network", JSONArray().apply {
                 put("tcp")
@@ -196,6 +202,14 @@ object ConfigGenerator {
             })
             put("override_address", "1.1.1.1")
             put("override_port", 53)
+        })
+
+        // Hotspot PREROUTING TCP REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
+        inbounds.put(JSONObject().apply {
+            put("type", "redirect")
+            put("tag", "redirect-hs-in")
+            put("listen", "0.0.0.0")
+            put("listen_port", inboundPort + 6)
         })
 
         root.put("inbounds", inbounds)

@@ -16,8 +16,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import androidx.webkit.ProxyConfig
+import androidx.webkit.WebViewFeature
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -145,9 +148,9 @@ private fun slotLabel(slotIndex: Int): String = "P${slotIndex + 1}"
 // Vivid GPU AGSL Fluid Caustics + Translucent Frosted Glass + Squish Physics
 // -------------------------------------------------------------
 
-private val ZuanDeepSpace = Color(0xFF040814)
-private val ZuanGlassBase = Color(0x6E0B1528)
-private val ZuanGlassElevated = Color(0x88132240)
+private val ZuanDeepSpace = Color(0xFF030712)
+private val ZuanGlassBase = Color(0x360A1528)
+private val ZuanGlassElevated = Color(0x4D132442)
 private val ZuanAqua = Color(0xFF00E5FF)
 private val ZuanMint = Color(0xFF00F5A0)
 private val ZuanEmerald = Color(0xFF10B981)
@@ -229,11 +232,34 @@ fun ZuanLiquidMeshBackground(
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val shader = remember { RuntimeShader(LIQUID_AURORA_AGSL) }
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.99f }) {
             shader.setFloatUniform("resolution", size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f))
             shader.setFloatUniform("time", timeSec)
             shader.setFloatUniform("activeFactor", activeFactor)
             drawRect(brush = ShaderBrush(shader))
+
+            val w = size.width
+            val h = size.height
+            val orbAccent = if (isTransitioning) ZuanAmber else if (isProxyActive) ZuanMint else ZuanAqua
+            for (i in 0 until 6) {
+                val phase = timeSec * (0.45f + i * 0.12f) + i * 1.15f
+                val ox = w * (0.15f + 0.70f * (0.5f + 0.5f * cos(phase)))
+                val oy = h * (0.12f + 0.76f * (0.5f + 0.5f * sin(phase * 0.85f + i)))
+                val rad = w * (0.18f + (i % 3) * 0.08f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            orbAccent.copy(alpha = 0.18f),
+                            ZuanViolet.copy(alpha = 0.08f),
+                            Color.Transparent
+                        ),
+                        center = Offset(ox, oy),
+                        radius = rad
+                    ),
+                    radius = rad,
+                    center = Offset(ox, oy)
+                )
+            }
         }
     } else {
         val blobPrimary by animateColorAsState(
@@ -405,12 +431,20 @@ fun ZuanLiquidGlassCard(
         }
     )
 
-    // Translucent frosted glass fill (allows the animated AGSL liquid waves underneath to refract through!)
+    val infiniteShimmer = rememberInfiniteTransition(label = "glassShimmer")
+    val shimmerPhase by infiniteShimmer.animateFloat(
+        initialValue = -0.4f,
+        targetValue = 1.4f,
+        animationSpec = infiniteRepeatable(tween(if (isHighlighted) 3600 else 6200, easing = LinearEasing)),
+        label = "shimmerPhase"
+    )
+
+    // Ultra-transparent crystal glass fill so the live GPU fluid waves & orbs refract vividly through every card
     val surfaceBrush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = if (isHighlighted) 0.13f else 0.09f),
+            Color.White.copy(alpha = if (isHighlighted) 0.15f else 0.08f),
             ZuanGlassBase,
-            accentGlow.copy(alpha = if (isHighlighted) 0.14f else 0.06f)
+            accentGlow.copy(alpha = if (isHighlighted) 0.16f else 0.07f)
         )
     )
 
@@ -427,6 +461,20 @@ fun ZuanLiquidGlassCard(
             .border(width = 1.25.dp, brush = rimBrush, shape = shape)
             .drawWithContent {
                 drawContent()
+                // Animated diagonal specular light sweep across the crystal glass surface
+                val sweepX = size.width * shimmerPhase
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = if (isHighlighted) 0.09f else 0.045f),
+                            accentGlow.copy(alpha = if (isHighlighted) 0.08f else 0.035f),
+                            Color.Transparent
+                        ),
+                        start = Offset(sweepX - size.width * 0.35f, 0f),
+                        end = Offset(sweepX + size.width * 0.15f, size.height)
+                    )
+                )
                 // Top curved meniscus specular reflection line + inner glass rim sheen
                 val inset = cornerRadius.toPx() * 0.55f
                 if (size.width > inset * 2) {
@@ -808,6 +856,19 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
+
+        // Request highest GPU display refresh rate (90Hz / 120Hz) supported by the panel
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val modes = display?.supportedModes
+                val bestMode = modes?.maxByOrNull { it.refreshRate }
+                if (bestMode != null) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = bestMode.modeId
+                    window.attributes = params
+                }
+            }
+        } catch (_: Exception) {}
 
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -1353,6 +1414,27 @@ fun MainScreen(
     }
 
     LaunchedEffect(isProxyActive, runningSlot, handoverNonce) {
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                if (isProxyActive) {
+                    val rSlot = runningSlot ?: activeSlot
+                    val mixedPort = 10800 + (ProfileManager.androidUserId * 100) + (rSlot * 10) + 1
+                    val proxyCfg = ProxyConfig.Builder()
+                        .addProxyRule("127.0.0.1:$mixedPort")
+                        .build()
+                    androidx.webkit.ProxyController.getInstance().setProxyOverride(
+                        proxyCfg,
+                        { r -> r.run() },
+                        {}
+                    )
+                } else {
+                    androidx.webkit.ProxyController.getInstance().clearProxyOverride(
+                        { r -> r.run() },
+                        {}
+                    )
+                }
+            }
+        } catch (_: Exception) {}
         triggerExitNodeCheck()
     }
 
@@ -2906,12 +2988,42 @@ fun LiveEphemeralIpFighterTab(
                 .clip(RoundedCornerShape(16.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
         ) {
-            key(isProxyActive, runningSlot, reloadNonce, targetSiteIndex) {
+            var webkitProxySynced by remember(isProxyActive, runningSlot) { mutableStateOf(false) }
+            LaunchedEffect(isProxyActive, runningSlot) {
+                try {
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                        if (isProxyActive) {
+                            val rSlot = runningSlot ?: ProfileManager.activeSlot
+                            val mixedPort = 10800 + (ProfileManager.androidUserId * 100) + (rSlot * 10) + 1
+                            val proxyCfg = ProxyConfig.Builder()
+                                .addProxyRule("127.0.0.1:$mixedPort")
+                                .build()
+                            androidx.webkit.ProxyController.getInstance().setProxyOverride(
+                                proxyCfg,
+                                { r -> r.run() },
+                                { webkitProxySynced = true }
+                            )
+                        } else {
+                            androidx.webkit.ProxyController.getInstance().clearProxyOverride(
+                                { r -> r.run() },
+                                { webkitProxySynced = true }
+                            )
+                        }
+                    } else {
+                        webkitProxySynced = true
+                    }
+                } catch (_: Exception) {
+                    webkitProxySynced = true
+                }
+            }
+
+            key(isProxyActive, runningSlot, webkitProxySynced, reloadNonce, targetSiteIndex) {
                 val baseUrl = targets[targetSiteIndex].third
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            setLayerType(View.LAYER_TYPE_HARDWARE, null)
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
