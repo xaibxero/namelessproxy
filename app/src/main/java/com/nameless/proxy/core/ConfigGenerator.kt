@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 enum class ProxyType {
-    SOCKS5, SOCKS4, HTTP, SHADOWSOCKS, VLESS, TROJAN, HYSTERIA2
+    SOCKS5, HTTP, SHADOWSOCKS, VLESS, VMESS, TROJAN, HYSTERIA2, TUIC, SOCKS4
 }
 
 enum class TransportMode {
@@ -38,6 +38,7 @@ object ConfigGenerator {
 
     const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
     const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
+    const val SINGBOX_ROUTING_MARK = 6666
 
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
@@ -68,7 +69,7 @@ object ConfigGenerator {
             })
         })
 
-        // 3. DNS Configuration
+        // 3. DNS Configuration (FakeIP + Remote TCP Tunnel through Proxy)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -95,13 +96,13 @@ object ConfigGenerator {
             put("type", "udp")
             put("server", directDnsServer)
             put("server_port", 53)
+            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
 
         // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
-        // so Chromium's parallel HostResolverDnsTask never aborts on RCODE=REFUSED!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -115,24 +116,6 @@ object ConfigGenerator {
             })
             put("action", "predefined")
             put("rcode", "NOERROR")
-        })
-
-        // Return clean NXDOMAIN for browser DNS-upgrade probe domains
-        dnsRules.put(JSONObject().apply {
-            put("domain", JSONArray().apply {
-                put("use-application-dns.net")
-                put("dns.google")
-                put("dns.google.com")
-                put("cloudflare-dns.com")
-                put("one.one.one.one")
-                put("1dot1dot1dot1.cloudflare-dns.com")
-                put("dns.quad9.net")
-                put("dns.nextdns.io")
-                put("dns.adguard-dns.com")
-                put("doh.opendns.com")
-            })
-            put("action", "predefined")
-            put("rcode", "NXDOMAIN")
         })
 
         dnsRules.put(JSONObject().apply {
@@ -156,19 +139,18 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds — Dedicated AF_INET (127.0.0.1 / 0.0.0.0) sockets so disable_ipv6=1 on rmnet_data0
-        // never blocks TCP/UDP socket delivery on the Phone or Hotspot!
+        // 4. Inbounds
         val inbounds = JSONArray()
 
-        // Phone OUTPUT TCP REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
+        // Dual-stack redirect listener for both Phone OUTPUT and Hotspot PREROUTING
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
-            put("listen", "127.0.0.1")
+            put("listen", "::")
             put("listen_port", inboundPort)
         })
 
-        // Local Mixed (SOCKS5 + HTTP/HTTPS CONNECT) proxy inbound for IpFetcher, StunResponder & WebView
+        // Local Mixed (SOCKS5 + HTTP CONNECT) proxy for in-app WebView, IpFetcher & StunResponder
         inbounds.put(JSONObject().apply {
             put("type", "mixed")
             put("tag", "internal-socks-in")
@@ -176,7 +158,7 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Phone OUTPUT DNS REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
+        // Phone OUTPUT DNS listener bound to 127.0.0.1 so UDP reply source IP matches conntrack
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -190,11 +172,11 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING DNS REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
+        // Hotspot PREROUTING DNS listener
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-hs-in")
-            put("listen", "0.0.0.0")
+            put("listen", "::")
             put("listen_port", inboundPort + 4)
             put("network", JSONArray().apply {
                 put("tcp")
@@ -204,20 +186,13 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING TCP REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
-        inbounds.put(JSONObject().apply {
-            put("type", "redirect")
-            put("tag", "redirect-hs-in")
-            put("listen", "0.0.0.0")
-            put("listen_port", inboundPort + 6)
-        })
-
         root.put("inbounds", inbounds)
 
-        // 5. Outbounds
+        // 5. Outbounds (All tagged with routing_mark = 6666 so iptables exempts sing-box at Rule #1)
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
+            put("routing_mark", SINGBOX_ROUTING_MARK)
         }
 
         when (settings.type) {
@@ -245,6 +220,14 @@ object ConfigGenerator {
                     proxyOutbound.put("username", settings.username)
                     proxyOutbound.put("password", settings.password)
                 }
+                if (settings.sni.isNotEmpty() || settings.port == 443 || settings.port == 8443) {
+                    if (settings.sni.isNotEmpty()) {
+                        proxyOutbound.put("tls", JSONObject().apply {
+                            put("enabled", true)
+                            put("server_name", settings.sni)
+                        })
+                    }
+                }
             }
             ProxyType.SHADOWSOCKS -> {
                 proxyOutbound.put("type", "shadowsocks")
@@ -259,17 +242,17 @@ object ConfigGenerator {
                 proxyOutbound.put("server_port", settings.port)
                 proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
                 proxyOutbound.put("packet_encoding", "xudp")
-                if (settings.transportMode == TransportMode.TCP_ONLY || settings.realityPublicKey.isNotEmpty()) {
+                if (settings.realityPublicKey.isNotEmpty()) {
                     proxyOutbound.put("flow", "xtls-rprx-vision")
                 }
                 val tlsObj = JSONObject().apply {
                     put("enabled", true)
                     put("server_name", settings.sni.ifEmpty { rawCleanedHost })
+                    put("utls", JSONObject().apply {
+                        put("enabled", true)
+                        put("fingerprint", "chrome")
+                    })
                     if (settings.realityPublicKey.isNotEmpty()) {
-                        put("utls", JSONObject().apply {
-                            put("enabled", true)
-                            put("fingerprint", "chrome")
-                        })
                         put("reality", JSONObject().apply {
                             put("enabled", true)
                             put("public_key", settings.realityPublicKey)
@@ -279,21 +262,51 @@ object ConfigGenerator {
                 }
                 proxyOutbound.put("tls", tlsObj)
             }
+            ProxyType.VMESS -> {
+                proxyOutbound.put("type", "vmess")
+                proxyOutbound.put("server", serverHost)
+                proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("uuid", settings.password.ifEmpty { settings.username })
+                proxyOutbound.put("security", "auto")
+                proxyOutbound.put("alter_id", 0)
+                if (settings.sni.isNotEmpty() || settings.port == 443) {
+                    proxyOutbound.put("tls", JSONObject().apply {
+                        put("enabled", true)
+                        put("server_name", settings.sni.ifEmpty { rawCleanedHost })
+                    })
+                }
+            }
             ProxyType.TROJAN -> {
                 proxyOutbound.put("type", "trojan")
                 proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
-                proxyOutbound.put("password", settings.password)
+                proxyOutbound.put("password", settings.password.ifEmpty { settings.username })
                 proxyOutbound.put("tls", JSONObject().apply {
                     put("enabled", true)
                     put("server_name", settings.sni.ifEmpty { rawCleanedHost })
+                    put("utls", JSONObject().apply {
+                        put("enabled", true)
+                        put("fingerprint", "chrome")
+                    })
                 })
             }
             ProxyType.HYSTERIA2 -> {
                 proxyOutbound.put("type", "hysteria2")
                 proxyOutbound.put("server", serverHost)
                 proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("password", settings.password.ifEmpty { settings.username })
+                proxyOutbound.put("tls", JSONObject().apply {
+                    put("enabled", true)
+                    put("server_name", settings.sni.ifEmpty { rawCleanedHost })
+                })
+            }
+            ProxyType.TUIC -> {
+                proxyOutbound.put("type", "tuic")
+                proxyOutbound.put("server", serverHost)
+                proxyOutbound.put("server_port", settings.port)
+                proxyOutbound.put("uuid", settings.username.ifEmpty { settings.password })
                 proxyOutbound.put("password", settings.password)
+                proxyOutbound.put("congestion_control", "bbr")
                 proxyOutbound.put("tls", JSONObject().apply {
                     put("enabled", true)
                     put("server_name", settings.sni.ifEmpty { rawCleanedHost })
@@ -305,10 +318,14 @@ object ConfigGenerator {
         outbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "direct-out")
+            put("routing_mark", SINGBOX_ROUTING_MARK)
         })
         root.put("outbounds", outbounds)
 
         // 6. Routing Rules
+        // Notice: TCP Port 853 (Android Private DNS DoT) and TCP Port 443 (Chrome DoH to 8.8.8.8 / 1.1.1.1)
+        // are NOT rejected — they flow through 'final: proxy-out' so Private DNS & Chrome DoH resolve
+        // from the proxy's exit IP with zero DNS leaks while keeping Android Private DNS ON!
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -334,49 +351,7 @@ object ConfigGenerator {
             put("timeout", "200ms")
         })
 
-        routeRules.put(JSONObject().apply {
-            put("port", JSONArray().apply { put(853) })
-            put("action", "reject")
-        })
-
-        routeRules.put(JSONObject().apply {
-            put("ip_cidr", JSONArray().apply {
-                put("8.8.8.8/32")
-                put("8.8.4.4/32")
-                put("1.1.1.1/32")
-                put("1.0.0.1/32")
-                put("9.9.9.9/32")
-                put("149.112.112.112/32")
-                put("208.67.222.222/32")
-                put("208.67.220.220/32")
-                put("2001:4860:4860::8888/128")
-                put("2001:4860:4860::8844/128")
-                put("2606:4700:4700::1111/128")
-                put("2606:4700:4700::1001/128")
-            })
-            put("port", JSONArray().apply {
-                put(443)
-                put(853)
-            })
-            put("action", "reject")
-        })
-
-        routeRules.put(JSONObject().apply {
-            put("domain", JSONArray().apply {
-                put("dns.google")
-                put("dns.google.com")
-                put("cloudflare-dns.com")
-                put("one.one.one.one")
-                put("1dot1dot1dot1.cloudflare-dns.com")
-                put("dns.quad9.net")
-                put("dns.nextdns.io")
-                put("dns.adguard-dns.com")
-                put("doh.opendns.com")
-                put("use-application-dns.net")
-            })
-            put("action", "reject")
-        })
-
+        // Block UDP QUIC/DoQ on ports 80/443/853 so browsers & Private DNS use TCP 443/853 through proxy-out
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {

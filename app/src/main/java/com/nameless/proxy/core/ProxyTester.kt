@@ -26,8 +26,8 @@ object ProxyTester {
 
         val start = System.currentTimeMillis()
 
-        // Hysteria2 uses QUIC over UDP exclusively
-        if (settings.type == ProxyType.HYSTERIA2) {
+        // Hysteria2 and TUIC use QUIC over UDP exclusively
+        if (settings.type == ProxyType.HYSTERIA2 || settings.type == ProxyType.TUIC) {
             return@withContext try {
                 val address = InetAddress.getByName(cleanHost)
                 DatagramSocket().use { udpSocket ->
@@ -129,8 +129,13 @@ object ProxyTester {
                         if (status != 0x5A) return@withContext TestResult.Failure("SOCKS4 rejected (Status: $status)")
                     }
 
-                    ProxyType.SHADOWSOCKS, ProxyType.VLESS, ProxyType.TROJAN, ProxyType.HYSTERIA2 -> {
-                        // TCP handshake completed
+                    ProxyType.SHADOWSOCKS,
+                    ProxyType.VLESS,
+                    ProxyType.VMESS,
+                    ProxyType.TROJAN,
+                    ProxyType.HYSTERIA2,
+                    ProxyType.TUIC -> {
+                        // TCP/TLS handshake completed
                     }
                 }
             }

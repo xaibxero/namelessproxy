@@ -8,7 +8,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.io.File
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
@@ -20,11 +19,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CRC32
 
 /**
- * Local RFC 5389 / RFC 3489 UDP STUN Responder.
+ * Live RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Runs two UDP listeners:
- * 1) 127.0.0.1:stunPort for local Android phone OUTPUT REDIRECT (ensuring reply source IP is 127.0.0.1)
- * 2) 0.0.0.0:(stunPort + 2) for Wi-Fi Hotspot PREROUTING REDIRECT
+ * Strictly dynamic: never caches exit IPs on disk and never serves fallback IPs.
+ * Only binds the Phone socket (127.0.0.1:stunPort) when enableLocalStun is true,
+ * and only binds the Hotspot socket (0.0.0.0:stunPort+2) when enableHotspotStun is true.
  */
 object StunResponder {
 
@@ -44,6 +43,12 @@ object StunResponder {
 
     @Volatile
     private var activeSocksPort: Int = -1
+
+    @Volatile
+    private var activeLocalEnabled: Boolean = false
+
+    @Volatile
+    private var activeHotspotEnabled: Boolean = false
 
     @Volatile
     private var currentExitIp: String = ""
@@ -75,53 +80,65 @@ object StunResponder {
         if (isTunnelVerified) {
             verifiedFromTunnel.set(true)
         }
-        try {
-            File("/data/adb/nameless_proxy/exit_ip").writeText(currentExitIp)
-        } catch (_: Exception) {
-        }
     }
 
     fun getExitIp(): String = currentExitIp
 
     @Synchronized
-    fun ensureRunning(stunPort: Int, socksPort: Int, fallbackHostIp: String? = null) {
-        val lSock = localSocket
-        val hSock = hotspotSocket
-        if (lSock != null && !lSock.isClosed && hSock != null && !hSock.isClosed && activeStunPort == stunPort) {
-            if (currentExitIpBytes == null && !fallbackHostIp.isNullOrBlank()) {
-                updateExitIp(fallbackHostIp, isTunnelVerified = false)
-            }
+    fun ensureRunning(
+        stunPort: Int,
+        socksPort: Int,
+        enableLocalStun: Boolean = true,
+        enableHotspotStun: Boolean = true
+    ) {
+        val localOk = !enableLocalStun || (localSocket != null && !localSocket!!.isClosed)
+        val hsOk = !enableHotspotStun || (hotspotSocket != null && !hotspotSocket!!.isClosed)
+        if (localOk && hsOk &&
+            activeStunPort == stunPort &&
+            activeLocalEnabled == enableLocalStun &&
+            activeHotspotEnabled == enableHotspotStun
+        ) {
             if (!verifiedFromTunnel.get()) {
                 triggerTunnelIpProbe(socksPort)
             }
             return
         }
-        start(stunPort, socksPort, fallbackHostIp)
+        start(stunPort, socksPort, enableLocalStun, enableHotspotStun)
     }
 
     @Synchronized
-    fun start(stunPort: Int, socksPort: Int, fallbackHostIp: String? = null) {
+    fun start(
+        stunPort: Int,
+        socksPort: Int,
+        enableLocalStun: Boolean = true,
+        enableHotspotStun: Boolean = true
+    ) {
+        val preserveIp = currentExitIp
+        val preserveBytes = currentExitIpBytes
+        val preserveVerified = verifiedFromTunnel.get() && activeSocksPort == socksPort
+
         stop()
+
         activeStunPort = stunPort
         activeSocksPort = socksPort
-        verifiedFromTunnel.set(false)
+        activeLocalEnabled = enableLocalStun
+        activeHotspotEnabled = enableHotspotStun
 
-        if (!fallbackHostIp.isNullOrBlank()) {
-            updateExitIp(fallbackHostIp, isTunnelVerified = false)
+        if (preserveVerified && preserveBytes != null) {
+            currentExitIp = preserveIp
+            currentExitIpBytes = preserveBytes
+            verifiedFromTunnel.set(true)
         } else {
-            try {
-                val cached = File("/data/adb/nameless_proxy/exit_ip").takeIf { it.exists() }?.readText()?.trim()
-                if (!cached.isNullOrBlank()) {
-                    updateExitIp(cached, isTunnelVerified = false)
-                }
-            } catch (_: Exception) {
-            }
+            verifiedFromTunnel.set(false)
+            triggerTunnelIpProbe(socksPort)
         }
 
-        triggerTunnelIpProbe(socksPort)
-
-        localServerJob = startSocketLoop("127.0.0.1", stunPort) { localSocket = it }
-        hotspotServerJob = startSocketLoop("0.0.0.0", stunPort + 2) { hotspotSocket = it }
+        if (enableLocalStun) {
+            localServerJob = startSocketLoop("127.0.0.1", stunPort) { localSocket = it }
+        }
+        if (enableHotspotStun) {
+            hotspotServerJob = startSocketLoop("0.0.0.0", stunPort + 2) { hotspotSocket = it }
+        }
     }
 
     private fun startSocketLoop(
@@ -171,8 +188,8 @@ object StunResponder {
         clientPort: Int
     ) {
         var attempts = 0
-        while (currentExitIpBytes == null && attempts < 15) {
-            delay(25)
+        while (currentExitIpBytes == null && attempts < 25) {
+            delay(30)
             attempts++
         }
 
@@ -300,6 +317,10 @@ object StunResponder {
         localSocket = null
         hotspotSocket = null
         activeStunPort = -1
+        activeLocalEnabled = false
+        activeHotspotEnabled = false
+        currentExitIp = ""
+        currentExitIpBytes = null
         verifiedFromTunnel.set(false)
     }
 }

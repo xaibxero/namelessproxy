@@ -13,6 +13,9 @@ object ProxyController {
 
     private const val ADB_DIR = "/data/adb/nameless_proxy"
 
+    @Volatile
+    private var lastActiveSettings: ProxySettings = ProxySettings()
+
     fun getBinaryPath(): String = ADB_DIR + "/sing-box"
 
     fun getActiveSlotFile(user: Int): String =
@@ -82,7 +85,13 @@ object ProxyController {
         val running = if (s != null && isRunning(user, s)) s else null
         if (running != null) {
             val port = 10800 + (user * 100) + (running * 10)
-            StunResponder.ensureRunning(stunPort = port + 3, socksPort = port + 1)
+            val cfg = lastActiveSettings
+            StunResponder.ensureRunning(
+                stunPort = port + 3,
+                socksPort = port + 1,
+                enableLocalStun = cfg.strictWebRtcShield,
+                enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
+            )
         }
         return running
     }
@@ -155,14 +164,61 @@ object ProxyController {
     ): Boolean {
         if (!isRunning(user, slot)) return false
         val port = 10800 + (user * 100) + (slot * 10)
-        StunResponder.ensureRunning(stunPort = port + 3, socksPort = port + 1)
-        return executeSu(IptablesManager.generateHandoverRefreshCommands())
+        val cfg = lastActiveSettings
+        StunResponder.ensureRunning(
+            stunPort = port + 3,
+            socksPort = port + 1,
+            enableLocalStun = cfg.strictWebRtcShield,
+            enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
+        )
+        return executeSu(IptablesManager.generateHandoverRefreshCommands(cfg.routeHotspot))
+    }
+
+    /**
+     * Live real-time update when the user toggles WebRTC Shield or Wi-Fi Hotspot while the tunnel is active.
+     */
+    fun applyLiveSettingsUpdate(
+        settings: ProxySettings,
+        selectedUids: List<Int>? = null
+    ): Boolean {
+        lastActiveSettings = settings
+        val user = ProfileManager.androidUserId
+        val slot = ProfileManager.activeSlot
+        if (!isRunning(user, slot)) return false
+        val port = ProfileManager.localInboundPort
+
+        StunResponder.start(
+            stunPort = port + 3,
+            socksPort = port + 1,
+            enableLocalStun = settings.strictWebRtcShield,
+            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
+        )
+
+        val rawHost = ConfigGenerator.cleanHost(settings.host)
+        val resolvedHost = if (!IptablesManager.isValidIpv4(rawHost) && !IptablesManager.isValidIpv6(rawHost)) {
+            try {
+                InetAddress.getByName(rawHost).hostAddress ?: rawHost
+            } catch (_: Exception) {
+                rawHost
+            }
+        } else {
+            rawHost
+        }
+
+        val iptablesCmds = IptablesManager.generateEnableCommands(
+            inboundPort = port,
+            settings = settings,
+            selectedUids = selectedUids,
+            resolvedServerHost = resolvedHost,
+            skipInitialClean = false
+        )
+        return executeSu(iptablesCmds)
     }
 
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
-        val stunIp: String = StunResponder.getExitIp().ifEmpty { "Awaiting Tunnel Probe" }
+        val stunIp: String = StunResponder.getExitIp().ifEmpty { "Standby / Disabled" }
         val raw = executeSuWithOutput(listOf(
             "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + (slot + 1) + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
@@ -171,7 +227,7 @@ object ProxyController {
             "  echo 'Status   : STANDBY'",
             "fi",
             "echo 'STUN IP  : $stunIp'",
-            "echo 'PrivDNS  : '$(settings get global private_dns_mode 2>/dev/null)",
+            "echo 'PrivDNS  : '$(settings get global private_dns_mode 2>/dev/null)' ('$(settings get global private_dns_specifier 2>/dev/null)')'",
             "echo ''",
             "echo '=== SING-BOX STREAM ==='",
             "if [ -f " + logFile + " ]; then tail -n 120 " + logFile + "; else echo 'No log entries.'; fi"
@@ -204,6 +260,7 @@ object ProxyController {
         settings: ProxySettings,
         selectedUids: List<Int>? = null
     ): StartResult {
+        lastActiveSettings = settings
         val user = ProfileManager.androidUserId
         val slot = ProfileManager.activeSlot
         val binaryPath = getBinaryPath()
@@ -227,13 +284,7 @@ object ProxyController {
             }
         }
 
-        val curDnsMode = executeSuWithOutput(listOf("settings get global private_dns_mode")).trim()
-        val modeToSave = if (curDnsMode.isEmpty() || curDnsMode == "null") "opportunistic" else curDnsMode
-        if (modeToSave != "off") {
-            executeSu(listOf("mkdir -p $ADB_DIR && echo '$modeToSave' > $ADB_DIR/saved_private_dns_mode"))
-        }
-
-        stopProxy(context, user, restorePrivateDns = false)
+        stopProxy(context, user)
 
         val rawHost = ConfigGenerator.cleanHost(settings.host)
         val resolvedHost = if (!IptablesManager.isValidIpv4(rawHost) && !IptablesManager.isValidIpv6(rawHost)) {
@@ -256,7 +307,6 @@ object ProxyController {
             "mkdir -p $ADB_DIR",
             "rm -f $ADB_DIR/cache_u${user}_s${slot}.db",
             "echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true",
-            "settings put global private_dns_mode off 2>/dev/null || true",
             "( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
             "echo $slot > $slotFile",
             "echo $slot > $ADB_DIR/running_slot"
@@ -283,7 +333,8 @@ object ProxyController {
         StunResponder.start(
             stunPort = port + 3,
             socksPort = port + 1,
-            fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) }
+            enableLocalStun = settings.strictWebRtcShield,
+            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
         )
 
         val iptablesCmds = IptablesManager.generateEnableCommands(
@@ -298,15 +349,14 @@ object ProxyController {
         return if (ipSuccess) {
             StartResult(success = true)
         } else {
-            stopProxy(context, user, restorePrivateDns = true)
+            stopProxy(context, user)
             StartResult(success = false, errorMessage = "Failed to apply kernel iptables rules")
         }
     }
 
     fun stopProxy(
         context: Context,
-        user: Int = ProfileManager.androidUserId,
-        restorePrivateDns: Boolean = true
+        user: Int = ProfileManager.androidUserId
     ): Boolean {
         StunResponder.stop()
         val commands = mutableListOf<String>()
@@ -317,16 +367,8 @@ object ProxyController {
 
         commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
-        if (restorePrivateDns) {
-            commands.add(
-                "if [ -f $ADB_DIR/saved_private_dns_mode ]; then " +
-                    "settings put global private_dns_mode \$(cat $ADB_DIR/saved_private_dns_mode) 2>/dev/null; " +
-                    "rm -f $ADB_DIR/saved_private_dns_mode; " +
-                "fi"
-            )
-            commands.add("cmd connectivity flush-dns 2>/dev/null || true")
-            commands.add("ndc resolver flushdefaultif 2>/dev/null || true")
-        }
+        commands.add("cmd connectivity flush-dns 2>/dev/null || true")
+        commands.add("ndc resolver flushdefaultif 2>/dev/null || true")
 
         return executeSu(commands)
     }

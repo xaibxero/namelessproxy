@@ -43,10 +43,7 @@ object BootManager {
     }
 
     fun removeBootScript(): Boolean {
-        return executeSu(listOf(
-            "rm -f $BOOT_SCRIPT",
-            "if [ -f $ADB_DIR/saved_private_dns_mode ]; then settings put global private_dns_mode \$(cat $ADB_DIR/saved_private_dns_mode) 2>/dev/null; rm -f $ADB_DIR/saved_private_dns_mode; cmd connectivity flush-dns 2>/dev/null; fi"
-        ))
+        return executeSu(listOf("rm -f $BOOT_SCRIPT"))
     }
 
     fun syncBootState(
@@ -83,7 +80,7 @@ object BootManager {
         ProfileManager.activeSlot = targetSlot
         val configJson = ConfigGenerator.generateJson(settings, port, resolvedHost)
         ProxyController.writeConfigDirectly(configJson, configPath)
-        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, resolvedHost)
+        val iptablesCmds = IptablesManager.generateEnableCommands(port, settings, selectedUids, resolvedHost, skipInitialClean = true)
         val disableCmds = IptablesManager.generateDisableCommands(user, targetSlot)
         ProfileManager.activeSlot = previousSlot
 
@@ -107,48 +104,28 @@ object BootManager {
         sb.append("sleep 2\n\n")
 
         sb.append("mkdir -p $ADB_DIR\n")
-        sb.append("chmod 755 $binaryPath\n")
-        sb.append("chcon u:object_r:system_file:s0 $binaryPath 2>/dev/null\n\n")
-
+        sb.append("killall -9 sing-box 2>/dev/null || true\n")
         for (cmd in disableCmds) {
             sb.append(cmd).append("\n")
         }
-        sb.append("killall -9 sing-box 2>/dev/null\n")
-        sb.append("pkill -9 -f sing-box 2>/dev/null\n\n")
-
-        sb.append("cur_dns=\$(settings get global private_dns_mode 2>/dev/null)\n")
-        sb.append("if [ -z \"\$cur_dns\" ] || [ \"\$cur_dns\" = \"null\" ]; then\n")
-        sb.append("    echo \"opportunistic\" > $ADB_DIR/saved_private_dns_mode\n")
-        sb.append("elif [ \"\$cur_dns\" != \"off\" ]; then\n")
-        sb.append("    echo \"\$cur_dns\" > $ADB_DIR/saved_private_dns_mode\n")
-        sb.append("fi\n")
-        sb.append("settings put global private_dns_mode off 2>/dev/null\n")
-        sb.append("cmd connectivity flush-dns 2>/dev/null || true\n\n")
-
         sb.append("rm -f $ADB_DIR/cache_u${user}_s${targetSlot}.db\n")
+        sb.append("echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true\n")
         sb.append("( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )\n")
-        sb.append("PID=\$(cat $pidFile 2>/dev/null)\n")
         sb.append("echo $targetSlot > $slotFile\n")
-        sb.append("echo $targetSlot > $ADB_DIR/running_slot\n\n")
+        sb.append("echo $targetSlot > $ADB_DIR/running_slot\n")
+        sb.append("sleep 1\n\n")
 
-        sb.append("sleep 2\n")
-        sb.append("if [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null; then\n")
         for (cmd in iptablesCmds) {
-            sb.append("    ").append(cmd).append("\n")
+            sb.append(cmd).append("\n")
         }
-        sb.append("else\n")
-        sb.append("    echo \"[!] sing-box daemon failed to start on boot\" >> $logFile\n")
-        sb.append("fi\n")
-
-        val scriptContent = sb.toString()
 
         return try {
             val process = ProcessBuilder(
                 "su", "-c",
-                "mkdir -p $SERVICE_DIR && cat > $BOOT_SCRIPT && chmod 755 $BOOT_SCRIPT"
+                "mkdir -p $SERVICE_DIR && rm -f $BOOT_SCRIPT && cat > $BOOT_SCRIPT && chmod 755 $BOOT_SCRIPT"
             ).redirectErrorStream(true).start()
             process.outputStream.use { os ->
-                os.write(scriptContent.toByteArray(Charsets.UTF_8))
+                os.write(sb.toString().toByteArray(Charsets.UTF_8))
                 os.flush()
             }
             process.waitFor() == 0

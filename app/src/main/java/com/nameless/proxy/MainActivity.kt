@@ -100,6 +100,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
@@ -122,45 +123,63 @@ data class LiveNetworkState(
 private val ProxyType.displayTitle: String
     get() = when (this) {
         ProxyType.SOCKS5 -> "SOCKS5"
-        ProxyType.SOCKS4 -> "SOCKS4"
         ProxyType.HTTP -> "HTTP"
         ProxyType.SHADOWSOCKS -> "Shadowsocks"
         ProxyType.VLESS -> "VLESS"
+        ProxyType.VMESS -> "VMess"
         ProxyType.TROJAN -> "Trojan"
         ProxyType.HYSTERIA2 -> "Hysteria 2"
+        ProxyType.TUIC -> "TUIC v5"
+        ProxyType.SOCKS4 -> "SOCKS4"
     }
 
 private val ProxyType.shortBadge: String
     get() = when (this) {
         ProxyType.SOCKS5 -> "SOCKS5"
-        ProxyType.SOCKS4 -> "SOCKS4"
         ProxyType.HTTP -> "HTTP"
         ProxyType.SHADOWSOCKS -> "SS"
         ProxyType.VLESS -> "VLESS"
+        ProxyType.VMESS -> "VMESS"
         ProxyType.TROJAN -> "TROJAN"
         ProxyType.HYSTERIA2 -> "HY2"
+        ProxyType.TUIC -> "TUIC"
+        ProxyType.SOCKS4 -> "SOCKS4"
+    }
+
+private val ProxyType.smartTransportBadge: String
+    get() = when (this) {
+        ProxyType.SOCKS5,
+        ProxyType.SHADOWSOCKS,
+        ProxyType.VLESS,
+        ProxyType.VMESS,
+        ProxyType.TROJAN -> "Auto TCP+UDP • DoT/DoH + STUN Shield"
+        ProxyType.HYSTERIA2,
+        ProxyType.TUIC -> "Auto QUIC/UDP • DoT/DoH + STUN Shield"
+        ProxyType.HTTP,
+        ProxyType.SOCKS4 -> "Auto TCP + DoT/DoH + STUN Shield"
     }
 
 private fun slotLabel(slotIndex: Int): String = "P${slotIndex + 1}"
 
 // -------------------------------------------------------------
-// REAL iOS 26 / KYANT0 & ZUAN KERNEL MANAGER LIQUID GLASS SYSTEM
-// Vivid GPU AGSL Fluid Caustics + Translucent Frosted Glass + Squish Physics
+// BUBBLY 3D IRIDESCENT LIQUID GLASS SYSTEM (iOS 26 + ZUAN ULTRA-CLEAR)
+// Vivid GPU AGSL Fluid Caustics + Floating 3D Soap Bubbles + Crystal Transparency
 // -------------------------------------------------------------
 
-private val ZuanDeepSpace = Color(0xFF030712)
-private val ZuanGlassBase = Color(0x360A1528)
-private val ZuanGlassElevated = Color(0x4D132442)
-private val ZuanAqua = Color(0xFF00E5FF)
-private val ZuanMint = Color(0xFF00F5A0)
+private val ZuanDeepSpace = Color(0xFF020611)
+private val ZuanGlassBase = Color(0x1E081224)
+private val ZuanGlassElevated = Color(0x2E10203C)
+private val ZuanAqua = Color(0xFF00F0FF)
+private val ZuanMint = Color(0xFF00FFA3)
 private val ZuanEmerald = Color(0xFF10B981)
-private val ZuanViolet = Color(0xFFA855F7)
+private val ZuanViolet = Color(0xFFB558FF)
+private val ZuanBubblePink = Color(0xFFFF4D9D)
 private val ZuanIndigo = Color(0xFF6366F1)
-private val ZuanAmber = Color(0xFFFFB800)
+private val ZuanAmber = Color(0xFFFFC400)
 private val ZuanRose = Color(0xFFFF3366)
 private val ZuanTextPrimary = Color(0xFFF8FAFC)
-private val ZuanTextSecondary = Color(0xFFB0C4DE)
-private val ZuanTextMuted = Color(0xFF6E84A3)
+private val ZuanTextSecondary = Color(0xFFC2D6F0)
+private val ZuanTextMuted = Color(0xFF7D97B8)
 
 private const val LIQUID_AURORA_AGSL = """
     uniform float2 resolution;
@@ -173,44 +192,44 @@ private const val LIQUID_AURORA_AGSL = """
         p.x *= resolution.x / max(resolution.y, 1.0);
 
         // Multi-harmonic liquid caustic waves
-        float w1 = sin(p.x * 2.8 + time * 1.1) * cos(p.y * 2.3 - time * 0.85);
-        float w2 = sin((p.x * 1.6 - p.y * 2.2) * 2.5 - time * 1.35) * 0.65;
-        float w3 = cos(length(p - float2(sin(time * 0.65) * 0.45, cos(time * 0.5) * 0.45)) * 4.8 - time * 1.6);
-        float fluid = (w1 + w2 + w3) * 0.35;
+        float w1 = sin(p.x * 2.9 + time * 1.15) * cos(p.y * 2.4 - time * 0.90);
+        float w2 = sin((p.x * 1.7 - p.y * 2.3) * 2.6 - time * 1.40) * 0.68;
+        float w3 = cos(length(p - float2(sin(time * 0.70) * 0.48, cos(time * 0.55) * 0.48)) * 5.2 - time * 1.75);
+        float fluid = (w1 + w2 + w3) * 0.36;
 
         // Deep abyssal sapphire base
-        half3 baseCol = half3(0.018, 0.035, 0.082);
-        // Idle palette: Electric Cyan + Royal Indigo + Neon Violet
-        half3 idleA = half3(0.0, 0.88, 1.0);
-        half3 idleB = half3(0.42, 0.34, 0.98);
-        half3 idleC = half3(0.66, 0.33, 0.97);
-        // Active tunnel palette: Neon Emerald + Electric Aqua + Cyber Indigo
-        half3 actA = half3(0.0, 0.96, 0.64);
-        half3 actB = half3(0.0, 0.90, 1.0);
-        half3 actC = half3(0.32, 0.45, 0.98);
+        half3 baseCol = half3(0.012, 0.028, 0.075);
+        // Idle palette: Electric Cyan + Iridescent Violet + Bubble Pink
+        half3 idleA = half3(0.0, 0.94, 1.0);
+        half3 idleB = half3(0.71, 0.35, 1.0);
+        half3 idleC = half3(1.0, 0.30, 0.62);
+        // Active tunnel palette: Neon Mint + Electric Aqua + Iridescent Violet
+        half3 actA = half3(0.0, 1.0, 0.64);
+        half3 actB = half3(0.0, 0.94, 1.0);
+        half3 actC = half3(0.55, 0.38, 1.0);
 
         half3 colA = mix(idleA, actA, half(activeFactor));
         half3 colB = mix(idleB, actB, half(activeFactor));
         half3 colC = mix(idleC, actC, half(activeFactor));
 
-        float2 c1 = float2(0.25 + 0.24 * cos(time * 0.7), 0.18 + 0.14 * sin(time * 0.6));
-        float2 c2 = float2(0.78 + 0.20 * sin(time * 0.55), 0.48 + 0.16 * cos(time * 0.65));
-        float2 c3 = float2(0.30 + 0.25 * sin(time * 0.45), 0.82 + 0.12 * cos(time * 0.5));
+        float2 c1 = float2(0.24 + 0.25 * cos(time * 0.72), 0.18 + 0.15 * sin(time * 0.62));
+        float2 c2 = float2(0.78 + 0.22 * sin(time * 0.58), 0.48 + 0.18 * cos(time * 0.68));
+        float2 c3 = float2(0.32 + 0.26 * sin(time * 0.48), 0.82 + 0.14 * cos(time * 0.54));
 
-        float d1 = exp(-2.8 * length(uv - c1));
-        float d2 = exp(-3.1 * length(uv - c2));
-        float d3 = exp(-3.2 * length(uv - c3));
+        float d1 = exp(-2.55 * length(uv - c1));
+        float d2 = exp(-2.85 * length(uv - c2));
+        float d3 = exp(-2.95 * length(uv - c3));
 
-        half3 glow = colA * half(d1 * 0.48) + colB * half(d2 * 0.42) + colC * half(d3 * 0.34);
-        float caustic = smoothstep(0.15, 0.85, 0.5 + 0.5 * fluid);
-        glow += mix(colB, colA, half(caustic)) * half(caustic * 0.18);
+        half3 glow = colA * half(d1 * 0.54) + colB * half(d2 * 0.48) + colC * half(d3 * 0.40);
+        float caustic = smoothstep(0.12, 0.88, 0.5 + 0.5 * fluid);
+        glow += mix(colC, colA, half(caustic)) * half(caustic * 0.22);
 
         return half4(clamp(baseCol + glow, half3(0.0), half3(1.0)), 1.0);
     }
 """
 
 /**
- * Vivid GPU AGSL Fluid Background on Android 13+ (TIRAMISU) with multi-orb fallback for API 29-32.
+ * Vivid GPU AGSL Fluid Background + 3D Floating Iridescent Soap/Liquid Bubbles.
  */
 @Composable
 fun ZuanLiquidMeshBackground(
@@ -221,92 +240,143 @@ fun ZuanLiquidMeshBackground(
     val timeSec by infinite.animateFloat(
         initialValue = 0f,
         targetValue = 62.83185f,
-        animationSpec = infiniteRepeatable(tween(45000, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(42000, easing = LinearEasing)),
         label = "shaderTime"
     )
     val activeFactor by animateFloatAsState(
         targetValue = if (isProxyActive) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 140f),
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = 140f),
         label = "activeFactor"
     )
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val shader = remember { RuntimeShader(LIQUID_AURORA_AGSL) }
-        Canvas(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.99f }) {
-            shader.setFloatUniform("resolution", size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f))
+    val shader = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            RuntimeShader(LIQUID_AURORA_AGSL)
+        } else null
+    }
+
+    Canvas(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.99f }) {
+        val w = size.width.coerceAtLeast(1f)
+        val h = size.height.coerceAtLeast(1f)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
+            shader.setFloatUniform("resolution", w, h)
             shader.setFloatUniform("time", timeSec)
             shader.setFloatUniform("activeFactor", activeFactor)
             drawRect(brush = ShaderBrush(shader))
-
-            val w = size.width
-            val h = size.height
-            val orbAccent = if (isTransitioning) ZuanAmber else if (isProxyActive) ZuanMint else ZuanAqua
-            for (i in 0 until 6) {
-                val phase = timeSec * (0.45f + i * 0.12f) + i * 1.15f
-                val ox = w * (0.15f + 0.70f * (0.5f + 0.5f * cos(phase)))
-                val oy = h * (0.12f + 0.76f * (0.5f + 0.5f * sin(phase * 0.85f + i)))
-                val rad = w * (0.18f + (i % 3) * 0.08f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            orbAccent.copy(alpha = 0.18f),
-                            ZuanViolet.copy(alpha = 0.08f),
-                            Color.Transparent
-                        ),
-                        center = Offset(ox, oy),
-                        radius = rad
-                    ),
-                    radius = rad,
-                    center = Offset(ox, oy)
-                )
-            }
-        }
-    } else {
-        val blobPrimary by animateColorAsState(
-            targetValue = when {
-                isTransitioning -> ZuanAmber
-                isProxyActive -> ZuanMint
-                else -> ZuanAqua
-            },
-            animationSpec = tween(600),
-            label = "b1"
-        )
-        val blobSecondary by animateColorAsState(
-            targetValue = when {
-                isTransitioning -> ZuanRose
-                isProxyActive -> ZuanAqua
-                else -> ZuanViolet
-            },
-            animationSpec = tween(600),
-            label = "b2"
-        )
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
+        } else {
             val c1 = Offset(w * (0.26f + 0.22f * cos(timeSec * 0.6f)), h * (0.18f + 0.12f * sin(timeSec * 0.6f)))
             val c2 = Offset(w * (0.76f + 0.20f * sin(timeSec * 0.5f)), h * (0.50f + 0.14f * cos(timeSec * 0.5f)))
+            val pCol = if (isProxyActive) ZuanMint else ZuanAqua
+            val sCol = if (isProxyActive) ZuanAqua else ZuanBubblePink
             drawCircle(
-                brush = Brush.radialGradient(listOf(blobPrimary.copy(alpha = 0.36f), Color.Transparent), c1, w * 0.85f),
+                brush = Brush.radialGradient(listOf(pCol.copy(alpha = 0.38f), Color.Transparent), c1, w * 0.85f),
                 radius = w * 0.85f,
                 center = c1
             )
             drawCircle(
-                brush = Brush.radialGradient(listOf(blobSecondary.copy(alpha = 0.30f), Color.Transparent), c2, w * 0.80f),
+                brush = Brush.radialGradient(listOf(sCol.copy(alpha = 0.34f), Color.Transparent), c2, w * 0.80f),
                 radius = w * 0.80f,
                 center = c2
+            )
+        }
+
+        // 12 Floating 3D Iridescent Liquid / Soap Bubbles with Specular Crescent Reflections
+        val primaryBubbleTint = when {
+            isTransitioning -> ZuanAmber
+            isProxyActive -> ZuanMint
+            else -> ZuanAqua
+        }
+        val secondaryBubbleTint = when {
+            isTransitioning -> ZuanRose
+            isProxyActive -> ZuanAqua
+            else -> ZuanBubblePink
+        }
+
+        for (i in 0 until 12) {
+            val speed = 0.36f + (i % 5) * 0.11f
+            val phase = timeSec * speed + i * 1.37f
+            val bx = w * (0.08f + 0.84f * (0.5f + 0.5f * sin(phase * 0.75f + i * 0.9f)))
+            val by = h * (0.06f + 0.88f * (0.5f + 0.5f * cos(phase * 0.58f + i * 1.4f)))
+            val bRadius = w * (0.055f + (i % 4) * 0.038f) * (0.92f + 0.08f * sin(phase * 1.8f))
+            val bCenter = Offset(bx, by)
+            val rimTint = if (i % 2 == 0) primaryBubbleTint else secondaryBubbleTint
+
+            // 1. Soft outer ambient halo
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        rimTint.copy(alpha = 0.16f),
+                        ZuanViolet.copy(alpha = 0.06f),
+                        Color.Transparent
+                    ),
+                    center = bCenter,
+                    radius = bRadius * 1.55f
+                ),
+                radius = bRadius * 1.55f,
+                center = bCenter
+            )
+
+            // 2. 3D hollow translucent soap-bubble sphere fill (clear center -> iridescent rim)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0.0f to Color.White.copy(alpha = 0.02f),
+                    0.62f to rimTint.copy(alpha = 0.05f),
+                    0.88f to ZuanViolet.copy(alpha = 0.16f),
+                    1.0f to rimTint.copy(alpha = 0.34f),
+                    center = Offset(bx - bRadius * 0.18f, by - bRadius * 0.18f),
+                    radius = bRadius
+                ),
+                radius = bRadius,
+                center = bCenter
+            )
+
+            // 3. Prismatic iridescent soap-bubble rim ring
+            drawCircle(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.62f),
+                        rimTint.copy(alpha = 0.55f),
+                        ZuanViolet.copy(alpha = 0.42f),
+                        secondaryBubbleTint.copy(alpha = 0.50f)
+                    ),
+                    start = Offset(bx - bRadius, by - bRadius),
+                    end = Offset(bx + bRadius, by + bRadius)
+                ),
+                radius = bRadius,
+                center = bCenter,
+                style = Stroke(width = 1.35.dp.toPx())
+            )
+
+            // 4. Top-left curved specular crescent reflection (gives 3D glossy bubble depth)
+            val arcInset = bRadius * 0.24f
+            drawArc(
+                color = Color.White.copy(alpha = 0.65f),
+                startAngle = 198f,
+                sweepAngle = 68f,
+                useCenter = false,
+                topLeft = Offset(bx - bRadius + arcInset, by - bRadius + arcInset),
+                size = Size((bRadius - arcInset) * 2f, (bRadius - arcInset) * 2f),
+                style = Stroke(width = (1.6f + (i % 3) * 0.5f).dp.toPx(), cap = StrokeCap.Round)
+            )
+
+            // 5. Bottom-right secondary refractive caustic dot
+            drawCircle(
+                color = rimTint.copy(alpha = 0.48f),
+                radius = (bRadius * 0.09f).coerceAtLeast(2f),
+                center = Offset(bx + bRadius * 0.46f, by + bRadius * 0.44f)
             )
         }
     }
 }
 
 /**
- * Kyant0 AndroidLiquidGlass + iOS 26 Interactive Liquid Squish & Refractive Highlight Modifier.
+ * Bouncy Bubble Squish & Refractive Highlight Modifier.
  */
 @Composable
 fun Modifier.liquidInteractive(
     enabled: Boolean = true,
-    pressScale: Float = 1.036f,
+    pressScale: Float = 1.045f,
     highlightColor: Color = ZuanAqua,
     onClick: (() -> Unit)? = null
 ): Modifier {
@@ -316,17 +386,17 @@ fun Modifier.liquidInteractive(
 
     val pressProgress by animateFloatAsState(
         targetValue = if (isPressed && enabled) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.48f, stiffness = 440f),
+        animationSpec = spring(dampingRatio = 0.42f, stiffness = 420f),
         label = "liquidPress"
     )
     val animDragX by animateFloatAsState(
-        targetValue = if (isPressed) 12f * tanh(0.045f * dragDelta.x / 12f) else 0f,
-        animationSpec = spring(dampingRatio = 0.52f, stiffness = 380f),
+        targetValue = if (isPressed) 14f * tanh(0.048f * dragDelta.x / 14f) else 0f,
+        animationSpec = spring(dampingRatio = 0.46f, stiffness = 380f),
         label = "dragX"
     )
     val animDragY by animateFloatAsState(
-        targetValue = if (isPressed) 12f * tanh(0.045f * dragDelta.y / 12f) else 0f,
-        animationSpec = spring(dampingRatio = 0.52f, stiffness = 380f),
+        targetValue = if (isPressed) 14f * tanh(0.048f * dragDelta.y / 14f) else 0f,
+        animationSpec = spring(dampingRatio = 0.46f, stiffness = 380f),
         label = "dragY"
     )
 
@@ -366,8 +436,8 @@ fun Modifier.liquidInteractive(
     return this
         .graphicsLayer {
             val s = 1f + (pressScale - 1f) * pressProgress
-            scaleX = s + (kotlin.math.abs(animDragX) * 0.003f)
-            scaleY = s - (kotlin.math.abs(animDragX) * 0.0015f)
+            scaleX = s + (kotlin.math.abs(animDragX) * 0.0035f)
+            scaleY = s - (kotlin.math.abs(animDragX) * 0.0018f)
             translationX = animDragX
             translationY = animDragY
         }
@@ -377,12 +447,13 @@ fun Modifier.liquidInteractive(
             drawContent()
             if (pressProgress > 0.01f) {
                 val center = if (touchPos != Offset.Unspecified) touchPos else Offset(size.width / 2f, size.height / 2f)
-                val radius = size.maxDimension * 0.80f
+                val radius = size.maxDimension * 0.82f
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.26f * pressProgress),
-                            highlightColor.copy(alpha = 0.16f * pressProgress),
+                            Color.White.copy(alpha = 0.30f * pressProgress),
+                            highlightColor.copy(alpha = 0.20f * pressProgress),
+                            ZuanBubblePink.copy(alpha = 0.10f * pressProgress),
                             Color.Transparent
                         ),
                         center = center,
@@ -396,16 +467,15 @@ fun Modifier.liquidInteractive(
 }
 
 /**
- * Genuine Translucent iOS 26 / Zuan Kernel Manager Liquid Glass Card:
- * - 42% translucent glass body so the live AGSL fluid waves shine through from behind
- * - Frosted white-cyan top-left refraction gradient
- * - Continuous subtle specular light sheen + curved top meniscus highlight
- * - Prismatic dual-stop rim border + Kyant0 elastic press physics
+ * Ultra-Transparent Bubbly 3D Liquid Glass Card:
+ * - Crystal-clear ~12% tinted glass body so the floating 3D bubbles & AGSL waves shine vividly through
+ * - Rounder bubbly 26.dp pill corners + dual top/bottom curved meniscus reflections
+ * - Iridescent cyan/pink/violet rim border + bouncy squish physics
  */
 @Composable
 fun ZuanLiquidGlassCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 22.dp,
+    cornerRadius: Dp = 26.dp,
     accentGlow: Color = ZuanAqua,
     isHighlighted: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(14.dp),
@@ -416,17 +486,17 @@ fun ZuanLiquidGlassCard(
     val rimBrush = Brush.linearGradient(
         colors = if (isHighlighted) {
             listOf(
-                Color.White.copy(alpha = 0.78f),
-                accentGlow.copy(alpha = 0.65f),
-                ZuanIndigo.copy(alpha = 0.30f),
-                accentGlow.copy(alpha = 0.48f)
+                Color.White.copy(alpha = 0.88f),
+                accentGlow.copy(alpha = 0.75f),
+                ZuanBubblePink.copy(alpha = 0.48f),
+                accentGlow.copy(alpha = 0.62f)
             )
         } else {
             listOf(
-                Color.White.copy(alpha = 0.48f),
-                accentGlow.copy(alpha = 0.28f),
-                Color.White.copy(alpha = 0.08f),
-                Color.White.copy(alpha = 0.22f)
+                Color.White.copy(alpha = 0.56f),
+                accentGlow.copy(alpha = 0.36f),
+                ZuanViolet.copy(alpha = 0.22f),
+                Color.White.copy(alpha = 0.28f)
             )
         }
     )
@@ -435,16 +505,16 @@ fun ZuanLiquidGlassCard(
     val shimmerPhase by infiniteShimmer.animateFloat(
         initialValue = -0.4f,
         targetValue = 1.4f,
-        animationSpec = infiniteRepeatable(tween(if (isHighlighted) 3600 else 6200, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(if (isHighlighted) 3400 else 5800, easing = LinearEasing)),
         label = "shimmerPhase"
     )
 
-    // Ultra-transparent crystal glass fill so the live GPU fluid waves & orbs refract vividly through every card
+    // Ultra-transparent crystal glass fill so the live 3D bubbles & GPU fluid waves refract vividly through every card
     val surfaceBrush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = if (isHighlighted) 0.15f else 0.08f),
+            Color.White.copy(alpha = if (isHighlighted) 0.14f else 0.07f),
             ZuanGlassBase,
-            accentGlow.copy(alpha = if (isHighlighted) 0.16f else 0.07f)
+            accentGlow.copy(alpha = if (isHighlighted) 0.14f else 0.06f)
         )
     )
 
@@ -452,44 +522,58 @@ fun ZuanLiquidGlassCard(
         modifier = modifier
             .liquidInteractive(
                 enabled = true,
-                pressScale = if (onClick != null) 1.032f else 1.014f,
+                pressScale = if (onClick != null) 1.038f else 1.018f,
                 highlightColor = accentGlow,
                 onClick = onClick
             )
             .clip(shape)
             .background(brush = surfaceBrush, shape = shape)
-            .border(width = 1.25.dp, brush = rimBrush, shape = shape)
+            .border(width = 1.35.dp, brush = rimBrush, shape = shape)
             .drawWithContent {
                 drawContent()
-                // Animated diagonal specular light sweep across the crystal glass surface
+                // Animated diagonal specular light sweep across the crystal bubble-glass surface
                 val sweepX = size.width * shimmerPhase
                 drawRect(
                     brush = Brush.linearGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = if (isHighlighted) 0.09f else 0.045f),
-                            accentGlow.copy(alpha = if (isHighlighted) 0.08f else 0.035f),
+                            Color.White.copy(alpha = if (isHighlighted) 0.10f else 0.05f),
+                            accentGlow.copy(alpha = if (isHighlighted) 0.09f else 0.04f),
                             Color.Transparent
                         ),
                         start = Offset(sweepX - size.width * 0.35f, 0f),
                         end = Offset(sweepX + size.width * 0.15f, size.height)
                     )
                 )
-                // Top curved meniscus specular reflection line + inner glass rim sheen
-                val inset = cornerRadius.toPx() * 0.55f
+                // Top curved bubble meniscus specular reflection line + bottom iridescent refraction line
+                val inset = cornerRadius.toPx() * 0.52f
                 if (size.width > inset * 2) {
                     drawLine(
                         brush = Brush.horizontalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color.White.copy(alpha = if (isHighlighted) 0.68f else 0.42f),
-                                accentGlow.copy(alpha = if (isHighlighted) 0.55f else 0.28f),
+                                Color.White.copy(alpha = if (isHighlighted) 0.78f else 0.50f),
+                                accentGlow.copy(alpha = if (isHighlighted) 0.65f else 0.36f),
                                 Color.Transparent
                             )
                         ),
-                        start = Offset(inset, 1.5.dp.toPx()),
-                        end = Offset(size.width - inset, 1.5.dp.toPx()),
-                        strokeWidth = 1.6.dp.toPx(),
+                        start = Offset(inset, 1.6.dp.toPx()),
+                        end = Offset(size.width - inset, 1.6.dp.toPx()),
+                        strokeWidth = 1.8.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                ZuanBubblePink.copy(alpha = if (isHighlighted) 0.42f else 0.22f),
+                                accentGlow.copy(alpha = if (isHighlighted) 0.48f else 0.24f),
+                                Color.Transparent
+                            )
+                        ),
+                        start = Offset(inset * 1.2f, size.height - 1.5.dp.toPx()),
+                        end = Offset(size.width - inset * 1.2f, size.height - 1.5.dp.toPx()),
+                        strokeWidth = 1.4.dp.toPx(),
                         cap = StrokeCap.Round
                     )
                 }
@@ -707,20 +791,20 @@ fun ZuanIconBadge(
     size: Dp = 34.dp,
     iconSize: Dp = 17.dp
 ) {
-    val shape = RoundedCornerShape(11.dp)
+    val shape = RoundedCornerShape(14.dp)
     Box(
         modifier = Modifier
             .size(size)
             .clip(shape)
             .background(
                 Brush.linearGradient(
-                    colors = listOf(accent.copy(alpha = 0.26f), accent.copy(alpha = 0.08f))
+                    colors = listOf(accent.copy(alpha = 0.28f), accent.copy(alpha = 0.08f))
                 )
             )
             .border(
-                width = 1.dp,
+                width = 1.1.dp,
                 brush = Brush.linearGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.45f), accent.copy(alpha = 0.38f))
+                    colors = listOf(Color.White.copy(alpha = 0.55f), accent.copy(alpha = 0.42f))
                 ),
                 shape = shape
             ),
@@ -733,6 +817,28 @@ fun ZuanIconBadge(
 private fun parseProxyUri(rawInput: String): ProxySettings? {
     val line = rawInput.trim().lines().firstOrNull { it.isNotBlank() }?.trim() ?: return null
     return try {
+        if (line.lowercase().startsWith("vmess://")) {
+            val body = line.substring(8).substringBefore("#").trim()
+            if (!body.contains("@")) {
+                val decoded = String(Base64.decode(body, Base64.URL_SAFE or Base64.NO_WRAP or Base64.DEFAULT))
+                val obj = JSONObject(decoded)
+                val h = obj.optString("add", "").trim()
+                if (h.isEmpty()) return null
+                val p = obj.optString("port", "443").toIntOrNull() ?: obj.optInt("port", 443)
+                val uuid = obj.optString("id", "").trim()
+                val sni = obj.optString("sni", obj.optString("host", "")).trim()
+                val scy = obj.optString("scy", "auto").trim()
+                return ProxySettings(
+                    type = ProxyType.VMESS,
+                    host = h,
+                    port = p,
+                    password = uuid,
+                    sni = sni,
+                    ssMethod = scy.ifEmpty { "auto" }
+                )
+            }
+        }
+
         val uri = Uri.parse(line)
         val scheme = uri.scheme?.lowercase() ?: return null
         when (scheme) {
@@ -743,6 +849,11 @@ private fun parseProxyUri(rawInput: String): ProxySettings? {
                 val u = userInfo.substringBefore(":", "")
                 val pw = if (userInfo.contains(":")) userInfo.substringAfter(":") else ""
                 ProxySettings(type = ProxyType.SOCKS5, host = h, port = p, username = Uri.decode(u), password = Uri.decode(pw))
+            }
+            "socks4" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 1080
+                ProxySettings(type = ProxyType.SOCKS4, host = h, port = p)
             }
             "http", "https" -> {
                 val h = uri.host ?: return null
@@ -761,6 +872,13 @@ private fun parseProxyUri(rawInput: String): ProxySettings? {
                 val sid = uri.getQueryParameter("sid") ?: ""
                 ProxySettings(type = ProxyType.VLESS, host = h, port = p, password = uuid, sni = sni, realityPublicKey = pbk, realityShortId = sid)
             }
+            "vmess" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 443
+                val uuid = uri.userInfo ?: ""
+                val sni = uri.getQueryParameter("sni") ?: uri.getQueryParameter("host") ?: ""
+                ProxySettings(type = ProxyType.VMESS, host = h, port = p, password = uuid, sni = sni)
+            }
             "trojan" -> {
                 val h = uri.host ?: return null
                 val p = if (uri.port > 0) uri.port else 443
@@ -774,6 +892,15 @@ private fun parseProxyUri(rawInput: String): ProxySettings? {
                 val pw = uri.userInfo ?: ""
                 val sni = uri.getQueryParameter("sni") ?: ""
                 ProxySettings(type = ProxyType.HYSTERIA2, host = h, port = p, password = Uri.decode(pw), sni = sni)
+            }
+            "tuic" -> {
+                val h = uri.host ?: return null
+                val p = if (uri.port > 0) uri.port else 443
+                val userInfo = uri.userInfo ?: ""
+                val uuid = userInfo.substringBefore(":", "")
+                val pw = if (userInfo.contains(":")) userInfo.substringAfter(":") else ""
+                val sni = uri.getQueryParameter("sni") ?: ""
+                ProxySettings(type = ProxyType.TUIC, host = h, port = p, username = Uri.decode(uuid), password = Uri.decode(pw), sni = sni)
             }
             "ss" -> {
                 val body = line.removePrefix("ss://").substringBefore("#")
@@ -1277,7 +1404,7 @@ fun MainScreen(
                 pRpk = sp.getString("reality_pk", "") ?: "",
                 pRsid = sp.getString("reality_sid", "") ?: "",
                 pType = runCatching { ProxyType.valueOf(sp.getString("proxy_type", "SOCKS5")!!) }.getOrDefault(ProxyType.SOCKS5),
-                pTransport = runCatching { TransportMode.valueOf(sp.getString("transport_mode", "TCP_AND_UDP")!!) }.getOrDefault(TransportMode.TCP_AND_UDP),
+                pTransport = TransportMode.TCP_AND_UDP,
                 pIpMode = runCatching { IpMode.valueOf(sp.getString("ip_mode", "IPV4_ONLY")!!) }.getOrDefault(IpMode.IPV4_ONLY),
                 pStrictWebRtc = sp.getBoolean("strict_webrtc_shield", true),
                 pRouteWhole = sp.getBoolean("route_whole_profile", true),
@@ -1304,7 +1431,7 @@ fun MainScreen(
                             pRpk = b.optString("reality_pk", ""),
                             pRsid = b.optString("reality_sid", ""),
                             pType = runCatching { ProxyType.valueOf(b.optString("proxy_type", "SOCKS5")) }.getOrDefault(ProxyType.SOCKS5),
-                            pTransport = runCatching { TransportMode.valueOf(b.optString("transport_mode", "TCP_AND_UDP")) }.getOrDefault(TransportMode.TCP_AND_UDP),
+                            pTransport = TransportMode.TCP_AND_UDP,
                             pIpMode = runCatching { IpMode.valueOf(b.optString("ip_mode", "IPV4_ONLY")) }.getOrDefault(IpMode.IPV4_ONLY),
                             pStrictWebRtc = b.optBoolean("strict_webrtc_shield", true),
                             pRouteWhole = b.optBoolean("route_whole_profile", true),
@@ -1326,7 +1453,7 @@ fun MainScreen(
 
     fun getCurrentSettings() = ProxySettings(
         type = proxyType,
-        transportMode = transportMode,
+        transportMode = TransportMode.TCP_AND_UDP,
         ipMode = ipMode,
         host = host.trim(),
         port = port.trim().toIntOrNull()?.coerceIn(1, 65535) ?: 1080,
@@ -1340,11 +1467,21 @@ fun MainScreen(
         strictWebRtcShield = strictWebRtcShield
     )
 
+    fun syncLiveKernelIfRunning() {
+        if (isProxyActive) {
+            val snap = getCurrentSettings()
+            val uids = buildTargetUids()
+            scope.launch(Dispatchers.IO) {
+                ProxyController.applyLiveSettingsUpdate(snap, uids)
+            }
+        }
+    }
+
     var saveJob by remember { mutableStateOf<Job?>(null) }
     fun saveConfigForSlot(slot: Int, immediate: Boolean = false) {
         getSlotPrefs(slot).edit()
             .putString("proxy_type", proxyType.name)
-            .putString("transport_mode", transportMode.name)
+            .putString("transport_mode", TransportMode.TCP_AND_UDP.name)
             .putString("ip_mode", ipMode.name)
             .putBoolean("strict_webrtc_shield", strictWebRtcShield)
             .putString("host", host.trim())
@@ -1467,7 +1604,7 @@ fun MainScreen(
             .fillMaxSize()
             .background(ZuanDeepSpace)
     ) {
-        // Real GPU AGSL Fluid Background
+        // Real GPU AGSL Fluid Background + 3D Floating Iridescent Liquid Bubbles
         ZuanLiquidMeshBackground(
             isProxyActive = isProxyActive,
             isTransitioning = isTransitioning
@@ -1479,7 +1616,7 @@ fun MainScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Top Settled Header + Equal-Width 5-Slot Liquid Capsule Bar
+            // Top Settled Header + Equal-Width 5-Slot Bubbly Capsule Bar
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1515,7 +1652,7 @@ fun MainScreen(
                 )
             }
 
-            // Main Animated Content Viewport with Bouncy Spring Physics
+            // Main Animated Content Viewport with Bouncy Bubble Spring Physics
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -1527,11 +1664,11 @@ fun MainScreen(
                     transitionSpec = {
                         val forward = targetState > initialState
                         (fadeIn(animationSpec = tween(220)) +
-                            scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f)) +
-                            slideInVertically(animationSpec = spring(dampingRatio = 0.75f, stiffness = 360f)) { if (forward) it / 14 else -it / 14 })
+                            scaleIn(initialScale = 0.92f, animationSpec = spring(dampingRatio = 0.65f, stiffness = 360f)) +
+                            slideInVertically(animationSpec = spring(dampingRatio = 0.70f, stiffness = 360f)) { if (forward) it / 14 else -it / 14 })
                             .togetherWith(
                                 fadeOut(animationSpec = tween(150)) +
-                                    scaleOut(targetScale = 0.95f, animationSpec = tween(150))
+                                    scaleOut(targetScale = 0.94f, animationSpec = tween(150))
                             )
                     },
                     label = "zuanViewTransition"
@@ -1566,10 +1703,12 @@ fun MainScreen(
                             onToggleWebRtc = {
                                 strictWebRtcShield = !strictWebRtcShield
                                 saveConfigForSlot(activeSlot, true)
+                                syncLiveKernelIfRunning()
                             },
                             onToggleHotspot = {
                                 routeHotspot = !routeHotspot
                                 saveConfigForSlot(activeSlot, true)
+                                syncLiveKernelIfRunning()
                             },
                             onPingNode = {
                                 if (host.trim().isEmpty()) {
@@ -1613,6 +1752,7 @@ fun MainScreen(
 
                         1 -> LiveEphemeralIpFighterTab(
                             isProxyActive = isProxyActive,
+                            strictWebRtcShield = strictWebRtcShield,
                             runningSlot = runningSlot,
                             publicIpInfo = publicIpInfo,
                             liveNet = liveNet
@@ -1629,7 +1769,6 @@ fun MainScreen(
                             realityPublicKey = realityPublicKey,
                             realityShortId = realityShortId,
                             proxyType = proxyType,
-                            transportMode = transportMode,
                             ipMode = ipMode,
                             strictWebRtcShield = strictWebRtcShield,
                             onConfigChanged = { saveConfigForSlot(activeSlot) },
@@ -1642,9 +1781,12 @@ fun MainScreen(
                             onRealityPublicKeyChange = { realityPublicKey = it },
                             onRealityShortIdChange = { realityShortId = it },
                             onProxyTypeChange = { proxyType = it },
-                            onTransportModeChange = { transportMode = it },
                             onIpModeChange = { ipMode = it },
-                            onStrictWebRtcChange = { strictWebRtcShield = it },
+                            onStrictWebRtcChange = {
+                                strictWebRtcShield = it
+                                saveConfigForSlot(activeSlot, true)
+                                syncLiveKernelIfRunning()
+                            },
                             onImportUri = { imported ->
                                 proxyType = imported.type
                                 host = imported.host
@@ -1692,6 +1834,7 @@ fun MainScreen(
                             onRouteHotspotChange = {
                                 routeHotspot = it
                                 saveConfigForSlot(activeSlot, true)
+                                syncLiveKernelIfRunning()
                             },
                             onExportBackup = {
                                 saveConfigForSlot(activeSlot, true)
@@ -1722,18 +1865,22 @@ fun MainScreen(
                             onRouteWholeProfileChange = {
                                 routeWholeProfile = it
                                 saveConfigForSlot(activeSlot, true)
+                                syncLiveKernelIfRunning()
                             },
                             onToggleApp = { pkg ->
                                 selectedPackages = if (selectedPackages.contains(pkg)) selectedPackages - pkg else selectedPackages + pkg
                                 saveConfigForSlot(activeSlot)
+                                syncLiveKernelIfRunning()
                             },
                             onSelectAll = {
                                 selectedPackages = installedApps.map { it.packageName }.toSet()
                                 saveConfigForSlot(activeSlot)
+                                syncLiveKernelIfRunning()
                             },
                             onClearAll = {
                                 selectedPackages = emptySet()
                                 saveConfigForSlot(activeSlot)
+                                syncLiveKernelIfRunning()
                             }
                         )
 
@@ -1769,7 +1916,7 @@ fun MainScreen(
                 }
             }
 
-            // Zuan Capsule iOS 26 Liquid Glass Navigation Dock
+            // Zuan Bubbly Capsule iOS 26 Liquid Glass Navigation Dock
             ZuanCapsuleBottomDock(
                 selectedTab = selectedTab,
                 isProxyActive = isProxyActive,
@@ -1791,9 +1938,9 @@ fun ZuanTopBar(
     val uid = ProfileManager.androidUserId
     val infinite = rememberInfiniteTransition(label = "orbPulse")
     val pulse by infinite.animateFloat(
-        initialValue = 0.88f,
+        initialValue = 0.90f,
         targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(1450, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse"
     )
 
@@ -1810,27 +1957,27 @@ fun ZuanTopBar(
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(38.dp)
                     .graphicsLayer {
                         scaleX = if (isProxyActive) pulse else 1f
                         scaleY = if (isProxyActive) pulse else 1f
                     }
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(CircleShape)
                     .background(
-                        Brush.linearGradient(
+                        Brush.radialGradient(
                             colors = if (isProxyActive) {
-                                listOf(ZuanMint.copy(alpha = 0.34f), ZuanAqua.copy(alpha = 0.16f))
+                                listOf(ZuanMint.copy(alpha = 0.42f), ZuanAqua.copy(alpha = 0.14f))
                             } else {
-                                listOf(ZuanIndigo.copy(alpha = 0.34f), ZuanAqua.copy(alpha = 0.16f))
+                                listOf(ZuanAqua.copy(alpha = 0.36f), ZuanBubblePink.copy(alpha = 0.14f))
                             }
                         )
                     )
                     .border(
-                        width = 1.2.dp,
+                        width = 1.3.dp,
                         brush = Brush.linearGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.55f), if (isProxyActive) ZuanMint else ZuanAqua)
+                            colors = listOf(Color.White.copy(alpha = 0.72f), if (isProxyActive) ZuanMint else ZuanAqua)
                         ),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -1874,13 +2021,13 @@ fun ZuanTopBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Live Interface Pill (Wi-Fi / Cellular)
+            // Live Interface Bubble Pill (Wi-Fi / Cellular)
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(ZuanGlassElevated)
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 VectorIcon(
@@ -1899,16 +2046,16 @@ fun ZuanTopBar(
                 )
             }
 
-            // Root / Kernel Status Pill (Never wraps!)
+            // Root / Kernel Status Bubble Pill
             val rootOk = rootState == RootState.GRANTED
             val rootCol = if (rootOk) ZuanMint else ZuanRose
             Row(
                 modifier = Modifier
-                    .liquidInteractive(pressScale = 1.06f, highlightColor = rootCol, onClick = onRecheckRoot)
+                    .liquidInteractive(pressScale = 1.07f, highlightColor = rootCol, onClick = onRecheckRoot)
                     .clip(CircleShape)
-                    .background(rootCol.copy(alpha = 0.16f))
-                    .border(1.dp, rootCol.copy(alpha = 0.50f), CircleShape)
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                    .background(rootCol.copy(alpha = 0.18f))
+                    .border(1.dp, rootCol.copy(alpha = 0.55f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -1931,7 +2078,7 @@ fun ZuanTopBar(
 }
 
 /**
- * Settled 5-Slot Equal-Width Liquid Glass Segmented Strip (`P1`..`P5`).
+ * Bubbly 5-Slot Equal-Width Liquid Glass Segmented Strip (`P1`..`P5`).
  */
 @Composable
 fun ZuanSlotCapsuleStrip(
@@ -1946,7 +2093,7 @@ fun ZuanSlotCapsuleStrip(
 ) {
     ZuanLiquidGlassCard(
         modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 18.dp,
+        cornerRadius = 22.dp,
         contentPadding = PaddingValues(5.dp)
     ) {
         Row(
@@ -1964,18 +2111,18 @@ fun ZuanSlotCapsuleStrip(
                     modifier = Modifier
                         .weight(1f)
                         .liquidInteractive(
-                            pressScale = 1.06f,
+                            pressScale = 1.08f,
                             highlightColor = if (isRunningThis) ZuanMint else ZuanAqua,
                             onClick = { onSelectSlot(slot) }
                         )
-                        .clip(RoundedCornerShape(13.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(
                             when {
                                 isRunningThis -> Brush.linearGradient(
-                                    listOf(ZuanMint.copy(alpha = 0.28f), ZuanEmerald.copy(alpha = 0.14f))
+                                    listOf(ZuanMint.copy(alpha = 0.30f), ZuanAqua.copy(alpha = 0.16f))
                                 )
                                 isSelected -> Brush.linearGradient(
-                                    listOf(ZuanAqua.copy(alpha = 0.24f), ZuanIndigo.copy(alpha = 0.16f))
+                                    listOf(ZuanAqua.copy(alpha = 0.26f), ZuanBubblePink.copy(alpha = 0.16f))
                                 )
                                 else -> Brush.linearGradient(
                                     listOf(Color.White.copy(alpha = 0.05f), Color.Transparent)
@@ -1983,13 +2130,13 @@ fun ZuanSlotCapsuleStrip(
                             }
                         )
                         .border(
-                            width = 1.dp,
+                            width = 1.1.dp,
                             color = when {
-                                isRunningThis -> ZuanMint.copy(alpha = 0.70f)
-                                isSelected -> ZuanAqua.copy(alpha = 0.60f)
-                                else -> Color.White.copy(alpha = 0.10f)
+                                isRunningThis -> ZuanMint.copy(alpha = 0.78f)
+                                isSelected -> ZuanAqua.copy(alpha = 0.65f)
+                                else -> Color.White.copy(alpha = 0.12f)
                             },
-                            shape = RoundedCornerShape(13.dp)
+                            shape = RoundedCornerShape(16.dp)
                         )
                         .padding(vertical = 6.dp, horizontal = 4.dp),
                     contentAlignment = Alignment.Center
@@ -2068,7 +2215,7 @@ fun ZuanCapsuleBottomDock(
     ) {
         ZuanLiquidGlassCard(
             modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 24.dp,
+            cornerRadius = 28.dp,
             accentGlow = if (isProxyActive) ZuanMint else ZuanAqua,
             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 5.dp)
         ) {
@@ -2084,17 +2231,17 @@ fun ZuanCapsuleBottomDock(
                         modifier = Modifier
                             .weight(1f)
                             .liquidInteractive(
-                                pressScale = 1.08f,
+                                pressScale = 1.10f,
                                 highlightColor = activeAccent,
                                 onClick = { onSelectTab(idx) }
                             )
-                            .clip(RoundedCornerShape(18.dp))
+                            .clip(RoundedCornerShape(22.dp))
                             .background(
                                 if (isSelected) {
                                     Brush.linearGradient(
                                         listOf(
-                                            activeAccent.copy(alpha = 0.26f),
-                                            ZuanIndigo.copy(alpha = 0.18f)
+                                            activeAccent.copy(alpha = 0.28f),
+                                            ZuanBubblePink.copy(alpha = 0.16f)
                                         )
                                     )
                                 } else {
@@ -2102,9 +2249,9 @@ fun ZuanCapsuleBottomDock(
                                 }
                             )
                             .border(
-                                width = if (isSelected) 1.dp else 0.dp,
-                                color = if (isSelected) activeAccent.copy(alpha = 0.60f) else Color.Transparent,
-                                shape = RoundedCornerShape(18.dp)
+                                width = if (isSelected) 1.1.dp else 0.dp,
+                                color = if (isSelected) activeAccent.copy(alpha = 0.68f) else Color.Transparent,
+                                shape = RoundedCornerShape(22.dp)
                             )
                             .padding(vertical = 7.dp),
                         contentAlignment = Alignment.Center
@@ -2136,7 +2283,7 @@ fun ZuanCapsuleBottomDock(
 }
 
 // -------------------------------------------------------------
-// TAB 0: SETTLED ZUAN LIQUID GLASS DASHBOARD
+// TAB 0: BUBBLY 3D LIQUID GLASS DASHBOARD
 // -------------------------------------------------------------
 
 @Composable
@@ -2191,25 +2338,28 @@ fun ZuanDashboardTab(
     val ringAngleCw by infinite.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(9000, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(8500, easing = LinearEasing)),
         label = "cw"
     )
     val ringAngleCcw by infinite.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(13000, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(12000, easing = LinearEasing)),
         label = "ccw"
     )
     val coreBreath by infinite.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "breath"
     )
 
-    val stunIp: String = remember(publicIpInfo?.ip, host, isProxyActive) {
-        if (!isProxyActive) "Standby"
-        else publicIpInfo?.ip ?: StunResponder.getExitIp().ifEmpty { host.ifEmpty { "Syncing..." } }
+    val stunIp: String = remember(publicIpInfo?.ip, host, isProxyActive, strictWebRtcShield) {
+        when {
+            !isProxyActive -> "Standby"
+            !strictWebRtcShield -> "Direct (Off)"
+            else -> publicIpInfo?.ip ?: StunResponder.getExitIp().ifEmpty { host.ifEmpty { "Syncing..." } }
+        }
     }
 
     Column(
@@ -2218,10 +2368,10 @@ fun ZuanDashboardTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // 1. SETTLED HERO REACTOR & TUNNEL CONTROL CARD
+        // 1. BUBBLY HERO REACTOR & TUNNEL CONTROL CARD
         ZuanLiquidGlassCard(
             modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 24.dp,
+            cornerRadius = 28.dp,
             accentGlow = heroAccent,
             isHighlighted = isSlotRunning,
             contentPadding = PaddingValues(15.dp)
@@ -2234,8 +2384,8 @@ fun ZuanDashboardTab(
                 Row(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(heroAccent.copy(alpha = 0.16f))
-                        .border(1.dp, heroAccent.copy(alpha = 0.50f), CircleShape)
+                        .background(heroAccent.copy(alpha = 0.18f))
+                        .border(1.dp, heroAccent.copy(alpha = 0.55f), CircleShape)
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -2272,10 +2422,10 @@ fun ZuanDashboardTab(
                     )
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ZuanIndigo.copy(alpha = 0.25f))
-                            .border(1.dp, ZuanIndigo.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .clip(CircleShape)
+                            .background(ZuanBubblePink.copy(alpha = 0.22f))
+                            .border(1.dp, ZuanBubblePink.copy(alpha = 0.58f), CircleShape)
+                            .padding(horizontal = 9.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = proxyType.shortBadge,
@@ -2300,7 +2450,7 @@ fun ZuanDashboardTab(
                         text = when {
                             isTransitioning -> "Updating Netfilter..."
                             isSlotRunning -> "Kernel Tunnel Active"
-                            else -> "Tap Reactor to Start"
+                            else -> "Tap Bubble to Start"
                         },
                         fontSize = 18.5.sp,
                         fontWeight = FontWeight.Black,
@@ -2320,7 +2470,7 @@ fun ZuanDashboardTab(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "${liveNet.transportLabel} (${liveNet.interfaceName}) • PID: ${activePid ?: "—"}",
+                        text = "${liveNet.transportLabel} (${liveNet.interfaceName}) • DoT/DoH Shield • PID: ${activePid ?: "—"}",
                         fontSize = 10.5.sp,
                         color = ZuanTextSecondary,
                         maxLines = 1,
@@ -2330,12 +2480,12 @@ fun ZuanDashboardTab(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Interactive Liquid Glass Power Reactor Orb
+                // Interactive 3D Liquid Bubble Power Reactor Orb
                 Box(
                     modifier = Modifier
-                        .size(78.dp)
+                        .size(80.dp)
                         .liquidInteractive(
-                            pressScale = 1.12f,
+                            pressScale = 1.14f,
                             highlightColor = heroAccent,
                             onClick = onToggleProxy
                         ),
@@ -2347,7 +2497,7 @@ fun ZuanDashboardTab(
 
                         drawCircle(
                             brush = Brush.radialGradient(
-                                colors = listOf(heroAccent.copy(alpha = 0.34f), Color.Transparent),
+                                colors = listOf(heroAccent.copy(alpha = 0.38f), ZuanBubblePink.copy(alpha = 0.14f), Color.Transparent),
                                 center = c,
                                 radius = r * coreBreath
                             ),
@@ -2358,45 +2508,46 @@ fun ZuanDashboardTab(
                         rotate(ringAngleCw, pivot = c) {
                             drawArc(
                                 brush = Brush.sweepGradient(
-                                    listOf(Color.Transparent, heroAccent, Color.White, Color.Transparent)
+                                    listOf(Color.Transparent, heroAccent, Color.White, ZuanBubblePink, Color.Transparent)
                                 ),
                                 startAngle = 0f,
-                                sweepAngle = 240f,
+                                sweepAngle = 250f,
                                 useCenter = false,
                                 topLeft = Offset(c.x - r * 0.90f, c.y - r * 0.90f),
                                 size = Size(r * 1.80f, r * 1.80f),
-                                style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
+                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
                             )
                         }
 
                         rotate(ringAngleCcw, pivot = c) {
                             drawArc(
                                 brush = Brush.sweepGradient(
-                                    listOf(Color.Transparent, ZuanIndigo, heroAccent.copy(alpha = 0.75f), Color.Transparent)
+                                    listOf(Color.Transparent, ZuanViolet, heroAccent.copy(alpha = 0.80f), Color.Transparent)
                                 ),
                                 startAngle = 45f,
-                                sweepAngle = 180f,
+                                sweepAngle = 190f,
                                 useCenter = false,
                                 topLeft = Offset(c.x - r * 0.74f, c.y - r * 0.74f),
                                 size = Size(r * 1.48f, r * 1.48f),
-                                style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                                style = Stroke(width = 1.9.dp.toPx(), cap = StrokeCap.Round)
                             )
                         }
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(52.dp)
                             .clip(CircleShape)
                             .background(
-                                Brush.linearGradient(
+                                Brush.radialGradient(
                                     colors = listOf(
-                                        heroAccent.copy(alpha = 0.38f),
+                                        Color.White.copy(alpha = 0.25f),
+                                        heroAccent.copy(alpha = 0.42f),
                                         ZuanGlassElevated
                                     )
                                 )
                             )
-                            .border(1.5.dp, Color.White.copy(alpha = 0.50f), CircleShape),
+                            .border(1.6.dp, Color.White.copy(alpha = 0.65f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         VectorIcon(
@@ -2410,10 +2561,10 @@ fun ZuanDashboardTab(
             }
         }
 
-        // 2. SETTLED EXIT IDENTITY & WEBRTC/DNS VERIFICATION CARD
+        // 2. EXIT IDENTITY & WEBRTC/DNS VERIFICATION BUBBLE CARD
         ZuanLiquidGlassCard(
             modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
+            cornerRadius = 26.dp,
             accentGlow = if (isProxyActive) ZuanAqua else ZuanIndigo,
             contentPadding = PaddingValues(14.dp)
         ) {
@@ -2428,14 +2579,14 @@ fun ZuanDashboardTab(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .size(42.dp)
+                            .clip(CircleShape)
                             .background(ZuanGlassElevated)
-                            .border(1.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(12.dp)),
+                            .border(1.1.dp, Color.White.copy(alpha = 0.32f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = publicIpInfo?.flagEmoji ?: if (isProxyActive) "🇺🇸" else "🛡️",
+                            text = publicIpInfo?.flagEmoji ?: if (isProxyActive) "🇺🇸" else "🫧",
                             fontSize = 20.sp
                         )
                     }
@@ -2459,7 +2610,7 @@ fun ZuanDashboardTab(
                         )
                         Text(
                             text = when {
-                                !isProxyActive -> "Start tunnel to mask IP, DNS & WebRTC"
+                                !isProxyActive -> "Start tunnel to mask IP, Private DNS & WebRTC"
                                 publicIpInfo != null -> {
                                     val ispPart = if (publicIpInfo.isp.isNotBlank()) " • ${publicIpInfo.isp}" else ""
                                     "${publicIpInfo.country}$ispPart"
@@ -2480,21 +2631,21 @@ fun ZuanDashboardTab(
                     Box(
                         modifier = Modifier
                             .size(34.dp)
-                            .liquidInteractive(pressScale = 1.08f, highlightColor = ZuanAqua, onClick = onRefreshIp)
-                            .clip(RoundedCornerShape(11.dp))
+                            .liquidInteractive(pressScale = 1.10f, highlightColor = ZuanAqua, onClick = onRefreshIp)
+                            .clip(CircleShape)
                             .background(ZuanGlassElevated)
-                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(11.dp)),
+                            .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         VectorIcon(IconType.REFRESH, size = 15.dp, tint = ZuanAqua)
                     }
                     Box(
                         modifier = Modifier
-                            .liquidInteractive(pressScale = 1.08f, highlightColor = ZuanMint, onClick = onOpenIpFighterTab)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(ZuanMint.copy(alpha = 0.18f))
-                            .border(1.dp, ZuanMint.copy(alpha = 0.50f), RoundedCornerShape(11.dp))
-                            .padding(horizontal = 9.dp, vertical = 7.dp),
+                            .liquidInteractive(pressScale = 1.10f, highlightColor = ZuanMint, onClick = onOpenIpFighterTab)
+                            .clip(CircleShape)
+                            .background(ZuanMint.copy(alpha = 0.20f))
+                            .border(1.dp, ZuanMint.copy(alpha = 0.58f), CircleShape)
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -2511,22 +2662,22 @@ fun ZuanDashboardTab(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 3 Equal-Width Aligned Verification Badges (Fits full IPv4 addresses without truncation!)
+            // 3 Equal-Width Aligned Verification Bubble Badges
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 ZuanMetricPill(
                     modifier = Modifier.weight(1f),
-                    label = "DNS TUNNEL",
-                    value = if (isProxyActive) "US FakeIP" else "System",
+                    label = "PRIVATE DNS",
+                    value = if (isProxyActive) "DoT+DoH US" else "System",
                     accent = if (isProxyActive) ZuanMint else ZuanTextSecondary
                 )
                 ZuanMetricPill(
                     modifier = Modifier.weight(1.18f),
                     label = "WEBRTC STUN",
                     value = stunIp,
-                    accent = if (isProxyActive) ZuanAqua else ZuanTextSecondary
+                    accent = if (isProxyActive && strictWebRtcShield) ZuanAqua else ZuanTextSecondary
                 )
                 ZuanMetricPill(
                     modifier = Modifier.weight(0.92f),
@@ -2563,7 +2714,7 @@ fun ZuanDashboardTab(
             )
         }
 
-        // 4. INTERACTIVE SHIELD & HOTSPOT QUICK-TOGGLE BENTO ROW
+        // 4. INTERACTIVE SHIELD & HOTSPOT QUICK-TOGGLE BENTO ROW (Applies Live Immediately!)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2571,7 +2722,7 @@ fun ZuanDashboardTab(
             ZuanQuickToggleBento(
                 modifier = Modifier.weight(1f),
                 title = "WebRTC & DNS",
-                subtitle = if (strictWebRtcShield) "US STUN Responder" else "Standard Shield",
+                subtitle = if (strictWebRtcShield) "US STUN + DoT/DoH" else "Direct WebRTC (Off)",
                 icon = IconType.SHIELD,
                 active = strictWebRtcShield,
                 accent = ZuanMint,
@@ -2580,7 +2731,7 @@ fun ZuanDashboardTab(
             ZuanQuickToggleBento(
                 modifier = Modifier.weight(1f),
                 title = "Wi-Fi Hotspot",
-                subtitle = if (routeHotspot) "Windows STUN + TCP" else "Phone Only",
+                subtitle = if (routeHotspot) "Laptop STUN + TCP" else "Phone Only (Off)",
                 icon = IconType.HOTSPOT,
                 active = routeHotspot,
                 accent = ZuanAqua,
@@ -2602,13 +2753,13 @@ fun ZuanMetricPill(
         modifier = modifier
             .liquidInteractive(
                 enabled = onClick != null,
-                pressScale = 1.05f,
+                pressScale = 1.06f,
                 highlightColor = accent,
                 onClick = onClick
             )
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(15.dp))
             .background(Color.White.copy(alpha = 0.06f))
-            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(15.dp))
             .padding(horizontal = 8.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.Start
     ) {
@@ -2646,7 +2797,7 @@ fun ZuanQuickToggleBento(
 ) {
     ZuanLiquidGlassCard(
         modifier = modifier,
-        cornerRadius = 20.dp,
+        cornerRadius = 24.dp,
         accentGlow = if (active) accent else ZuanIndigo,
         isHighlighted = active,
         contentPadding = PaddingValues(12.dp),
@@ -2661,9 +2812,9 @@ fun ZuanQuickToggleBento(
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(if (active) accent.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.07f))
-                    .border(1.dp, if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.15f), CircleShape)
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .background(if (active) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.07f))
+                    .border(1.dp, if (active) accent.copy(alpha = 0.60f) else Color.White.copy(alpha = 0.18f), CircleShape)
+                    .padding(horizontal = 9.dp, vertical = 3.dp)
             ) {
                 Text(
                     text = if (active) "ON" else "OFF",
@@ -2705,7 +2856,7 @@ fun ZuanSparklineBentoCard(
 ) {
     ZuanLiquidGlassCard(
         modifier = modifier,
-        cornerRadius = 20.dp,
+        cornerRadius = 24.dp,
         accentGlow = accent,
         contentPadding = PaddingValues(12.dp)
     ) {
@@ -2789,13 +2940,13 @@ fun ZuanSparklineBentoCard(
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(accent.copy(alpha = 0.34f), Color.Transparent)
+                        colors = listOf(accent.copy(alpha = 0.36f), Color.Transparent)
                     )
                 )
                 drawPath(
                     path = strokePath,
                     color = accent,
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    style = Stroke(width = 2.1.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
         }
@@ -2810,6 +2961,7 @@ fun ZuanSparklineBentoCard(
 @Composable
 fun LiveEphemeralIpFighterTab(
     isProxyActive: Boolean,
+    strictWebRtcShield: Boolean,
     runningSlot: Int?,
     publicIpInfo: GeoIpResult?,
     liveNet: LiveNetworkState
@@ -2840,12 +2992,14 @@ fun LiveEphemeralIpFighterTab(
         }
     }
 
-    val verifiedExitIp: String = remember(isProxyActive, publicIpInfo?.ip) {
-        if (!isProxyActive) ""
+    val verifiedExitIp: String = remember(isProxyActive, strictWebRtcShield, publicIpInfo?.ip) {
+        if (!isProxyActive || !strictWebRtcShield) ""
         else publicIpInfo?.ip ?: StunResponder.getExitIp()
     }
 
-    val shieldScript = remember(targetTz, verifiedExitIp, isProxyActive) {
+    val shouldSpoofWebRtc = isProxyActive && strictWebRtcShield
+
+    val shieldScript = remember(targetTz, verifiedExitIp, isProxyActive, shouldSpoofWebRtc) {
         """
         (function() {
             try {
@@ -2857,7 +3011,7 @@ fun LiveEphemeralIpFighterTab(
                         return res;
                     };
                 }
-                if ($isProxyActive && window.RTCPeerConnection) {
+                if ($shouldSpoofWebRtc && window.RTCPeerConnection) {
                     const OrigPeerConnection = window.RTCPeerConnection;
                     const filterCand = function(candStr) {
                         if (!candStr) return candStr;
@@ -2904,7 +3058,7 @@ fun LiveEphemeralIpFighterTab(
 
     ZuanLiquidGlassCard(
         modifier = Modifier.fillMaxSize(),
-        cornerRadius = 22.dp,
+        cornerRadius = 26.dp,
         contentPadding = PaddingValues(10.dp)
     ) {
         Row(
@@ -2920,16 +3074,16 @@ fun LiveEphemeralIpFighterTab(
                     modifier = Modifier
                         .weight(1f)
                         .liquidInteractive(
-                            pressScale = 1.05f,
+                            pressScale = 1.06f,
                             highlightColor = ZuanAqua,
                             onClick = {
                                 targetSiteIndex = idx
                                 reloadNonce++
                             }
                         )
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (sel) ZuanAqua.copy(alpha = 0.22f) else ZuanGlassElevated)
-                        .border(1.dp, if (sel) ZuanAqua else Color.White.copy(alpha = 0.16f), RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (sel) ZuanAqua.copy(alpha = 0.24f) else ZuanGlassElevated)
+                        .border(1.dp, if (sel) ZuanAqua else Color.White.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
                         .padding(vertical = 8.dp, horizontal = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -2961,9 +3115,9 @@ fun LiveEphemeralIpFighterTab(
                             reloadNonce++
                         }
                     )
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(ZuanMint.copy(alpha = 0.20f))
-                    .border(1.dp, ZuanMint.copy(alpha = 0.55f), RoundedCornerShape(12.dp)),
+                    .clip(CircleShape)
+                    .background(ZuanMint.copy(alpha = 0.22f))
+                    .border(1.dp, ZuanMint.copy(alpha = 0.58f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 VectorIcon(IconType.REFRESH, size = 15.dp, tint = ZuanMint)
@@ -2985,8 +3139,8 @@ fun LiveEphemeralIpFighterTab(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
         ) {
             var webkitProxySynced by remember(isProxyActive, runningSlot) { mutableStateOf(false) }
             LaunchedEffect(isProxyActive, runningSlot) {
@@ -3017,7 +3171,7 @@ fun LiveEphemeralIpFighterTab(
                 }
             }
 
-            key(isProxyActive, runningSlot, webkitProxySynced, reloadNonce, targetSiteIndex) {
+            key(isProxyActive, strictWebRtcShield, runningSlot, webkitProxySynced, reloadNonce, targetSiteIndex) {
                 val baseUrl = targets[targetSiteIndex].third
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -3079,7 +3233,8 @@ fun LiveEphemeralIpFighterTab(
 }
 
 // -------------------------------------------------------------
-// TAB 2: ZUAN LIQUID GLASS NODE STUDIO
+// TAB 2: BUBBLY LIQUID GLASS UNIVERSAL NODE STUDIO
+// Supports ALL sing-box Proxy Protocols + Smart Dynamic Transport
 // -------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -3095,7 +3250,6 @@ fun NodeConfigTab(
     realityPublicKey: String,
     realityShortId: String,
     proxyType: ProxyType,
-    transportMode: TransportMode,
     ipMode: IpMode,
     strictWebRtcShield: Boolean,
     onConfigChanged: () -> Unit,
@@ -3108,7 +3262,6 @@ fun NodeConfigTab(
     onRealityPublicKeyChange: (String) -> Unit,
     onRealityShortIdChange: (String) -> Unit,
     onProxyTypeChange: (ProxyType) -> Unit,
-    onTransportModeChange: (TransportMode) -> Unit,
     onIpModeChange: (IpMode) -> Unit,
     onStrictWebRtcChange: (Boolean) -> Unit,
     onImportUri: (ProxySettings) -> Unit,
@@ -3136,8 +3289,8 @@ fun NodeConfigTab(
                     ZuanIconBadge(icon = IconType.PASTE, accent = ZuanAqua, size = 34.dp, iconSize = 17.dp)
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text("URI Import & Socket Probe", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = ZuanTextPrimary)
-                        Text("Import clipboard URI or test node latency", fontSize = 11.sp, color = ZuanTextSecondary)
+                        Text("Universal URI Import & Probe", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = ZuanTextPrimary)
+                        Text("Supports SOCKS5/4, HTTP, SS, VLESS, VMess, Trojan, HY2 & TUIC", fontSize = 10.5.sp, color = ZuanTextSecondary)
                     }
                 }
             }
@@ -3161,8 +3314,8 @@ fun NodeConfigTab(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f))
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.26f))
                 ) {
                     VectorIcon(IconType.PASTE, size = 15.dp, tint = ZuanAqua)
                     Spacer(modifier = Modifier.width(6.dp))
@@ -3184,7 +3337,7 @@ fun NodeConfigTab(
                     },
                     enabled = !isCheckingAlive,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ZuanIndigo,
                         contentColor = Color.White
@@ -3193,7 +3346,7 @@ fun NodeConfigTab(
                     VectorIcon(IconType.BOLT, size = 15.dp, tint = Color.White)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isCheckingAlive) "Testing..." else "Test Socket",
+                        text = if (isCheckingAlive) "Probing..." else "Test Node",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -3204,16 +3357,16 @@ fun NodeConfigTab(
                 Spacer(modifier = Modifier.height(10.dp))
                 when (val res = aliveResult) {
                     is TestResult.Success -> Text(
-                        text = "ONLINE • ${res.latencyMs} ms",
+                        text = "ONLINE • ${res.latencyMs} ms • ${proxyType.smartTransportBadge}",
                         color = ZuanMint,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
                     is TestResult.Failure -> Text(
                         text = "FAILED • ${res.error}",
                         color = ZuanRose,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -3241,10 +3394,10 @@ fun NodeConfigTab(
 
                 Row(
                     modifier = Modifier
-                        .liquidInteractive(pressScale = 1.06f, highlightColor = ZuanRose, onClick = onResetSlot)
+                        .liquidInteractive(pressScale = 1.07f, highlightColor = ZuanRose, onClick = onResetSlot)
                         .clip(CircleShape)
-                        .background(ZuanRose.copy(alpha = 0.15f))
-                        .border(1.dp, ZuanRose.copy(alpha = 0.45f), CircleShape)
+                        .background(ZuanRose.copy(alpha = 0.16f))
+                        .border(1.dp, ZuanRose.copy(alpha = 0.50f), CircleShape)
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -3255,7 +3408,7 @@ fun NodeConfigTab(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Protocol", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = ZuanTextSecondary)
+            Text("Sing-Box Protocol Engine", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = ZuanTextSecondary)
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
@@ -3268,6 +3421,7 @@ fun NodeConfigTab(
                         selected = proxyType == t,
                         onClick = { onProxyTypeChange(t); onConfigChanged() },
                         label = { Text(t.displayTitle, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                        shape = CircleShape,
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = ZuanIndigo,
                             selectedLabelColor = Color.White
@@ -3277,7 +3431,39 @@ fun NodeConfigTab(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            Text("Transport & IP Mode", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = ZuanTextSecondary)
+
+            // Smart Dynamic Transport Badge (Replaces manual TCP+UDP / TCP Only toggle)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(ZuanMint.copy(alpha = 0.16f), ZuanAqua.copy(alpha = 0.14f), ZuanBubblePink.copy(alpha = 0.12f))
+                        )
+                    )
+                    .border(1.dp, ZuanMint.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    VectorIcon(IconType.BOLT, size = 14.dp, tint = ZuanMint)
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text(
+                        text = proxyType.smartTransportBadge,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ZuanMint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text("IP Stack & Leak Shield", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = ZuanTextSecondary)
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
@@ -3285,26 +3471,8 @@ fun NodeConfigTab(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(
-                    selected = transportMode == TransportMode.TCP_AND_UDP,
-                    onClick = { onTransportModeChange(TransportMode.TCP_AND_UDP); onConfigChanged() },
-                    label = { Text("TCP + UDP", fontSize = 11.5.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ZuanEmerald,
-                        selectedLabelColor = Color.White
-                    )
-                )
-                FilterChip(
-                    selected = transportMode == TransportMode.TCP_ONLY,
-                    onClick = { onTransportModeChange(TransportMode.TCP_ONLY); onConfigChanged() },
-                    label = { Text("TCP Only", fontSize = 11.5.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ZuanEmerald,
-                        selectedLabelColor = Color.White
-                    )
-                )
                 listOf(
-                    Pair(IpMode.IPV4_ONLY, "IPv4 Only"),
+                    Pair(IpMode.IPV4_ONLY, "IPv4 Only (Zero IPv6 Leak)"),
                     Pair(IpMode.DUAL_STACK, "Dual-Stack"),
                     Pair(IpMode.IPV6_ONLY, "IPv6 Only")
                 ).forEach { (mode, lbl) ->
@@ -3312,6 +3480,7 @@ fun NodeConfigTab(
                         selected = ipMode == mode,
                         onClick = { onIpModeChange(mode); onConfigChanged() },
                         label = { Text(lbl, fontSize = 11.5.sp) },
+                        shape = CircleShape,
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = ZuanIndigo,
                             selectedLabelColor = Color.White
@@ -3329,7 +3498,7 @@ fun NodeConfigTab(
                     label = { Text("Server Host / IP") },
                     placeholder = { Text("48.45.153.215") },
                     modifier = Modifier.weight(0.68f),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     singleLine = true
                 )
                 OutlinedTextField(
@@ -3340,7 +3509,7 @@ fun NodeConfigTab(
                     placeholder = { Text("1080") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(0.32f),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     singleLine = true
                 )
             }
@@ -3357,7 +3526,7 @@ fun NodeConfigTab(
                             leadingIcon = { VectorIcon(IconType.USER, size = 16.dp, tint = ZuanTextSecondary) },
                             label = { Text("Username") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             singleLine = true
                         )
                         OutlinedTextField(
@@ -3372,7 +3541,7 @@ fun NodeConfigTab(
                                 }
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             singleLine = true
                         )
                     }
@@ -3386,7 +3555,7 @@ fun NodeConfigTab(
                         leadingIcon = { VectorIcon(IconType.SHIELD, size = 16.dp, tint = ZuanAqua) },
                         label = { Text("Cipher Method") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -3402,7 +3571,7 @@ fun NodeConfigTab(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         singleLine = true
                     )
                 }
@@ -3414,7 +3583,7 @@ fun NodeConfigTab(
                         leadingIcon = { VectorIcon(IconType.KEY, size = 16.dp, tint = ZuanAqua) },
                         label = { Text("VLESS UUID") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -3424,7 +3593,7 @@ fun NodeConfigTab(
                         leadingIcon = { VectorIcon(IconType.GLOBE, size = 16.dp, tint = ZuanTextSecondary) },
                         label = { Text("TLS SNI") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -3434,7 +3603,7 @@ fun NodeConfigTab(
                             onValueChange = { onRealityPublicKeyChange(it); onConfigChanged() },
                             label = { Text("REALITY Public Key") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             singleLine = true
                         )
                         OutlinedTextField(
@@ -3442,10 +3611,32 @@ fun NodeConfigTab(
                             onValueChange = { onRealityShortIdChange(it); onConfigChanged() },
                             label = { Text("Short ID") },
                             modifier = Modifier.weight(0.55f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             singleLine = true
                         )
                     }
+                }
+
+                ProxyType.VMESS -> {
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { onPasswordChange(it); onConfigChanged() },
+                        leadingIcon = { VectorIcon(IconType.KEY, size = 16.dp, tint = ZuanAqua) },
+                        label = { Text("VMess UUID") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = sni,
+                        onValueChange = { onSniChange(it); onConfigChanged() },
+                        leadingIcon = { VectorIcon(IconType.GLOBE, size = 16.dp, tint = ZuanTextSecondary) },
+                        label = { Text("TLS SNI (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        singleLine = true
+                    )
                 }
 
                 ProxyType.TROJAN, ProxyType.HYSTERIA2 -> {
@@ -3462,7 +3653,7 @@ fun NodeConfigTab(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -3472,7 +3663,47 @@ fun NodeConfigTab(
                         leadingIcon = { VectorIcon(IconType.GLOBE, size = 16.dp, tint = ZuanTextSecondary) },
                         label = { Text("TLS SNI") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        singleLine = true
+                    )
+                }
+
+                ProxyType.TUIC -> {
+                    var showPass by remember { mutableStateOf(false) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { onUsernameChange(it); onConfigChanged() },
+                            leadingIcon = { VectorIcon(IconType.USER, size = 16.dp, tint = ZuanAqua) },
+                            label = { Text("TUIC UUID") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { onPasswordChange(it); onConfigChanged() },
+                            leadingIcon = { VectorIcon(IconType.KEY, size = 16.dp, tint = ZuanTextSecondary) },
+                            label = { Text("TUIC Password") },
+                            visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                Box(modifier = Modifier.clickable { showPass = !showPass }.padding(8.dp)) {
+                                    VectorIcon(if (showPass) IconType.EYE_OFF else IconType.EYE, size = 16.dp, tint = ZuanAqua)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            singleLine = true
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = sni,
+                        onValueChange = { onSniChange(it); onConfigChanged() },
+                        leadingIcon = { VectorIcon(IconType.GLOBE, size = 16.dp, tint = ZuanTextSecondary) },
+                        label = { Text("TLS SNI") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
                         singleLine = true
                     )
                 }
@@ -3484,7 +3715,7 @@ fun NodeConfigTab(
 }
 
 // -------------------------------------------------------------
-// TAB 3: ZUAN LIQUID GLASS KERNEL ROUTING, BOOT & SPLIT-TUNNEL
+// TAB 3: BUBBLY LIQUID GLASS KERNEL ROUTING, BOOT & SPLIT-TUNNEL
 // -------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -3554,6 +3785,7 @@ fun RoutingAndBootTab(
                                 selected = bootSlot == s,
                                 onClick = { onBootSlotChange(s) },
                                 label = { Text(slotLabel(s), fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                                shape = CircleShape,
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = ZuanAmber,
                                     selectedLabelColor = Color.Black
@@ -3579,7 +3811,7 @@ fun RoutingAndBootTab(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text("Wi-Fi Hotspot & USB Tethering", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
-                        Text("Routes Hotspot TCP, DNS & US STUN WebRTC", fontSize = 11.sp, color = ZuanTextSecondary)
+                        Text("Routes Hotspot TCP, DoT/DoH DNS & US STUN WebRTC", fontSize = 11.sp, color = ZuanTextSecondary)
                     }
                 }
                 Switch(
@@ -3598,8 +3830,8 @@ fun RoutingAndBootTab(
                 OutlinedButton(
                     onClick = onExportBackup,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f))
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.24f))
                 ) {
                     VectorIcon(IconType.UPLOAD, size = 15.dp, tint = ZuanAqua)
                     Spacer(modifier = Modifier.width(6.dp))
@@ -3609,7 +3841,7 @@ fun RoutingAndBootTab(
                 Button(
                     onClick = onImportBackup,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = ZuanIndigo, contentColor = Color.White)
                 ) {
                     VectorIcon(IconType.DOWNLOAD, size = 15.dp, tint = Color.White)
@@ -3634,7 +3866,7 @@ fun RoutingAndBootTab(
                     Column {
                         Text("Route Entire User #$uid Profile", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = ZuanTextPrimary)
                         Text(
-                            text = if (routeWholeProfile) "All apps in U#$uid tunnelled" else "Per-app split tunnel (${selectedPackages.size} selected)",
+                            text = if (routeWholeProfile) "All apps in U#$uid + Private DNS tunnelled" else "Per-app split tunnel (${selectedPackages.size} selected)",
                             fontSize = 11.sp,
                             color = ZuanTextSecondary
                         )
@@ -3656,14 +3888,14 @@ fun RoutingAndBootTab(
                     OutlinedButton(
                         onClick = onSelectAll,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Text("Select All", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                     }
                     OutlinedButton(
                         onClick = onClearAll,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Text("Clear", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                     }
@@ -3682,12 +3914,12 @@ fun RoutingAndBootTab(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) ZuanAqua.copy(alpha = 0.14f) else ZuanGlassElevated)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) ZuanAqua.copy(alpha = 0.16f) else ZuanGlassElevated)
                                 .border(
                                     1.dp,
-                                    if (isSelected) ZuanAqua.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.10f),
-                                    RoundedCornerShape(12.dp)
+                                    if (isSelected) ZuanAqua.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.12f),
+                                    RoundedCornerShape(14.dp)
                                 )
                                 .clickable { onToggleApp(app.packageName) }
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -3708,7 +3940,7 @@ fun RoutingAndBootTab(
 }
 
 // -------------------------------------------------------------
-// TAB 4: ZUAN LIQUID GLASS KERNEL LOGS & NETFILTER CONSOLE
+// TAB 4: BUBBLY LIQUID GLASS KERNEL LOGS & NETFILTER CONSOLE
 // -------------------------------------------------------------
 
 @Composable
@@ -3760,11 +3992,11 @@ fun KernelLogsTab(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (showKernelAuditMode) ZuanMint.copy(alpha = 0.18f) else ZuanGlassElevated)
-                        .border(1.dp, if (showKernelAuditMode) ZuanMint else Color.White.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+                        .clip(CircleShape)
+                        .background(if (showKernelAuditMode) ZuanMint.copy(alpha = 0.20f) else ZuanGlassElevated)
+                        .border(1.dp, if (showKernelAuditMode) ZuanMint else Color.White.copy(alpha = 0.22f), CircleShape)
                         .clickable { onToggleAuditMode() }
-                        .padding(horizontal = 9.dp, vertical = 6.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = if (showKernelAuditMode) "Logs" else "Audit",
@@ -3776,9 +4008,9 @@ fun KernelLogsTab(
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(CircleShape)
                         .background(ZuanGlassElevated)
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
                         .clickable {
                             val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             cb.setPrimaryClip(android.content.ClipData.newPlainText("nameless_logs", logs))
@@ -3791,9 +4023,9 @@ fun KernelLogsTab(
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(CircleShape)
                         .background(ZuanGlassElevated)
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
                         .clickable { onRefresh() }
                         .padding(6.dp)
                 ) {
@@ -3802,9 +4034,9 @@ fun KernelLogsTab(
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ZuanRose.copy(alpha = 0.15f))
-                        .border(1.dp, ZuanRose.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                        .clip(CircleShape)
+                        .background(ZuanRose.copy(alpha = 0.16f))
+                        .border(1.dp, ZuanRose.copy(alpha = 0.48f), CircleShape)
                         .clickable { onClear() }
                         .padding(6.dp)
                 ) {
@@ -3818,9 +4050,9 @@ fun KernelLogsTab(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF04070E))
-                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0x55030712))
+                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
                 .padding(12.dp)
                 .verticalScroll(rememberScrollState())
         ) {
