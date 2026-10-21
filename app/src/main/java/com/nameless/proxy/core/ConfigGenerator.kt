@@ -123,6 +123,24 @@ object ConfigGenerator {
             put("rcode", "NOERROR")
         })
 
+        // Prevent Chrome/WebView from upgrading to encrypted DoH after 3 seconds (which would bypass FakeIP!)
+        dnsRules.put(JSONObject().apply {
+            put("domain", JSONArray().apply {
+                put("use-application-dns.net")
+                put("dns.google")
+                put("dns.google.com")
+                put("cloudflare-dns.com")
+                put("one.one.one.one")
+                put("1dot1dot1dot1.cloudflare-dns.com")
+                put("dns.quad9.net")
+                put("dns.nextdns.io")
+                put("dns.adguard-dns.com")
+                put("doh.opendns.com")
+            })
+            put("action", "predefined")
+            put("rcode", "NXDOMAIN")
+        })
+
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 if (effectiveIpMode != IpMode.IPV6_ONLY) put("A")
@@ -144,8 +162,7 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds — Dedicated AF_INET (127.0.0.1 / 0.0.0.0) sockets so disable_ipv6=1 on rmnet_data0
-        // never blocks TCP/UDP socket delivery on the Phone or Hotspot!
+        // 4. Inbounds — Dedicated AF_INET (127.0.0.1 / 0.0.0.0) + IPv6 Loopback DNS (::1)
         val inbounds = JSONArray()
 
         // Phone OUTPUT TCP REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
@@ -164,7 +181,7 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Phone OUTPUT DNS REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
+        // Phone IPv4 OUTPUT DNS REDIRECT inbound (bound to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -178,7 +195,7 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING DNS REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
+        // Hotspot PREROUTING DNS REDIRECT inbound (bound to 0.0.0.0 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-hs-in")
@@ -192,7 +209,7 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING TCP REDIRECT inbound (bound explicitly to 0.0.0.0 AF_INET)
+        // Hotspot PREROUTING TCP REDIRECT inbound (bound to 0.0.0.0 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-hs-in")
@@ -200,9 +217,24 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 6)
         })
 
+        // Phone IPv6 OUTPUT DNS REDIRECT inbound (bound to ::1 AF_INET6 so IPv6 carrier DNS on Jazz LTE
+        // is hijacked into sing-box FakeIP without ever disabling IPv6 on rmnet_data0!)
+        inbounds.put(JSONObject().apply {
+            put("type", "direct")
+            put("tag", "dns-v6-in")
+            put("listen", "::1")
+            put("listen_port", inboundPort + 7)
+            put("network", JSONArray().apply {
+                put("tcp")
+                put("udp")
+            })
+            put("override_address", "1.1.1.1")
+            put("override_port", 53)
+        })
+
         root.put("inbounds", inbounds)
 
-        // 5. Outbounds (Never set routing_mark on Android so fwmark 0x0/0xffff matches netd Rule 22000!)
+        // 5. Outbounds
         val outbounds = JSONArray()
         val proxyOutbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -345,6 +377,7 @@ object ConfigGenerator {
             put("inbound", JSONArray().apply {
                 put("dns-in")
                 put("dns-hs-in")
+                put("dns-v6-in")
             })
             put("action", "hijack-dns")
         })
@@ -358,7 +391,51 @@ object ConfigGenerator {
             put("timeout", "200ms")
         })
 
-        // Block UDP QUIC/DoQ on ports 80/443/853 so browsers & Private DNS use TCP 443/853 through proxy-out
+        // Block direct-IP DoH/DoT endpoints so Chrome & netd never switch away from sing-box FakeIP after 3 seconds!
+        routeRules.put(JSONObject().apply {
+            put("port", JSONArray().apply { put(853) })
+            put("action", "reject")
+        })
+
+        routeRules.put(JSONObject().apply {
+            put("ip_cidr", JSONArray().apply {
+                put("8.8.8.8/32")
+                put("8.8.4.4/32")
+                put("1.1.1.1/32")
+                put("1.0.0.1/32")
+                put("9.9.9.9/32")
+                put("149.112.112.112/32")
+                put("208.67.222.222/32")
+                put("208.67.220.220/32")
+                put("2001:4860:4860::8888/128")
+                put("2001:4860:4860::8844/128")
+                put("2606:4700:4700::1111/128")
+                put("2606:4700:4700::1001/128")
+            })
+            put("port", JSONArray().apply {
+                put(443)
+                put(853)
+            })
+            put("action", "reject")
+        })
+
+        routeRules.put(JSONObject().apply {
+            put("domain", JSONArray().apply {
+                put("dns.google")
+                put("dns.google.com")
+                put("cloudflare-dns.com")
+                put("one.one.one.one")
+                put("1dot1dot1dot1.cloudflare-dns.com")
+                put("dns.quad9.net")
+                put("dns.nextdns.io")
+                put("dns.adguard-dns.com")
+                put("doh.opendns.com")
+                put("use-application-dns.net")
+            })
+            put("action", "reject")
+        })
+
+        // Block UDP QUIC/DoQ on ports 80/443/853 so browsers use TCP 443 through proxy-out
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {

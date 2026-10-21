@@ -21,9 +21,9 @@ import java.util.zip.CRC32
 /**
  * Live RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Strictly dynamic: never caches exit IPs on disk and never serves fallback IPs.
- * Only binds the Phone socket (127.0.0.1:stunPort) when enableLocalStun is true,
- * and only binds the Hotspot socket (0.0.0.0:stunPort+2) when enableHotspotStun is true.
+ * Pre-seeds with the currently active proxy host IP at 0ms when enabled so early STUN probes
+ * never fail during tunnel startup, then updates to the verified tunnel exit IP once resolved.
+ * Immediately clears and unbinds sockets when WebRTC shield or Hotspot routing is turned OFF.
  */
 object StunResponder {
 
@@ -88,6 +88,7 @@ object StunResponder {
     fun ensureRunning(
         stunPort: Int,
         socksPort: Int,
+        fallbackHostIp: String? = null,
         enableLocalStun: Boolean = true,
         enableHotspotStun: Boolean = true
     ) {
@@ -98,18 +99,22 @@ object StunResponder {
             activeLocalEnabled == enableLocalStun &&
             activeHotspotEnabled == enableHotspotStun
         ) {
-            if (!verifiedFromTunnel.get()) {
+            if ((enableLocalStun || enableHotspotStun) && currentExitIpBytes == null && !fallbackHostIp.isNullOrBlank()) {
+                updateExitIp(fallbackHostIp, isTunnelVerified = false)
+            }
+            if ((enableLocalStun || enableHotspotStun) && !verifiedFromTunnel.get()) {
                 triggerTunnelIpProbe(socksPort)
             }
             return
         }
-        start(stunPort, socksPort, enableLocalStun, enableHotspotStun)
+        start(stunPort, socksPort, fallbackHostIp, enableLocalStun, enableHotspotStun)
     }
 
     @Synchronized
     fun start(
         stunPort: Int,
         socksPort: Int,
+        fallbackHostIp: String? = null,
         enableLocalStun: Boolean = true,
         enableHotspotStun: Boolean = true
     ) {
@@ -124,12 +129,19 @@ object StunResponder {
         activeLocalEnabled = enableLocalStun
         activeHotspotEnabled = enableHotspotStun
 
+        if (!enableLocalStun && !enableHotspotStun) {
+            return
+        }
+
         if (preserveVerified && preserveBytes != null) {
             currentExitIp = preserveIp
             currentExitIpBytes = preserveBytes
             verifiedFromTunnel.set(true)
         } else {
             verifiedFromTunnel.set(false)
+            if (!fallbackHostIp.isNullOrBlank()) {
+                updateExitIp(fallbackHostIp, isTunnelVerified = false)
+            }
             triggerTunnelIpProbe(socksPort)
         }
 
@@ -188,8 +200,8 @@ object StunResponder {
         clientPort: Int
     ) {
         var attempts = 0
-        while (currentExitIpBytes == null && attempts < 25) {
-            delay(30)
+        while (currentExitIpBytes == null && attempts < 20) {
+            delay(25)
             attempts++
         }
 
@@ -256,7 +268,8 @@ object StunResponder {
     private fun triggerTunnelIpProbe(socksPort: Int) {
         ipProbeJob?.cancel()
         ipProbeJob = scope.launch {
-            val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", socksPort))
+            // Use HTTP Proxy type on mixed port (10801) so URLConnection sends the hostname directly to sing-box!
+            val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", socksPort))
             val fastEndpoints = listOf(
                 "http://ip-api.com/json/?fields=status,query",
                 "https://api4.ipify.org",

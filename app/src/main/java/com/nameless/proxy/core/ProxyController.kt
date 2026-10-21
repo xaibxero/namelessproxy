@@ -86,9 +86,11 @@ object ProxyController {
         if (running != null) {
             val port = 10800 + (user * 100) + (running * 10)
             val cfg = lastActiveSettings
+            val cleanHost = ConfigGenerator.cleanHost(cfg.host)
             StunResponder.ensureRunning(
                 stunPort = port + 3,
                 socksPort = port + 1,
+                fallbackHostIp = cleanHost.takeIf { IptablesManager.isValidIpv4(it) },
                 enableLocalStun = cfg.strictWebRtcShield,
                 enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
             )
@@ -165,9 +167,11 @@ object ProxyController {
         if (!isRunning(user, slot)) return false
         val port = 10800 + (user * 100) + (slot * 10)
         val cfg = lastActiveSettings
+        val cleanHost = ConfigGenerator.cleanHost(cfg.host)
         StunResponder.ensureRunning(
             stunPort = port + 3,
             socksPort = port + 1,
+            fallbackHostIp = cleanHost.takeIf { IptablesManager.isValidIpv4(it) },
             enableLocalStun = cfg.strictWebRtcShield,
             enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
         )
@@ -187,13 +191,6 @@ object ProxyController {
         if (!isRunning(user, slot)) return false
         val port = ProfileManager.localInboundPort
 
-        StunResponder.start(
-            stunPort = port + 3,
-            socksPort = port + 1,
-            enableLocalStun = settings.strictWebRtcShield,
-            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
-        )
-
         val rawHost = ConfigGenerator.cleanHost(settings.host)
         val resolvedHost = if (!IptablesManager.isValidIpv4(rawHost) && !IptablesManager.isValidIpv6(rawHost)) {
             try {
@@ -204,6 +201,14 @@ object ProxyController {
         } else {
             rawHost
         }
+
+        StunResponder.start(
+            stunPort = port + 3,
+            socksPort = port + 1,
+            fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) },
+            enableLocalStun = settings.strictWebRtcShield,
+            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
+        )
 
         val iptablesCmds = IptablesManager.generateEnableCommands(
             inboundPort = port,
@@ -227,7 +232,7 @@ object ProxyController {
             "  echo 'Status   : STANDBY'",
             "fi",
             "echo 'STUN IP  : $stunIp'",
-            "echo 'PrivDNS  : '$(settings get global private_dns_mode 2>/dev/null)' ('$(settings get global private_dns_specifier 2>/dev/null)')'",
+            "echo 'PrivDNS  : '$(settings get global private_dns_mode 2>/dev/null)",
             "echo ''",
             "echo '=== SING-BOX STREAM ==='",
             "if [ -f " + logFile + " ]; then tail -n 120 " + logFile + "; else echo 'No log entries.'; fi"
@@ -238,10 +243,13 @@ object ProxyController {
     fun getKernelAuditReport(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val raw = executeSuWithOutput(listOf(
             "echo '=== ROUTING RULES ==='",
-            "ip rule show | grep -E '8500|8501|8502|8503|22000' || true",
+            "ip rule show | grep -E '8500|8501|8502|8503|8900|22000' || true",
             "echo ''",
             "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
+            "echo ''",
+            "echo '=== IPv6 NAT DNS (${IptablesManager.CHAIN_NAT_V6}) ==='",
+            "ip6tables -w -t nat -S ${IptablesManager.CHAIN_NAT_V6} 2>&1 || true",
             "echo ''",
             "echo '=== HOTSPOT NAT & STUN (${IptablesManager.CHAIN_HS_NAT}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_HS_NAT} 2>&1 || true",
@@ -333,6 +341,7 @@ object ProxyController {
         StunResponder.start(
             stunPort = port + 3,
             socksPort = port + 1,
+            fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) },
             enableLocalStun = settings.strictWebRtcShield,
             enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
         )

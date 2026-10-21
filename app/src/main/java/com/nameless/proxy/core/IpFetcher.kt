@@ -30,8 +30,9 @@ object IpFetcher {
     }
 
     suspend fun getPublicIpInfo(localSocksPort: Int? = null): GeoIpResult? = withContext(Dispatchers.IO) {
+        // Use Proxy.Type.HTTP on sing-box's mixed port (10801) so domain resolution happens remotely inside sing-box!
         val proxy = if (localSocksPort != null) {
-            Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", localSocksPort))
+            Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", localSocksPort))
         } else Proxy.NO_PROXY
 
         val jsonProviders = listOf(
@@ -47,8 +48,8 @@ object IpFetcher {
             try {
                 val url = URL(endpoint)
                 conn = url.openConnection(proxy) as HttpURLConnection
-                conn.connectTimeout = 4000
-                conn.readTimeout = 4000
+                conn.connectTimeout = 3500
+                conn.readTimeout = 3500
                 conn.instanceFollowRedirects = true
                 conn.useCaches = false
                 conn.setRequestProperty("User-Agent", BROWSER_UA)
@@ -132,8 +133,8 @@ object IpFetcher {
             try {
                 val url = URL(rawUrl)
                 conn = url.openConnection(proxy) as HttpURLConnection
-                conn.connectTimeout = 3500
-                conn.readTimeout = 3500
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
                 conn.useCaches = false
                 conn.setRequestProperty("User-Agent", BROWSER_UA)
 
