@@ -30,6 +30,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -38,7 +39,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -85,6 +89,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1407,12 +1412,12 @@ fun MainScreen(
                         val forward = targetState > initialState
                         (fadeIn(animationSpec = tween(220)) +
                             scaleIn(initialScale = 0.88f, animationSpec = spring(dampingRatio = 0.44f, stiffness = 300f)) +
-                            slideInHorizontally(animationSpec = spring(dampingRatio = 0.54f, stiffness = 310f)) { if (forward) it / 4 else -it / 4 } +
-                            slideInVertically(animationSpec = spring(dampingRatio = 0.54f, stiffness = 310f)) { it / 16 })
+                            slideInHorizontally(animationSpec = spring<IntOffset>(dampingRatio = 0.54f, stiffness = 310f)) { w: Int -> if (forward) w / 4 else -w / 4 } +
+                            slideInVertically(animationSpec = spring<IntOffset>(dampingRatio = 0.54f, stiffness = 310f)) { h: Int -> h / 16 })
                             .togetherWith(
                                 fadeOut(animationSpec = tween(150)) +
                                     scaleOut(targetScale = 0.92f, animationSpec = tween(160)) +
-                                    slideOutHorizontally(animationSpec = tween(160)) { if (forward) -it / 6 else it / 6 }
+                                    slideOutHorizontally(animationSpec = tween<IntOffset>(160)) { w: Int -> if (forward) -w / 6 else w / 6 }
                             )
                     },
                     label = "zuanViewTransition"
@@ -2388,8 +2393,12 @@ fun ZuanDashboardTab(
                                 else -> host.ifEmpty { "Awaiting Node" }
                             },
                             transitionSpec = {
-                                (slideInVertically { it / 2 } + fadeIn()) togetherWith
-                                    (slideOutVertically { -it / 2 } + fadeOut())
+                                (fadeIn(animationSpec = tween(180)) +
+                                    slideInVertically(animationSpec = spring<IntOffset>(dampingRatio = 0.60f, stiffness = 340f)) { h: Int -> h / 2 })
+                                    .togetherWith(
+                                        fadeOut(animationSpec = tween(130)) +
+                                            slideOutVertically(animationSpec = tween<IntOffset>(130)) { h: Int -> -h / 2 }
+                                    )
                             },
                             label = "exitIpTransition"
                         ) { ipLabel ->
