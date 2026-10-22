@@ -91,8 +91,8 @@ object ProxyController {
                 stunPort = port + 3,
                 socksPort = port + 1,
                 fallbackHostIp = cleanHost.takeIf { IptablesManager.isValidIpv4(it) },
-                enableLocalStun = cfg.strictWebRtcShield,
-                enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
+                enableLocalStun = true,
+                enableHotspotStun = cfg.routeHotspot
             )
         }
         return running
@@ -172,15 +172,12 @@ object ProxyController {
             stunPort = port + 3,
             socksPort = port + 1,
             fallbackHostIp = cleanHost.takeIf { IptablesManager.isValidIpv4(it) },
-            enableLocalStun = cfg.strictWebRtcShield,
-            enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
+            enableLocalStun = true,
+            enableHotspotStun = cfg.routeHotspot
         )
         return executeSu(IptablesManager.generateHandoverRefreshCommands(cfg.routeHotspot))
     }
 
-    /**
-     * Live real-time update when the user toggles WebRTC Shield or Wi-Fi Hotspot while the tunnel is active.
-     */
     fun applyLiveSettingsUpdate(
         settings: ProxySettings,
         selectedUids: List<Int>? = null
@@ -206,8 +203,8 @@ object ProxyController {
             stunPort = port + 3,
             socksPort = port + 1,
             fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) },
-            enableLocalStun = settings.strictWebRtcShield,
-            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
+            enableLocalStun = true,
+            enableHotspotStun = settings.routeHotspot
         )
 
         val iptablesCmds = IptablesManager.generateEnableCommands(
@@ -223,7 +220,7 @@ object ProxyController {
     fun getDiagnosticsAndLogs(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val pidFile = getPidFile(user, slot)
         val logFile = getLogFile(user, slot)
-        val stunIp: String = StunResponder.getExitIp().ifEmpty { "Standby / Disabled" }
+        val stunIp: String = StunResponder.getExitIp().ifEmpty { "Standby" }
         val raw = executeSuWithOutput(listOf(
             "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + (slot + 1) + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 $(cat " + pidFile + ") 2>/dev/null; then",
@@ -243,13 +240,13 @@ object ProxyController {
     fun getKernelAuditReport(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val raw = executeSuWithOutput(listOf(
             "echo '=== ROUTING RULES ==='",
-            "ip rule show | grep -E '8500|8501|8502|8503|8900|22000' || true",
+            "ip rule show | grep -E '8500|8501|8502|8503|22000|31000' || true",
             "echo ''",
             "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
             "echo ''",
-            "echo '=== IPv6 NAT DNS (${IptablesManager.CHAIN_NAT_V6}) ==='",
-            "ip6tables -w -t nat -S ${IptablesManager.CHAIN_NAT_V6} 2>&1 || true",
+            "echo '=== LOOPBACK SNAT (${IptablesManager.CHAIN_POST_V4}) ==='",
+            "iptables -w -t nat -S ${IptablesManager.CHAIN_POST_V4} 2>&1 || true",
             "echo ''",
             "echo '=== HOTSPOT NAT & STUN (${IptablesManager.CHAIN_HS_NAT}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_HS_NAT} 2>&1 || true",
@@ -342,8 +339,8 @@ object ProxyController {
             stunPort = port + 3,
             socksPort = port + 1,
             fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) },
-            enableLocalStun = settings.strictWebRtcShield,
-            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
+            enableLocalStun = true,
+            enableHotspotStun = settings.routeHotspot
         )
 
         val iptablesCmds = IptablesManager.generateEnableCommands(

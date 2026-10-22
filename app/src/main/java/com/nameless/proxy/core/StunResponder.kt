@@ -21,9 +21,8 @@ import java.util.zip.CRC32
 /**
  * Live RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Pre-seeds with the currently active proxy host IP at 0ms when enabled so early STUN probes
+ * Pre-seeds with the active proxy host IP at 0ms when enabled so early STUN probes
  * never fail during tunnel startup, then updates to the verified tunnel exit IP once resolved.
- * Immediately clears and unbinds sockets when WebRTC shield or Hotspot routing is turned OFF.
  */
 object StunResponder {
 
@@ -146,7 +145,7 @@ object StunResponder {
         }
 
         if (enableLocalStun) {
-            localServerJob = startSocketLoop("127.0.0.1", stunPort) { localSocket = it }
+            localServerJob = startSocketLoop("0.0.0.0", stunPort) { localSocket = it }
         }
         if (enableHotspotStun) {
             hotspotServerJob = startSocketLoop("0.0.0.0", stunPort + 2) { hotspotSocket = it }
@@ -268,7 +267,6 @@ object StunResponder {
     private fun triggerTunnelIpProbe(socksPort: Int) {
         ipProbeJob?.cancel()
         ipProbeJob = scope.launch {
-            // Use HTTP Proxy type on mixed port (10801) so URLConnection sends the hostname directly to sing-box!
             val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", socksPort))
             val fastEndpoints = listOf(
                 "http://ip-api.com/json/?fields=status,query",
