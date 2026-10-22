@@ -107,7 +107,7 @@ object ConfigGenerator {
         val dnsRules = JSONArray()
 
         // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
-        // so Chromium's parallel HostResolverDnsTask never aborts on RCODE=REFUSED!
+        // so Chromium & Android netd parallel DNS queries finish in <1ms without RCODE=REFUSED!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -123,7 +123,7 @@ object ConfigGenerator {
             put("rcode", "NOERROR")
         })
 
-        // Standard RFC 8484 canary domain to keep browsers on system DNS (FakeIP) without resetting HTTPS connections
+        // Standard RFC 8484 canary domain to keep browsers on system DNS (FakeIP)
         dnsRules.put(JSONObject().apply {
             put("domain", JSONArray().apply {
                 put("use-application-dns.net")
@@ -139,7 +139,7 @@ object ConfigGenerator {
             })
             put("action", "route")
             put("server", "dns-fakeip")
-            put("rewrite_ttl", 60)
+            put("rewrite_ttl", 30)
         })
         dns.put("rules", dnsRules)
 
@@ -153,14 +153,17 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds — Bound to 0.0.0.0 AF_INET so redirected packets from both 127.0.0.1 and cellular/LAN IPs (10.x.x.x / 192.168.x.x) are accepted seamlessly!
+        // 4. Inbounds
+        // Phone OUTPUT REDIRECT listeners MUST bind to 127.0.0.1 so UDP/TCP reply source IPs are 127.0.0.1,
+        // matching conntrack's expected reply tuple on lo!
+        // Hotspot PREROUTING REDIRECT listeners bind to 0.0.0.0 for tethered LAN clients.
         val inbounds = JSONArray()
 
-        // Phone OUTPUT TCP REDIRECT inbound
+        // Phone OUTPUT TCP REDIRECT inbound (bound to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
-            put("listen", "0.0.0.0")
+            put("listen", "127.0.0.1")
             put("listen_port", inboundPort)
         })
 
@@ -172,11 +175,11 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Phone IPv4 OUTPUT DNS REDIRECT inbound
+        // Phone OUTPUT DNS REDIRECT inbound (bound to 127.0.0.1 AF_INET so reply src IP is 127.0.0.1 for conntrack!)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
-            put("listen", "0.0.0.0")
+            put("listen", "127.0.0.1")
             put("listen_port", inboundPort + 2)
             put("network", JSONArray().apply {
                 put("tcp")
@@ -186,7 +189,7 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING DNS REDIRECT inbound
+        // Hotspot PREROUTING DNS REDIRECT inbound (bound to 0.0.0.0 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-hs-in")
@@ -200,7 +203,7 @@ object ConfigGenerator {
             put("override_port", 53)
         })
 
-        // Hotspot PREROUTING TCP REDIRECT inbound
+        // Hotspot PREROUTING TCP REDIRECT inbound (bound to 0.0.0.0 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-hs-in")
@@ -340,7 +343,7 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 6. Routing Rules — Never reject TCP 443 endpoints so Chrome/WebView/IPFighter never see ERR_CONNECTION_RESET!
+        // 6. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-direct")
@@ -366,7 +369,6 @@ object ConfigGenerator {
             put("timeout", "200ms")
         })
 
-        // Reject DoT/DoQ (853) and UDP QUIC (80/443) so all traffic uses FakeIP DNS + TCP 443 through proxy-out
         routeRules.put(JSONObject().apply {
             put("port", JSONArray().apply { put(853) })
             put("action", "reject")

@@ -6,75 +6,47 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
-import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.PortUnreachableException
+import java.net.Proxy
 import java.net.Socket
 
 sealed class TestResult {
-    data class Success(
-        val latencyMs: Long,
-        val detectedType: ProxyType,
-        val detectedIpMode: IpMode
-    ) : TestResult()
-
+    data class Success(val latencyMs: Long) : TestResult()
     data class Failure(val error: String) : TestResult()
 }
 
 object ProxyTester {
 
-    fun inferIpMode(host: String): IpMode {
-        val clean = ConfigGenerator.cleanHost(host)
-        if (clean.isEmpty()) return IpMode.IPV4_ONLY
-        if (IptablesManager.isValidIpv6(clean)) return IpMode.IPV6_ONLY
-        if (IptablesManager.isValidIpv4(clean)) return IpMode.IPV4_ONLY
-        return try {
-            val addr = InetAddress.getByName(clean)
-            if (addr is Inet6Address) IpMode.IPV6_ONLY else IpMode.IPV4_ONLY
-        } catch (_: Exception) {
-            IpMode.IPV4_ONLY
-        }
-    }
-
-    /**
-     * Automatically tests the configured proxy protocol first, and if handshake fails on standard
-     * proxy types (SOCKS5 / HTTP / SOCKS4), auto-probes alternative protocols to detect the true proxy type.
-     */
-    suspend fun testProxy(settings: ProxySettings, timeoutMs: Int = 4500): TestResult = withContext(Dispatchers.IO) {
+    suspend fun testProxy(settings: ProxySettings, timeoutMs: Int = 5000): TestResult = withContext(Dispatchers.IO) {
         val cleanHost = ConfigGenerator.cleanHost(settings.host)
         if (cleanHost.isEmpty()) {
             return@withContext TestResult.Failure("Host is empty")
         }
 
-        val autoIpMode = inferIpMode(cleanHost)
+        val start = System.currentTimeMillis()
 
-        // 1. Try the currently selected protocol first
-        val primary = probeSingleProtocol(settings.copy(ipMode = autoIpMode), timeoutMs)
-        if (primary is TestResult.Success) {
-            return@withContext primary
-        }
-
-        // 2. If the user entered a standard proxy (SOCKS5 / HTTP / SOCKS4), auto-detect across SOCKS5, HTTP, SOCKS4
-        val fallbackOrder = listOf(ProxyType.SOCKS5, ProxyType.HTTP, ProxyType.SOCKS4).filter { it != settings.type }
-        for (candidate in fallbackOrder) {
-            val res = probeSingleProtocol(settings.copy(type = candidate, ipMode = autoIpMode), 2500)
-            if (res is TestResult.Success) {
-                return@withContext res
+        // If the kernel tunnel is already active on this slot, test through sing-box's local mixed port (10801)
+        // so the probe uses the active tunnel cleanly even with Table 2088 app-UID routing active.
+        val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
+        if (rSlot != null && rSlot == ProfileManager.activeSlot) {
+            val mixedPort = 10800 + (ProfileManager.androidUserId * 100) + (rSlot * 10) + 1
+            return@withContext try {
+                val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", mixedPort))
+                Socket(proxy).use { s ->
+                    s.soTimeout = timeoutMs
+                    s.connect(InetSocketAddress("1.1.1.1", 80), timeoutMs)
+                }
+                val latency = (System.currentTimeMillis() - start).coerceAtLeast(1L)
+                TestResult.Success(latency)
+            } catch (e: Exception) {
+                TestResult.Failure(e.localizedMessage ?: "Tunnel probe timed out")
             }
         }
 
-        primary
-    }
-
-    private fun probeSingleProtocol(settings: ProxySettings, timeoutMs: Int): TestResult {
-        val cleanHost = ConfigGenerator.cleanHost(settings.host)
-        val start = System.currentTimeMillis()
-        val autoIpMode = settings.ipMode
-
-        // Hysteria2 and TUIC use QUIC over UDP exclusively
-        if (settings.type == ProxyType.HYSTERIA2 || settings.type == ProxyType.TUIC) {
-            return try {
+        if (settings.type == ProxyType.HYSTERIA2) {
+            return@withContext try {
                 val address = InetAddress.getByName(cleanHost)
                 DatagramSocket().use { udpSocket ->
                     udpSocket.soTimeout = 1200
@@ -85,19 +57,18 @@ object ProxyTester {
                     try {
                         udpSocket.receive(DatagramPacket(recvBuf, recvBuf.size))
                     } catch (e: PortUnreachableException) {
-                        return TestResult.Failure("UDP Port ${settings.port} unreachable")
+                        return@withContext TestResult.Failure("UDP Port ${settings.port} unreachable")
                     } catch (_: Exception) {
-                        // Open/filtered QUIC listener
                     }
                 }
                 val latency = (System.currentTimeMillis() - start).coerceAtLeast(1L)
-                TestResult.Success(latency, settings.type, autoIpMode)
+                TestResult.Success(latency)
             } catch (e: Exception) {
-                TestResult.Failure(e.localizedMessage ?: "UDP resolution/probe failed")
+                TestResult.Failure(e.localizedMessage ?: "UDP probe failed")
             }
         }
 
-        return try {
+        try {
             Socket().use { socket ->
                 socket.soTimeout = timeoutMs
                 socket.connect(InetSocketAddress(cleanHost, settings.port), timeoutMs)
@@ -118,7 +89,7 @@ object ProxyTester {
                         val ver = inStream.readByte().toInt()
                         val method = inStream.readByte().toInt() and 0xFF
 
-                        if (ver != 5) return TestResult.Failure("Invalid SOCKS5 version ($ver)")
+                        if (ver != 5) return@withContext TestResult.Failure("Invalid SOCKS5 version ($ver)")
 
                         if (method == 0x02) {
                             val uBytes = settings.username.toByteArray(Charsets.UTF_8)
@@ -132,18 +103,17 @@ object ProxyTester {
 
                             inStream.readByte()
                             val subStatus = inStream.readByte().toInt()
-                            if (subStatus != 0) return TestResult.Failure("SOCKS5 Auth failed (Wrong credentials)")
+                            if (subStatus != 0) return@withContext TestResult.Failure("SOCKS5 Auth failed")
                         } else if (method != 0x00) {
-                            return TestResult.Failure("Unsupported SOCKS5 auth method: $method")
+                            return@withContext TestResult.Failure("Unsupported SOCKS5 auth: $method")
                         }
 
-                        // SOCKS5 CONNECT to 1.1.1.1:80
                         outStream.write(byteArrayOf(0x05, 0x01, 0x00, 0x01, 1, 1, 1, 1, 0x00, 0x50))
                         outStream.flush()
 
                         inStream.readByte()
                         val repCode = inStream.readByte().toInt()
-                        if (repCode != 0) return TestResult.Failure("SOCKS5 Connect rejected (Code: $repCode)")
+                        if (repCode != 0) return@withContext TestResult.Failure("SOCKS5 rejected ($repCode)")
                     }
 
                     ProxyType.HTTP -> {
@@ -159,10 +129,10 @@ object ProxyTester {
 
                         val buffer = ByteArray(256)
                         val bytesRead = inStream.read(buffer)
-                        if (bytesRead <= 0) return TestResult.Failure("Empty response from HTTP proxy")
+                        if (bytesRead <= 0) return@withContext TestResult.Failure("Empty HTTP response")
                         val response = String(buffer, 0, bytesRead, Charsets.UTF_8)
                         if (!response.contains("200")) {
-                            return TestResult.Failure("HTTP Tunnel failed: ${response.lines().firstOrNull()}")
+                            return@withContext TestResult.Failure("HTTP failed: ${response.lines().firstOrNull()}")
                         }
                     }
 
@@ -171,21 +141,16 @@ object ProxyTester {
                         outStream.flush()
                         inStream.readByte()
                         val status = inStream.readByte().toInt()
-                        if (status != 0x5A) return TestResult.Failure("SOCKS4 rejected (Status: $status)")
+                        if (status != 0x5A) return@withContext TestResult.Failure("SOCKS4 rejected ($status)")
                     }
 
-                    ProxyType.SHADOWSOCKS,
-                    ProxyType.VLESS,
-                    ProxyType.VMESS,
-                    ProxyType.TROJAN,
-                    ProxyType.HYSTERIA2,
-                    ProxyType.TUIC -> {
-                        // TCP/TLS handshake completed
+                    else -> {
+                        // TCP handshake completed
                     }
                 }
             }
             val latency = (System.currentTimeMillis() - start).coerceAtLeast(1L)
-            TestResult.Success(latency, settings.type, autoIpMode)
+            TestResult.Success(latency)
         } catch (e: Exception) {
             TestResult.Failure(e.localizedMessage ?: "Connection timed out")
         }

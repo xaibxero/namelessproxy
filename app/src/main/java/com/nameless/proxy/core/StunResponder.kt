@@ -21,8 +21,8 @@ import java.util.zip.CRC32
 /**
  * Live RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Pre-seeds with the active proxy host IP at 0ms when enabled so early STUN probes
- * never fail during tunnel startup, then updates to the verified tunnel exit IP once resolved.
+ * Local listener binds to 127.0.0.1:$stunPort (matching OUTPUT REDIRECT conntrack tuple),
+ * while Hotspot listener binds to 0.0.0.0:$hsStunPort (matching PREROUTING REDIRECT).
  */
 object StunResponder {
 
@@ -145,7 +145,7 @@ object StunResponder {
         }
 
         if (enableLocalStun) {
-            localServerJob = startSocketLoop("0.0.0.0", stunPort) { localSocket = it }
+            localServerJob = startSocketLoop("127.0.0.1", stunPort) { localSocket = it }
         }
         if (enableHotspotStun) {
             hotspotServerJob = startSocketLoop("0.0.0.0", stunPort + 2) { hotspotSocket = it }
