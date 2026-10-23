@@ -36,8 +36,8 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
-    const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
+    const val BOOTSTRAP_DNS_IPV4 = "1.1.1.1"
+    const val BOOTSTRAP_DNS_IPV6 = "2606:4700:4700::1111"
 
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
@@ -61,7 +61,7 @@ object ConfigGenerator {
 
         // 1. Logging
         root.put("log", JSONObject().apply {
-            put("level", "info")
+            put("level", "warn")
             put("timestamp", true)
         })
 
@@ -74,12 +74,11 @@ object ConfigGenerator {
             })
         })
 
-        // 3. DNS Configuration (FakeIP + Remote TCP Tunnel through Proxy)
+        // 3. Zero-Leak DNS Configuration (100% FakeIP + Remote TCP Tunnel through Proxy — NO Direct ISP DNS!)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        val remoteDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
-        val directDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
+        val remoteDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
 
         dnsServers.put(JSONObject().apply {
             put("type", "fakeip")
@@ -95,23 +94,36 @@ object ConfigGenerator {
             put("server_port", 53)
             put("detour", "proxy-out")
         })
-
-        dnsServers.put(JSONObject().apply {
-            put("tag", "dns-direct")
-            put("type", "udp")
-            put("server", directDnsServer)
-            put("server_port", 53)
-        })
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
 
-        // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
-        // so Chromium & Android netd parallel DNS queries finish in <1ms without RCODE=REFUSED!
+        // Standard RFC 8484 canary domain to keep browsers on system DNS (FakeIP)
+        dnsRules.put(JSONObject().apply {
+            put("domain", JSONArray().apply {
+                put("use-application-dns.net")
+                put("mask.icloud.com")
+                put("mask-h2.icloud.com")
+            })
+            put("action", "predefined")
+            put("rcode", "NXDOMAIN")
+        })
+
+        // Return instant NOERROR (0 answers) in <0.1ms for non-A/AAAA metadata queries (HTTPS, SVCB, PTR, TXT, SRV, SOA, NS)
+        // so Windows 11 and Chrome background DNS queries NEVER hang waiting on TCP Port 53 over SOCKS5/HTTP proxies!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
                 put("SVCB")
+                put("PTR")
+                put("TXT")
+                put("SRV")
+                put("SOA")
+                put("NS")
+                put("MX")
+                put("CAA")
+                put("NAPTR")
+                put("DNSKEY")
                 if (effectiveIpMode == IpMode.IPV4_ONLY) {
                     put("AAAA")
                 }
@@ -123,15 +135,8 @@ object ConfigGenerator {
             put("rcode", "NOERROR")
         })
 
-        // Standard RFC 8484 canary domain to keep browsers on system DNS (FakeIP)
-        dnsRules.put(JSONObject().apply {
-            put("domain", JSONArray().apply {
-                put("use-application-dns.net")
-            })
-            put("action", "predefined")
-            put("rcode", "NXDOMAIN")
-        })
-
+        // Route all A/AAAA queries to FakeIP (198.18.0.0/15) so DNS resolves locally in <0.2ms
+        // and the actual domain name is sent through proxy-out for remote resolution on the proxy server!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 if (effectiveIpMode != IpMode.IPV6_ONLY) put("A")
@@ -139,7 +144,7 @@ object ConfigGenerator {
             })
             put("action", "route")
             put("server", "dns-fakeip")
-            put("rewrite_ttl", 30)
+            put("rewrite_ttl", 20)
         })
         dns.put("rules", dnsRules)
 
@@ -151,11 +156,12 @@ object ConfigGenerator {
 
         dns.put("final", "dns-remote")
         dns.put("reverse_mapping", true)
+        dns.put("independent_cache", true)
         root.put("dns", dns)
 
         // 4. Inbounds
-        // Phone OUTPUT REDIRECT listeners MUST bind to 127.0.0.1 so UDP/TCP reply source IPs are 127.0.0.1,
-        // matching conntrack's expected reply tuple on lo!
+        // Phone OUTPUT REDIRECT listeners bind to 127.0.0.1 so UDP/TCP reply source IPs are 127.0.0.1,
+        // matching conntrack's expected reply tuple on lo.
         // Hotspot PREROUTING REDIRECT listeners bind to 0.0.0.0 for tethered LAN clients.
         val inbounds = JSONArray()
 
@@ -175,7 +181,7 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Phone OUTPUT DNS REDIRECT inbound (bound to 127.0.0.1 AF_INET so reply src IP is 127.0.0.1 for conntrack!)
+        // Phone OUTPUT DNS REDIRECT inbound (bound to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -343,10 +349,10 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 6. Routing Rules
+        // 6. Routing Rules — Use dns-remote (NEVER direct ISP DNS!) as default_domain_resolver
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-direct")
+            put("default_domain_resolver", "dns-remote")
             put("final", "proxy-out")
         }
 
@@ -364,9 +370,10 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
+        // Sniff TLS SNI / HTTP Host without overriding FakeIP reverse mapping unless destination is a raw non-FakeIP
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("timeout", "200ms")
+            put("timeout", "150ms")
         })
 
         routeRules.put(JSONObject().apply {

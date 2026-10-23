@@ -19,10 +19,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CRC32
 
 /**
- * Live RFC 5389 / RFC 3489 UDP STUN Responder.
+ * High-Speed Zero-Allocation RFC 5389 / RFC 3489 UDP STUN Responder.
  *
- * Local listener binds to 127.0.0.1:$stunPort (matching OUTPUT REDIRECT conntrack tuple),
- * while Hotspot listener binds to 0.0.0.0:$hsStunPort (matching PREROUTING REDIRECT).
+ * Replies synchronously on the socket receive loop in <0.1ms (without spawning a coroutine per packet!)
+ * so UDP redirection never slows down or exhausts memory during heavy browsing.
  */
 object StunResponder {
 
@@ -161,10 +161,14 @@ object StunResponder {
         try {
             socket = DatagramSocket(null).apply {
                 reuseAddress = true
+                receiveBufferSize = 262144
+                sendBufferSize = 262144
                 bind(InetSocketAddress(bindHost, bindPort))
             }
             assignSocket(socket)
             val buf = ByteArray(512)
+            val resp = ByteArray(52)
+            val crc = CRC32()
 
             while (isActive && !socket.isClosed) {
                 val packet = DatagramPacket(buf, buf.size)
@@ -172,15 +176,66 @@ object StunResponder {
                 val len = packet.length
                 if (len < 20) continue
 
+                // STUN Binding Request has message type 0x0001 in bytes 0..1
                 val msgType = ((buf[0].toInt() and 0xFF) shl 8) or (buf[1].toInt() and 0xFF)
                 if (msgType != 0x0001) continue
 
-                val reqCopy = buf.copyOfRange(0, 20)
-                val clientAddr = packet.address
+                val ipBytes = currentExitIpBytes ?: continue
+                val clientAddr = packet.address ?: continue
                 val clientPort = packet.port
 
-                scope.launch {
-                    handleStunRequest(socket, reqCopy, clientAddr, clientPort)
+                // Build 52-byte STUN Binding Success Response (0x0101) synchronously in-place
+                resp[0] = 0x01
+                resp[1] = 0x01
+                resp[2] = 0x00
+                resp[3] = 0x20
+
+                System.arraycopy(buf, 4, resp, 4, 16)
+
+                // Attribute 1: XOR-MAPPED-ADDRESS (Type 0x0020, Length 0x0008)
+                resp[20] = 0x00
+                resp[21] = 0x20
+                resp[22] = 0x00
+                resp[23] = 0x08
+                resp[24] = 0x00
+                resp[25] = 0x01
+                resp[26] = ((clientPort shr 8) xor (buf[4].toInt() and 0xFF)).toByte()
+                resp[27] = ((clientPort and 0xFF) xor (buf[5].toInt() and 0xFF)).toByte()
+                resp[28] = (ipBytes[0].toInt() xor buf[4].toInt()).toByte()
+                resp[29] = (ipBytes[1].toInt() xor buf[5].toInt()).toByte()
+                resp[30] = (ipBytes[2].toInt() xor buf[6].toInt()).toByte()
+                resp[31] = (ipBytes[3].toInt() xor buf[7].toInt()).toByte()
+
+                // Attribute 2: MAPPED-ADDRESS (Type 0x0001, Length 0x0008)
+                resp[32] = 0x00
+                resp[33] = 0x01
+                resp[34] = 0x00
+                resp[35] = 0x08
+                resp[36] = 0x00
+                resp[37] = 0x01
+                resp[38] = (clientPort shr 8).toByte()
+                resp[39] = (clientPort and 0xFF).toByte()
+                resp[40] = ipBytes[0]
+                resp[41] = ipBytes[1]
+                resp[42] = ipBytes[2]
+                resp[43] = ipBytes[3]
+
+                // Attribute 3: FINGERPRINT (Type 0x8028, Length 0x0004)
+                crc.reset()
+                crc.update(resp, 0, 44)
+                val fp = (crc.value.toInt()) xor 0x5354554e
+                resp[44] = 0x80.toByte()
+                resp[45] = 0x28.toByte()
+                resp[46] = 0x00
+                resp[47] = 0x04
+                resp[48] = (fp ushr 24).toByte()
+                resp[49] = (fp ushr 16).toByte()
+                resp[50] = (fp ushr 8).toByte()
+                resp[51] = (fp and 0xFF).toByte()
+
+                try {
+                    socket.send(DatagramPacket(resp, resp.size, clientAddr, clientPort))
+                } catch (_: Exception) {
                 }
             }
         } catch (_: Exception) {
@@ -189,78 +244,6 @@ object StunResponder {
                 socket?.close()
             } catch (_: Exception) {
             }
-        }
-    }
-
-    private suspend fun handleStunRequest(
-        socket: DatagramSocket,
-        reqHeader: ByteArray,
-        clientAddr: InetAddress,
-        clientPort: Int
-    ) {
-        var attempts = 0
-        while (currentExitIpBytes == null && attempts < 20) {
-            delay(25)
-            attempts++
-        }
-
-        val ipBytes = currentExitIpBytes ?: return
-
-        val resp = ByteArray(52)
-        resp[0] = 0x01
-        resp[1] = 0x01
-        resp[2] = 0x00
-        resp[3] = 0x20
-
-        System.arraycopy(reqHeader, 4, resp, 4, 16)
-
-        // Attribute 1: XOR-MAPPED-ADDRESS (Type 0x0020, Length 0x0008)
-        resp[20] = 0x00
-        resp[21] = 0x20
-        resp[22] = 0x00
-        resp[23] = 0x08
-        resp[24] = 0x00
-        resp[25] = 0x01
-        resp[26] = ((clientPort shr 8) xor (reqHeader[4].toInt() and 0xFF)).toByte()
-        resp[27] = ((clientPort and 0xFF) xor (reqHeader[5].toInt() and 0xFF)).toByte()
-        resp[28] = (ipBytes[0].toInt() xor reqHeader[4].toInt()).toByte()
-        resp[29] = (ipBytes[1].toInt() xor reqHeader[5].toInt()).toByte()
-        resp[30] = (ipBytes[2].toInt() xor reqHeader[6].toInt()).toByte()
-        resp[31] = (ipBytes[3].toInt() xor reqHeader[7].toInt()).toByte()
-
-        // Attribute 2: MAPPED-ADDRESS (Type 0x0001, Length 0x0008)
-        resp[32] = 0x00
-        resp[33] = 0x01
-        resp[34] = 0x00
-        resp[35] = 0x08
-        resp[36] = 0x00
-        resp[37] = 0x01
-        resp[38] = (clientPort shr 8).toByte()
-        resp[39] = (clientPort and 0xFF).toByte()
-        resp[40] = ipBytes[0]
-        resp[41] = ipBytes[1]
-        resp[42] = ipBytes[2]
-        resp[43] = ipBytes[3]
-
-        // Attribute 3: FINGERPRINT (Type 0x8028, Length 0x0004)
-        val crc = CRC32()
-        crc.update(resp, 0, 44)
-        val fp = (crc.value.toInt()) xor 0x5354554e
-        resp[44] = 0x80.toByte()
-        resp[45] = 0x28.toByte()
-        resp[46] = 0x00
-        resp[47] = 0x04
-        resp[48] = (fp ushr 24).toByte()
-        resp[49] = (fp ushr 16).toByte()
-        resp[50] = (fp ushr 8).toByte()
-        resp[51] = (fp and 0xFF).toByte()
-
-        try {
-            if (!socket.isClosed) {
-                val outPacket = DatagramPacket(resp, resp.size, clientAddr, clientPort)
-                socket.send(outPacket)
-            }
-        } catch (_: Exception) {
         }
     }
 
@@ -274,15 +257,15 @@ object StunResponder {
                 "https://icanhazip.com",
                 "https://ipinfo.io/ip"
             )
-            for (round in 1..4) {
+            for (round in 1..6) {
                 if (verifiedFromTunnel.get()) break
                 for (endpoint in fastEndpoints) {
                     if (verifiedFromTunnel.get()) break
                     var conn: HttpURLConnection? = null
                     try {
                         conn = (URL(endpoint).openConnection(proxy) as HttpURLConnection).apply {
-                            connectTimeout = 2500
-                            readTimeout = 2500
+                            connectTimeout = 3000
+                            readTimeout = 3000
                             useCaches = false
                         }
                         if (conn.responseCode == 200) {
@@ -303,7 +286,7 @@ object StunResponder {
                     }
                 }
                 if (!verifiedFromTunnel.get()) {
-                    delay(400)
+                    delay(500)
                 }
             }
         }

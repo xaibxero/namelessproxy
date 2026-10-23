@@ -1,6 +1,8 @@
 package com.nameless.proxy.core
 
 import android.content.Context
+import android.os.Process
+import com.nameless.proxy.service.ProxyKeepAliveService
 import java.io.DataOutputStream
 import java.net.InetAddress
 
@@ -29,6 +31,36 @@ object ProxyController {
 
     fun getLogFile(user: Int, slot: Int): String =
         ADB_DIR + "/singbox_u" + user + "_s" + slot + ".log"
+
+    fun getLastActiveSettings(context: Context? = null, slot: Int = ProfileManager.activeSlot): ProxySettings {
+        if (lastActiveSettings.host.isNotBlank()) return lastActiveSettings
+        if (context != null) {
+            try {
+                val sp = context.getSharedPreferences("nameless_slot_$slot", Context.MODE_PRIVATE)
+                val globalPrefs = context.getSharedPreferences("nameless_global_config", Context.MODE_PRIVATE)
+                val h = sp.getString("host", "")?.trim() ?: ""
+                if (h.isNotEmpty()) {
+                    lastActiveSettings = ProxySettings(
+                        type = runCatching { ProxyType.valueOf(sp.getString("proxy_type", "SOCKS5")!!) }.getOrDefault(ProxyType.SOCKS5),
+                        transportMode = runCatching { TransportMode.valueOf(sp.getString("transport_mode", "TCP_AND_UDP")!!) }.getOrDefault(TransportMode.TCP_AND_UDP),
+                        ipMode = runCatching { IpMode.valueOf(sp.getString("ip_mode", "IPV4_ONLY")!!) }.getOrDefault(IpMode.IPV4_ONLY),
+                        host = h,
+                        port = sp.getString("port", "1080")?.toIntOrNull() ?: 1080,
+                        username = sp.getString("username", "") ?: "",
+                        password = sp.getString("password", "") ?: "",
+                        routeHotspot = globalPrefs.getBoolean("route_hotspot", true),
+                        sni = sp.getString("sni", "") ?: "",
+                        ssMethod = sp.getString("ss_method", "chacha20-ietf-poly1305") ?: "chacha20-ietf-poly1305",
+                        realityPublicKey = sp.getString("reality_pk", "") ?: "",
+                        realityShortId = sp.getString("reality_sid", "") ?: "",
+                        strictWebRtcShield = true
+                    )
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return lastActiveSettings
+    }
 
     private fun executeSuWithOutput(commands: List<String>): String {
         return try {
@@ -72,14 +104,21 @@ object ProxyController {
         return check.contains("sing-box version") && !check.contains("No such file") && !check.contains("cannot execute")
     }
 
+    fun ensureCurrentProfileExclusive(context: Context) {
+        val currentUser = ProfileManager.androidUserId
+        val rawUser = executeSuWithOutput(listOf(
+            "if [ -f $ADB_DIR/running_user ]; then cat $ADB_DIR/running_user; fi"
+        )).lineSequence().lastOrNull()?.trim() ?: ""
+        val runningUser = rawUser.toIntOrNull()
+        if (runningUser != null && runningUser != currentUser) {
+            // Another user profile was previously running and was closed/switched; clean it up for this profile
+            stopProxy(context, runningUser)
+        }
+    }
+
     fun getRunningSlot(user: Int = ProfileManager.androidUserId): Int? {
         val slotFile = getActiveSlotFile(user)
-        val legacyFile = ADB_DIR + "/running_slot"
-        val cmd = if (user == 0) {
-            "if [ -f " + slotFile + " ]; then cat " + slotFile + "; elif [ -f " + legacyFile + " ]; then cat " + legacyFile + "; fi"
-        } else {
-            "if [ -f " + slotFile + " ]; then cat " + slotFile + "; fi"
-        }
+        val cmd = "if [ -f " + slotFile + " ]; then cat " + slotFile + "; fi"
         val out = executeSuWithOutput(listOf(cmd)).lineSequence().lastOrNull()?.trim() ?: ""
         val s = out.toIntOrNull()
         val running = if (s != null && isRunning(user, s)) s else null
@@ -245,9 +284,6 @@ object ProxyController {
             "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
             "echo ''",
-            "echo '=== LOOPBACK SNAT (${IptablesManager.CHAIN_POST_V4}) ==='",
-            "iptables -w -t nat -S ${IptablesManager.CHAIN_POST_V4} 2>&1 || true",
-            "echo ''",
             "echo '=== HOTSPOT NAT & STUN (${IptablesManager.CHAIN_HS_NAT}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_HS_NAT} 2>&1 || true",
             "echo ''",
@@ -274,6 +310,7 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
+        val appPid = Process.myPid()
 
         if (!isBinaryExecutable()) {
             val extracted = extractBinaryDirectly(context)
@@ -289,6 +326,7 @@ object ProxyController {
             }
         }
 
+        // Cleanly stop any previous profile's daemon/rules so only the currently active profile runs
         stopProxy(context, user)
 
         val rawHost = ConfigGenerator.cleanHost(settings.host)
@@ -308,13 +346,30 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
+        // Launch sing-box detached from the app's cgroup and exempt both sing-box and com.nameless.proxy
+        // from Android 12–15's Cached App Freezer, Doze, and OOM killer!
         val runCmd = listOf(
             "mkdir -p $ADB_DIR",
             "rm -f $ADB_DIR/cache_u${user}_s${slot}.db",
             "echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true",
-            "( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
+            "cmd deviceidle whitelist +com.nameless.proxy 2>/dev/null || true",
+            "cmd appops set --user $user com.nameless.proxy RUN_IN_BACKGROUND allow 2>/dev/null || true",
+            "cmd appops set --user $user com.nameless.proxy RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true",
+            "cmd appops set --user $user com.nameless.proxy WAKE_LOCK allow 2>/dev/null || true",
+            "cmd appops set --user $user com.nameless.proxy START_FOREGROUND allow 2>/dev/null || true",
+            "( trap '' HUP INT TERM; setsid $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) 2>/dev/null || ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
+            "SB_PID=\$(cat $pidFile 2>/dev/null)",
+            "if [ -n \"\$SB_PID\" ]; then",
+            "  echo -1000 > /proc/\$SB_PID/oom_score_adj 2>/dev/null || true",
+            "  echo \$SB_PID > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
+            "  echo \$SB_PID > /dev/cpuctl/tasks 2>/dev/null || true",
+            "  echo \$SB_PID > /dev/cgroup/cpu/tasks 2>/dev/null || true",
+            "fi",
+            "echo -900 > /proc/$appPid/oom_score_adj 2>/dev/null || true",
+            "echo $appPid > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
             "echo $slot > $slotFile",
-            "echo $slot > $ADB_DIR/running_slot"
+            "echo $slot > $ADB_DIR/running_slot",
+            "echo $user > $ADB_DIR/running_user"
         )
         executeSu(runCmd)
 
@@ -334,6 +389,8 @@ object ProxyController {
                 errorMessage = failureInfo.ifEmpty { "sing-box daemon failed to start" }
             )
         }
+
+        ProxyKeepAliveService.start(context)
 
         StunResponder.start(
             stunPort = port + 3,
@@ -364,12 +421,13 @@ object ProxyController {
         context: Context,
         user: Int = ProfileManager.androidUserId
     ): Boolean {
+        ProxyKeepAliveService.stop(context)
         StunResponder.stop()
         val commands = mutableListOf<String>()
 
         commands.add("killall -9 sing-box 2>/dev/null || true")
         commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
-        commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* 2>/dev/null || true")
+        commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* $ADB_DIR/running_user 2>/dev/null || true")
 
         commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
