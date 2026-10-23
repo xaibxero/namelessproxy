@@ -53,6 +53,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -204,19 +205,28 @@ fun ZuanLiquidMeshBackground(
 @Composable
 fun Modifier.liquidInteractive(
     enabled: Boolean = true,
-    pressScale: Float = 1.0f,
+    pressScale: Float = 1.08f,
     highlightColor: Color = ZuanAqua,
     onClick: (() -> Unit)? = null
 ): Modifier {
-    return if (onClick != null && enabled) {
-        this.clickable(
-            interactionSource = remember { MutableInteractionSource() },
+    if (onClick == null || !enabled) return this
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) pressScale else 1f,
+        animationSpec = spring(dampingRatio = 0.34f, stiffness = 360f),
+        label = "bubblyBounce"
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .clickable(
+            interactionSource = interactionSource,
             indication = null,
             onClick = onClick
         )
-    } else {
-        this
-    }
 }
 
 /**
@@ -1353,7 +1363,16 @@ fun MainScreen(
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
-                        fadeIn(animationSpec = tween(140)).togetherWith(fadeOut(animationSpec = tween(100)))
+                        val forward = targetState > initialState
+                        (fadeIn(animationSpec = tween(210)) +
+                            scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.50f, stiffness = 320f)) +
+                            slideInHorizontally(animationSpec = spring<IntOffset>(dampingRatio = 0.56f, stiffness = 320f)) { w: Int -> if (forward) w / 4 else -w / 4 } +
+                            slideInVertically(animationSpec = spring<IntOffset>(dampingRatio = 0.56f, stiffness = 320f)) { h: Int -> h / 18 })
+                            .togetherWith(
+                                fadeOut(animationSpec = tween(150)) +
+                                    scaleOut(targetScale = 0.93f, animationSpec = tween(150)) +
+                                    slideOutHorizontally(animationSpec = tween<IntOffset>(150)) { w: Int -> if (forward) -w / 6 else w / 6 }
+                            )
                     },
                     label = "zuanViewTransition"
                 ) { tabIndex ->
@@ -1749,11 +1768,16 @@ fun ZuanSlotCapsuleStrip(
                 isSelected -> ZuanAqua
                 else -> ZuanTextMuted
             }
+            val slotWeight by animateFloatAsState(
+                targetValue = if (isSelected) 1.28f else 1f,
+                animationSpec = spring(dampingRatio = 0.46f, stiffness = 320f),
+                label = "slotWeight_$slot"
+            )
 
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .liquidInteractive(onClick = { onSelectSlot(slot) })
+                    .weight(slotWeight)
+                    .liquidInteractive(pressScale = 1.10f, onClick = { onSelectSlot(slot) })
                     .clip(RoundedCornerShape(26.dp))
                     .background(
                         Brush.verticalGradient(
@@ -1848,11 +1872,16 @@ fun ZuanCapsuleBottomDock(
                 tabs.forEach { (idx, icon, label) ->
                     val isSelected = selectedTab == idx
                     val activeAccent = if (isProxyActive && idx == 0) ZuanMint else ZuanAqua
+                    val tabWeight by animateFloatAsState(
+                        targetValue = if (isSelected) 1.30f else 1f,
+                        animationSpec = spring(dampingRatio = 0.46f, stiffness = 320f),
+                        label = "tabWeight_$idx"
+                    )
 
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .liquidInteractive(onClick = { onSelectTab(idx) })
+                            .weight(tabWeight)
+                            .liquidInteractive(pressScale = 1.12f, onClick = { onSelectTab(idx) })
                             .clip(RoundedCornerShape(26.dp))
                             .background(
                                 if (isSelected) {
@@ -1957,6 +1986,32 @@ fun ZuanDashboardTab(
         }
         if (!isProxyActive) uptimeText = "00:00:00"
     }
+
+    val infinite = rememberInfiniteTransition(label = "bubbleOrbAnim")
+    val ringAngleCw by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(if (isSlotRunning) 7000 else 15000, easing = LinearEasing)),
+        label = "orbCw"
+    )
+    val ringAngleCcw by infinite.animateFloat(
+        initialValue = 360f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(if (isSlotRunning) 10000 else 19000, easing = LinearEasing)),
+        label = "orbCcw"
+    )
+    val coreBreath by infinite.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(tween(1350, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "orbBreath"
+    )
+    val sonarWave by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart),
+        label = "orbSonar"
+    )
 
     val stunIp: String = remember(publicIpInfo?.ip, host, isProxyActive) {
         if (!isProxyActive) "Standby"
@@ -2067,11 +2122,60 @@ fun ZuanDashboardTab(
                     )
                 }
 
-                // Central Plump 3D Glossy Soap/Glass Bubble Power Orb
+                // Central Plump 3D Glossy Soap/Glass Bubble Power Orb with Live Orbital & Sonar Rings
                 Box(
                     modifier = Modifier
-                        .size(126.dp)
-                        .liquidInteractive(onClick = onToggleProxy)
+                        .size(132.dp)
+                        .liquidInteractive(pressScale = 1.14f, onClick = onToggleProxy),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val c = Offset(size.width / 2f, size.height / 2f)
+                        val r = size.minDimension / 2f
+                        if (isSlotRunning || isTransitioning) {
+                            val r1 = r * (0.72f + 0.28f * sonarWave)
+                            drawCircle(
+                                color = heroAccent.copy(alpha = (1f - sonarWave) * 0.35f),
+                                radius = r1,
+                                center = c,
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                        }
+                        rotate(ringAngleCw, pivot = c) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(Color.Transparent, heroAccent, Color.White.copy(alpha = 0.85f), Color.Transparent)
+                                ),
+                                startAngle = 0f,
+                                sweepAngle = 220f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * 0.94f, c.y - r * 0.94f),
+                                size = Size(r * 1.88f, r * 1.88f),
+                                style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                        rotate(ringAngleCcw, pivot = c) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(Color.Transparent, ZuanAqua.copy(alpha = 0.7f), heroAccent, Color.Transparent)
+                                ),
+                                startAngle = 60f,
+                                sweepAngle = 160f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * 0.84f, c.y - r * 0.84f),
+                                size = Size(r * 1.68f, r * 1.68f),
+                                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(104.dp)
+                            .graphicsLayer {
+                                scaleX = coreBreath
+                                scaleY = coreBreath
+                            }
                         .clip(CircleShape)
                         .background(
                             Brush.radialGradient(
@@ -2128,6 +2232,7 @@ fun ZuanDashboardTab(
                             letterSpacing = 0.8.sp,
                             color = Color.White
                         )
+                    }
                     }
                 }
 
@@ -2429,6 +2534,14 @@ fun ZuanSparklineBentoCard(
     accent: Color,
     isProxyActive: Boolean
 ) {
+    val infiniteWave = rememberInfiniteTransition(label = "waveAnim_$title")
+    val wavePhase by infiniteWave.animateFloat(
+        initialValue = 0f,
+        targetValue = 6.283185f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing)),
+        label = "wavePhase_$title"
+    )
+
     ZuanLiquidGlassCard(
         modifier = modifier,
         cornerRadius = 32.dp,
@@ -2500,7 +2613,13 @@ fun ZuanSparklineBentoCard(
             val maxVal = (history.maxOrNull() ?: 1024L).coerceAtLeast(1024L)
             val pts = history.mapIndexed { idx, v ->
                 val x = idx * (w / (history.size - 1).coerceAtLeast(1))
-                val norm = (v.toFloat() / maxVal.toFloat()).coerceIn(0.08f, 0.94f)
+                val baseNorm = (v.toFloat() / maxVal.toFloat()).coerceIn(0f, 1f)
+                val liveRipple = if (isProxyActive) {
+                    0.08f * (0.5f + 0.5f * kotlin.math.sin(wavePhase + idx * 0.45f))
+                } else {
+                    0.03f * (0.5f + 0.5f * kotlin.math.sin(wavePhase + idx * 0.35f))
+                }
+                val norm = (baseNorm + liveRipple).coerceIn(0.06f, 0.95f)
                 val y = h - (norm * (h * 0.82f)) - (h * 0.08f)
                 Offset(x, y)
             }

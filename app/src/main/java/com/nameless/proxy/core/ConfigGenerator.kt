@@ -61,7 +61,7 @@ object ConfigGenerator {
 
         // 1. Logging
         root.put("log", JSONObject().apply {
-            put("level", "warn")
+            put("level", "info")
             put("timestamp", true)
         })
 
@@ -74,7 +74,9 @@ object ConfigGenerator {
             })
         })
 
-        // 3. Zero-Leak DNS Configuration (100% FakeIP + Remote TCP Tunnel through Proxy — NO Direct ISP DNS!)
+        // 3. Zero-Leak DNS Configuration
+        // - dns-fakeip answers A/AAAA queries in <0.1ms locally and reverse-maps domains into proxy-out
+        // - dns-remote uses HTTPS (DoH on Port 443) through proxy-out so proxies that block Port 53 never hang!
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
@@ -89,9 +91,9 @@ object ConfigGenerator {
 
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
-            put("type", "tcp")
+            put("type", "https")
             put("server", remoteDnsServer)
-            put("server_port", 53)
+            put("server_port", 443)
             put("detour", "proxy-out")
         })
         dns.put("servers", dnsServers)
@@ -110,7 +112,7 @@ object ConfigGenerator {
         })
 
         // Return instant NOERROR (0 answers) in <0.1ms for non-A/AAAA metadata queries (HTTPS, SVCB, PTR, TXT, SRV, SOA, NS)
-        // so Windows 11 and Chrome background DNS queries NEVER hang waiting on TCP Port 53 over SOCKS5/HTTP proxies!
+        // so Windows 11 and Chrome background DNS queries finish immediately without remote round-trips!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
@@ -135,8 +137,7 @@ object ConfigGenerator {
             put("rcode", "NOERROR")
         })
 
-        // Route all A/AAAA queries to FakeIP (198.18.0.0/15) so DNS resolves locally in <0.2ms
-        // and the actual domain name is sent through proxy-out for remote resolution on the proxy server!
+        // Route all A/AAAA queries to FakeIP (198.18.0.0/15)
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 if (effectiveIpMode != IpMode.IPV6_ONLY) put("A")
@@ -156,13 +157,9 @@ object ConfigGenerator {
 
         dns.put("final", "dns-remote")
         dns.put("reverse_mapping", true)
-        dns.put("independent_cache", true)
         root.put("dns", dns)
 
         // 4. Inbounds
-        // Phone OUTPUT REDIRECT listeners bind to 127.0.0.1 so UDP/TCP reply source IPs are 127.0.0.1,
-        // matching conntrack's expected reply tuple on lo.
-        // Hotspot PREROUTING REDIRECT listeners bind to 0.0.0.0 for tethered LAN clients.
         val inbounds = JSONArray()
 
         // Phone OUTPUT TCP REDIRECT inbound (bound to 127.0.0.1 AF_INET)
@@ -349,7 +346,7 @@ object ConfigGenerator {
         })
         root.put("outbounds", outbounds)
 
-        // 6. Routing Rules — Use dns-remote (NEVER direct ISP DNS!) as default_domain_resolver
+        // 6. Routing Rules
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
             put("default_domain_resolver", "dns-remote")
@@ -370,7 +367,6 @@ object ConfigGenerator {
             put("action", "hijack-dns")
         })
 
-        // Sniff TLS SNI / HTTP Host without overriding FakeIP reverse mapping unless destination is a raw non-FakeIP
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
             put("timeout", "150ms")

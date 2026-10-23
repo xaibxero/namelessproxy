@@ -34,7 +34,6 @@ object IptablesManager {
         resolvedServerHost: String? = null,
         skipInitialClean: Boolean = false
     ): List<String> {
-        // Exclusively target the currently logged-in Android user profile
         val user = ProfileManager.androidUserId
         val socksPort = inboundPort + 1
         val dnsPort = inboundPort + 2
@@ -76,7 +75,7 @@ object IptablesManager {
             commands.addAll(generateDisableCommands(user, ProfileManager.activeSlot))
         }
 
-        // 1. Kernel sysctl configuration + Disable Hardware Tethering Offload so Hotspot never bypasses PREROUTING
+        // 1. Kernel sysctl configuration
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true")
         commands.add("for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > \$f 2>/dev/null || true; done")
@@ -108,8 +107,6 @@ object IptablesManager {
 
         // 3. Loopback Unicast Source Validation Rule (Table 2088 at pref 31000)
         // Only matches incoming packets on loopback (`iif lo`) right before Android's rule 32000 (unreachable).
-        // Outgoing sockets from Chrome, YouTube, WhatsApp, and sing-box use Android's native netd routing tables
-        // without any SO_BINDTODEVICE conflict, while __fib_validate_source() on lo (uid = -1) always sees RTN_UNICAST!
         commands.add("ip route replace default dev lo table $APP_ROUTE_TABLE_V4 2>/dev/null || true")
         commands.add("ip rule add iif lo lookup $APP_ROUTE_TABLE_V4 pref $LO_VALID_PREF_V4 2>/dev/null || true")
 
@@ -134,6 +131,8 @@ object IptablesManager {
 
         // 5. PHONE NAT OUTPUT (DNS -> 127.0.0.1:$dnsPort, STUN -> 127.0.0.1:$stunPort, TCP -> 127.0.0.1:$inboundPort)
         commands.add("iptables -w -t nat -N $CHAIN_NAT_V4 2>/dev/null || true")
+        // Rule #1: Exempt all local listener reply packets (saddr = 127.0.0.1) and localhost traffic (daddr = 127.0.0.0/8)
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -s 127.0.0.0/8 -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -d 127.0.0.0/8 -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --sport $inboundPort -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --sport $socksPort -j RETURN 2>/dev/null || true")
@@ -158,7 +157,7 @@ object IptablesManager {
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -m u32 --u32 \"0>>22&0x3C@12=0x2112A442\" -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -m string --algo bm --from 28 --to 36 --hex-string \"|2112a442|\" -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
 
-        // Redirect standard STUN/WebRTC UDP ports into StunResponder (127.0.0.1:$stunPort)
+        // Redirect standard STUN/WebRTC UDP ports into RootStunDaemon (127.0.0.1:$stunPort)
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 3478:3497 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 5349:5350 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 19300:19350 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
@@ -168,8 +167,11 @@ object IptablesManager {
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 443 -j REDIRECT --to-ports 9 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 853 -j REDIRECT --to-ports 9 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 853 -j RETURN 2>/dev/null || true")
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 3478:3497 -j RETURN 2>/dev/null || true")
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 5349:5350 -j RETURN 2>/dev/null || true")
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 19300:19350 -j RETURN 2>/dev/null || true")
 
-        // System daemons (0-9999, including sing-box UID 0) bypass app TCP/UDP redirect
+        // System daemons (0-9999, including sing-box UID 0) bypass app TCP redirect
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
 
         // Redirect FakeIP range (198.18.0.0/15) for target app UIDs in the active profile
@@ -182,10 +184,9 @@ object IptablesManager {
             commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -d $range -j RETURN 2>/dev/null || true")
         }
 
-        // Redirect all remaining public UDP (1024:65535) from target apps to StunResponder (127.0.0.1:$stunPort)
-        // and all TCP to sing-box (127.0.0.1:$inboundPort)
+        // Redirect all remaining TCP from target apps to sing-box (127.0.0.1:$inboundPort)
+        // Non-STUN UDP is NOT redirected here so it hits CHAIN_FILTER_V4's instant ICMP Port Unreachable!
         for (uRange in uidRanges) {
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 1024:65535 -m owner --uid-owner $uRange -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
         }
         commands.add("iptables -w -t nat -I OUTPUT 1 -j $CHAIN_NAT_V4 2>/dev/null || true")
@@ -209,6 +210,9 @@ object IptablesManager {
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp --sport $hsStunPort -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp --dport 9 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p udp --dport 9 -j DROP 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 9 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 9 -j DROP 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 3478:3497 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 3478:3497 -j DROP 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 5349:5350 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 5349:5350 -j DROP 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 19300:19350 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 19300:19350 -j DROP 2>/dev/null || true")
 
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport $inboundPort -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --sport $inboundPort -j RETURN 2>/dev/null || true")
@@ -237,6 +241,7 @@ object IptablesManager {
 
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
 
+        // Instant ICMP Port Unreachable for non-STUN UDP so browsers/apps fall back to TCP in <0.1ms!
         for (uRange in uidRanges) {
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp -m owner --uid-owner $uRange -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p udp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
@@ -277,16 +282,16 @@ object IptablesManager {
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 53 -j REDIRECT --to-ports $hsDnsPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p tcp --dport 53 -j REDIRECT --to-ports $hsDnsPort 2>/dev/null || true")
 
-            // Intercept RFC 5389 STUN Binding Requests (Magic Cookie 0x2112A442) on ANY UDP port (including 443/80!) from Hotspot clients!
+            // Intercept RFC 5389 STUN Binding Requests (Magic Cookie 0x2112A442) on ANY UDP port from Hotspot clients!
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp -m u32 --u32 \"0>>22&0x3C@12=0x2112A442\" -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp -m string --algo bm --from 28 --to 36 --hex-string \"|2112a442|\" -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
 
-            // Redirect standard STUN/WebRTC UDP ports from Hotspot clients into StunResponder ($hsStunPort)
+            // Redirect standard STUN/WebRTC UDP ports from Hotspot clients into RootStunDaemon ($hsStunPort)
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 3478:3497 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 5349:5350 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 19300:19350 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
 
-            // Let non-STUN QUIC (UDP 80/443/853) and DoT (TCP 853) fall through to CHAIN_HS_FWD where they are immediately rejected!
+            // Let non-STUN QUIC (UDP 80/443/853) and DoT (TCP 853) fall through to CHAIN_HS_FWD where they get instant ICMP/TCP reject!
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 80 -j RETURN 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 443 -j RETURN 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 853 -j RETURN 2>/dev/null || true")
@@ -297,9 +302,9 @@ object IptablesManager {
             for (range in reservedLanV4) {
                 commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -d $range -j RETURN 2>/dev/null || true")
             }
+            // Redirect all Hotspot TCP to sing-box ($hsInboundPort); let non-STUN UDP hit CHAIN_HS_FWD for instant ICMP unreachable
             for (iface in tetherInterfaces) {
                 commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -i $iface -p tcp -j REDIRECT --to-ports $hsInboundPort 2>/dev/null || true")
-                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -i $iface -p udp --dport 1024:65535 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
             }
             commands.add("iptables -w -t nat -I PREROUTING 1 -j $CHAIN_HS_NAT 2>/dev/null || true")
 

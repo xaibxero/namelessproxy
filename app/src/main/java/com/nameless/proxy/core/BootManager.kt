@@ -110,7 +110,7 @@ object BootManager {
         }
         sb.append("rm -f $ADB_DIR/cache_u${user}_s${targetSlot}.db\n")
         sb.append("echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true\n")
-        sb.append("( trap '' HUP INT TERM; setsid $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile ) 2>/dev/null || ( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )\n")
+        sb.append("( trap '' HUP INT TERM; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )\n")
         sb.append("SB_PID=\$(cat $pidFile 2>/dev/null)\n")
         sb.append("if [ -n \"\$SB_PID\" ]; then\n")
         sb.append("  echo -1000 > /proc/\$SB_PID/oom_score_adj 2>/dev/null || true\n")
