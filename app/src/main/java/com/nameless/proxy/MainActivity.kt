@@ -100,7 +100,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.webkit.ProxyConfig
 import androidx.webkit.WebViewFeature
 import com.nameless.proxy.core.*
-import com.nameless.proxy.service.ProxyKeepAliveService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -731,7 +730,6 @@ class MainActivity : ComponentActivity() {
                 val rSlot = ProxyController.getRunningSlot(ProfileManager.androidUserId)
                 if (rSlot != null) {
                     ProxyController.getLastActiveSettings(applicationContext, rSlot)
-                    ProxyKeepAliveService.start(applicationContext)
                 }
                 val pid = if (rSlot != null) ProxyController.getActivePid(ProfileManager.androidUserId, rSlot) else null
                 withContext(Dispatchers.Main) {
@@ -2292,7 +2290,7 @@ fun ZuanDashboardTab(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Keep-Alive Service • ${liveNet.interfaceName} • PID ${activePid ?: "—"}",
+                        text = "Private DNS ON • ${liveNet.interfaceName} • PID ${activePid ?: "—"}",
                         fontSize = 10.sp,
                         color = ZuanTextSecondary,
                         maxLines = 1

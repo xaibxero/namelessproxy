@@ -1,7 +1,6 @@
 package com.nameless.proxy.core
 
 import android.content.Context
-import com.nameless.proxy.service.ProxyKeepAliveService
 import java.io.DataOutputStream
 import java.net.InetAddress
 
@@ -13,10 +12,6 @@ data class StartResult(
 object ProxyController {
 
     private const val ADB_DIR = "/data/adb/nameless_proxy"
-    private const val DAEMON_SCRIPT = "$ADB_DIR/nameless_daemon.sh"
-    private const val DAEMON_PID_FILE = "$ADB_DIR/daemon.pid"
-    private const val STUN_PID_FILE = "$ADB_DIR/stun_daemon.pid"
-    private const val EXIT_IP_FILE = "$ADB_DIR/exit_ip"
 
     @Volatile
     private var lastActiveSettings: ProxySettings = ProxySettings()
@@ -120,7 +115,12 @@ object ProxyController {
 
     fun getRunningSlot(user: Int = ProfileManager.androidUserId): Int? {
         val slotFile = getActiveSlotFile(user)
-        val cmd = "if [ -f $slotFile ]; then cat $slotFile; elif [ -f $ADB_DIR/running_slot ]; then cat $ADB_DIR/running_slot; fi"
+        val legacyFile = ADB_DIR + "/running_slot"
+        val cmd = if (user == 0) {
+            "if [ -f " + slotFile + " ]; then cat " + slotFile + "; elif [ -f " + legacyFile + " ]; then cat " + legacyFile + "; fi"
+        } else {
+            "if [ -f " + slotFile + " ]; then cat " + slotFile + "; fi"
+        }
         val out = executeSuWithOutput(listOf(cmd)).lineSequence().lastOrNull()?.trim() ?: ""
         val s = out.toIntOrNull()
         val running = if (s != null && isRunning(user, s)) s else null
@@ -132,8 +132,8 @@ object ProxyController {
                 stunPort = port + 3,
                 socksPort = port + 1,
                 fallbackHostIp = cleanHost.takeIf { IptablesManager.isValidIpv4(it) },
-                enableLocalStun = true,
-                enableHotspotStun = cfg.routeHotspot
+                enableLocalStun = cfg.strictWebRtcShield,
+                enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
             )
         }
         return running
@@ -183,9 +183,7 @@ object ProxyController {
     fun isRunning(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): Boolean {
         val pidFile = getPidFile(user, slot)
         val result = executeSuWithOutput(listOf(
-            "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then echo 'RUNNING'; " +
-            "elif pidof sing-box >/dev/null 2>&1; then pidof sing-box | awk '{print \$1}' > $pidFile; echo 'RUNNING'; " +
-            "else echo 'STOPPED'; fi"
+            "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then echo 'RUNNING'; else echo 'STOPPED'; fi"
         ))
         return result.contains("RUNNING")
     }
@@ -193,8 +191,7 @@ object ProxyController {
     fun getActivePid(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String? {
         val pidFile = getPidFile(user, slot)
         val result = executeSuWithOutput(listOf(
-            "if [ -f $pidFile ] && kill -0 \$(cat $pidFile) 2>/dev/null; then cat $pidFile; " +
-            "elif pidof sing-box >/dev/null 2>&1; then pidof sing-box | awk '{print \$1}'; fi"
+            "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then cat " + pidFile + "; fi"
         ))
         return result.lineSequence().lastOrNull()?.trim()?.takeIf { it.all(Char::isDigit) && it.isNotEmpty() }
     }
@@ -216,8 +213,8 @@ object ProxyController {
             stunPort = port + 3,
             socksPort = port + 1,
             fallbackHostIp = cleanHost.takeIf { IptablesManager.isValidIpv4(it) },
-            enableLocalStun = true,
-            enableHotspotStun = cfg.routeHotspot
+            enableLocalStun = cfg.strictWebRtcShield,
+            enableHotspotStun = cfg.routeHotspot && cfg.strictWebRtcShield
         )
         return executeSu(IptablesManager.generateHandoverRefreshCommands(cfg.routeHotspot))
     }
@@ -247,8 +244,8 @@ object ProxyController {
             stunPort = port + 3,
             socksPort = port + 1,
             fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) },
-            enableLocalStun = true,
-            enableHotspotStun = settings.routeHotspot
+            enableLocalStun = settings.strictWebRtcShield,
+            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
         )
 
         val iptablesCmds = IptablesManager.generateEnableCommands(
@@ -269,15 +266,10 @@ object ProxyController {
             "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + (slot + 1) + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then",
             "  echo 'Status   : ONLINE (PID '\$(cat " + pidFile + ")')'",
-            "elif pidof sing-box >/dev/null 2>&1; then",
-            "  echo 'Status   : ONLINE (PID '\$(pidof sing-box)')'",
             "else",
             "  echo 'Status   : STANDBY'",
             "fi",
-            "if [ -f $DAEMON_PID_FILE ] && kill -0 \$(cat $DAEMON_PID_FILE) 2>/dev/null; then",
-            "  echo 'Watchdog : ACTIVE (PID '\$(cat $DAEMON_PID_FILE)')'",
-            "fi",
-            "echo 'STUN IP  : '\$(if [ -f $EXIT_IP_FILE ]; then cat $EXIT_IP_FILE; else echo '$stunIp'; fi)",
+            "echo 'STUN IP  : $stunIp'",
             "echo 'PrivDNS  : '\$(settings get global private_dns_mode 2>/dev/null)",
             "echo ''",
             "echo '=== SING-BOX STREAM ==='",
@@ -306,79 +298,6 @@ object ProxyController {
         return raw.ifEmpty { "Unable to query netfilter." }
     }
 
-    /**
-     * Builds the unkillable `/data/adb/nameless_proxy/nameless_daemon.sh` watchdog script.
-     * Runs in `/data/adb/nameless_proxy` as root (`UID 0`) with `oom_score_adj = -1000` and
-     * keeps `sing-box`, `RootStunDaemon`, `iptables`, and `ip rule` alive 24/7 even if the app is closed.
-     */
-    private fun buildLiveDaemonScript(
-        apkPath: String,
-        binaryPath: String,
-        configPath: String,
-        pidFile: String,
-        logFile: String,
-        slotFile: String,
-        stunPort: Int,
-        socksPort: Int,
-        fallbackIp: String,
-        routeHotspot: Boolean
-    ): String {
-        val hsFlag = if (routeHotspot) "true" else "false"
-        val sb = StringBuilder()
-        sb.append("#!/system/bin/sh\n")
-        sb.append("# Nameless Proxy Unkillable Root Daemon (/data/adb/nameless_proxy/nameless_daemon.sh)\n")
-        sb.append("export PATH=/data/adb/ksu/bin:/data/adb/ap/bin:/data/adb/magisk:\$PATH:/system/bin:/system/xbin\n")
-        sb.append("trap '' HUP INT TERM\n")
-        sb.append("echo \$\$ > $DAEMON_PID_FILE\n")
-        sb.append("echo -1000 > /proc/\$\$/oom_score_adj 2>/dev/null || true\n")
-        sb.append("echo \$\$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true\n\n")
-
-        sb.append("while [ -f $slotFile ]; do\n")
-        sb.append("  # 1. Ensure sing-box daemon is alive and protected from OOM/Freezer\n")
-        sb.append("  if [ ! -f $pidFile ] || ! kill -0 \$(cat $pidFile 2>/dev/null) 2>/dev/null; then\n")
-        sb.append("    if pidof sing-box >/dev/null 2>&1; then\n")
-        sb.append("      pidof sing-box | awk '{print \$1}' > $pidFile\n")
-        sb.append("    else\n")
-        sb.append("      ( trap '' HUP INT TERM; $binaryPath run -c $configPath >> $logFile 2>&1 < /dev/null & echo \$! > $pidFile )\n")
-        sb.append("      sleep 1\n")
-        sb.append("    fi\n")
-        sb.append("  fi\n")
-        sb.append("  SB_PID=\$(cat $pidFile 2>/dev/null)\n")
-        sb.append("  if [ -n \"\$SB_PID\" ]; then\n")
-        sb.append("    echo -1000 > /proc/\$SB_PID/oom_score_adj 2>/dev/null || true\n")
-        sb.append("    echo \$SB_PID > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true\n")
-        sb.append("  fi\n\n")
-
-        sb.append("  # 2. Ensure standalone RootStunDaemon (via /system/bin/app_process) is alive in /data/adb/nameless_proxy\n")
-        sb.append("  if [ ! -f $STUN_PID_FILE ] || ! kill -0 \$(cat $STUN_PID_FILE 2>/dev/null) 2>/dev/null; then\n")
-        sb.append("    if [ -f \"$apkPath\" ]; then\n")
-        sb.append("      ( trap '' HUP INT TERM; CLASSPATH=\"$apkPath\" /system/bin/app_process $ADB_DIR com.nameless.proxy.core.RootStunDaemon \"$stunPort\" \"$socksPort\" \"$fallbackIp\" \"$hsFlag\" >/dev/null 2>&1 < /dev/null & echo \$! > $STUN_PID_FILE )\n")
-        sb.append("    fi\n")
-        sb.append("  fi\n")
-        sb.append("  ST_PID=\$(cat $STUN_PID_FILE 2>/dev/null)\n")
-        sb.append("  if [ -n \"\$ST_PID\" ]; then\n")
-        sb.append("    echo -1000 > /proc/\$ST_PID/oom_score_adj 2>/dev/null || true\n")
-        sb.append("    echo \$ST_PID > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true\n")
-        sb.append("  fi\n\n")
-
-        sb.append("  # 3. Ensure kernel routing & netfilter hooks stay at position #1 even if Android netd refreshes\n")
-        sb.append("  ip route replace default dev lo table 2088 2>/dev/null || true\n")
-        sb.append("  if ! ip rule show | grep -q '31000:'; then\n")
-        sb.append("    ip rule add iif lo lookup 2088 pref 31000 2>/dev/null || true\n")
-        sb.append("  fi\n")
-        sb.append("  iptables -w -C INPUT -j ${IptablesManager.CHAIN_HS_IN} 2>/dev/null || iptables -w -I INPUT 1 -j ${IptablesManager.CHAIN_HS_IN} 2>/dev/null || true\n")
-        sb.append("  iptables -w -C OUTPUT -j ${IptablesManager.CHAIN_FILTER_V4} 2>/dev/null || iptables -w -I OUTPUT 1 -j ${IptablesManager.CHAIN_FILTER_V4} 2>/dev/null || true\n")
-        sb.append("  iptables -w -t nat -C OUTPUT -j ${IptablesManager.CHAIN_NAT_V4} 2>/dev/null || iptables -w -t nat -I OUTPUT 1 -j ${IptablesManager.CHAIN_NAT_V4} 2>/dev/null || true\n")
-        sb.append("  ip6tables -w -C OUTPUT -j ${IptablesManager.CHAIN_FILTER_V6} 2>/dev/null || ip6tables -w -I OUTPUT 1 -j ${IptablesManager.CHAIN_FILTER_V6} 2>/dev/null || true\n")
-        if (routeHotspot) {
-            sb.append("  iptables -w -t nat -C PREROUTING -j ${IptablesManager.CHAIN_HS_NAT} 2>/dev/null || iptables -w -t nat -I PREROUTING 1 -j ${IptablesManager.CHAIN_HS_NAT} 2>/dev/null || true\n")
-            sb.append("  iptables -w -C FORWARD -j ${IptablesManager.CHAIN_HS_FWD} 2>/dev/null || iptables -w -I FORWARD 1 -j ${IptablesManager.CHAIN_HS_FWD} 2>/dev/null || true\n")
-        }
-        sb.append("  sleep 2\n")
-        sb.append("done\n")
-        return sb.toString()
-    }
-
     fun startProxy(
         context: Context,
         settings: ProxySettings,
@@ -393,7 +312,6 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
-        val apkPath = context.applicationInfo.sourceDir
 
         if (!isBinaryExecutable()) {
             val extracted = extractBinaryDirectly(context)
@@ -428,49 +346,20 @@ object ProxyController {
             return StartResult(success = false, errorMessage = "Failed to write sing-box config")
         }
 
-        val fallbackIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) } ?: ""
-        val daemonScriptContent = buildLiveDaemonScript(
-            apkPath = apkPath,
-            binaryPath = binaryPath,
-            configPath = configPath,
-            pidFile = pidFile,
-            logFile = logFile,
-            slotFile = slotFile,
-            stunPort = port + 3,
-            socksPort = port + 1,
-            fallbackIp = fallbackIp,
-            routeHotspot = settings.routeHotspot
-        )
-        writeConfigDirectly(daemonScriptContent, DAEMON_SCRIPT)
-
         val runCmd = listOf(
             "mkdir -p $ADB_DIR",
-            "chmod 755 $DAEMON_SCRIPT 2>/dev/null || true",
             "rm -f $ADB_DIR/cache_u${user}_s${slot}.db",
-            "if [ -n '$fallbackIp' ]; then echo '$fallbackIp' > $EXIT_IP_FILE && chmod 644 $EXIT_IP_FILE; fi",
             "echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true",
-            "cmd deviceidle whitelist +com.nameless.proxy 2>/dev/null || true",
-            "cmd appops set --user $user com.nameless.proxy RUN_IN_BACKGROUND allow 2>/dev/null || true",
-            "cmd appops set --user $user com.nameless.proxy RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true",
-            "cmd appops set --user $user com.nameless.proxy WAKE_LOCK allow 2>/dev/null || true",
-            "cmd appops set --user $user com.nameless.proxy START_FOREGROUND allow 2>/dev/null || true",
+            "( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
             "echo $slot > $slotFile",
             "echo $slot > $ADB_DIR/running_slot",
-            "echo $user > $ADB_DIR/running_user",
-            "( trap '' HUP INT TERM; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
-            "SB_PID=\$(cat $pidFile 2>/dev/null)",
-            "if [ -n \"\$SB_PID\" ]; then",
-            "  echo -1000 > /proc/\$SB_PID/oom_score_adj 2>/dev/null || true",
-            "  echo \$SB_PID > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
-            "fi",
-            "( trap '' HUP INT TERM; CLASSPATH=\"$apkPath\" /system/bin/app_process $ADB_DIR com.nameless.proxy.core.RootStunDaemon \"${port + 3}\" \"${port + 1}\" \"$fallbackIp\" \"${if (settings.routeHotspot) "true" else "false"}\" >/dev/null 2>&1 < /dev/null & echo \$! > $STUN_PID_FILE )",
-            "( trap '' HUP INT TERM; /system/bin/sh $DAEMON_SCRIPT >/dev/null 2>&1 < /dev/null & )"
+            "echo $user > $ADB_DIR/running_user"
         )
         executeSu(runCmd)
 
         var alive = false
         for (attempt in 1..6) {
-            Thread.sleep(120)
+            Thread.sleep(100)
             if (isRunning(user, slot)) {
                 alive = true
                 if (attempt >= 2) break
@@ -485,14 +374,12 @@ object ProxyController {
             )
         }
 
-        ProxyKeepAliveService.start(context)
-
         StunResponder.start(
             stunPort = port + 3,
             socksPort = port + 1,
-            fallbackHostIp = fallbackIp.ifEmpty { null },
-            enableLocalStun = true,
-            enableHotspotStun = settings.routeHotspot
+            fallbackHostIp = resolvedHost.takeIf { IptablesManager.isValidIpv4(it) },
+            enableLocalStun = settings.strictWebRtcShield,
+            enableHotspotStun = settings.routeHotspot && settings.strictWebRtcShield
         )
 
         val iptablesCmds = IptablesManager.generateEnableCommands(
@@ -516,19 +403,12 @@ object ProxyController {
         context: Context,
         user: Int = ProfileManager.androidUserId
     ): Boolean {
-        ProxyKeepAliveService.stop(context)
         StunResponder.stop()
         val commands = mutableListOf<String>()
 
-        // Remove slot files first so nameless_daemon.sh exits its loop cleanly
-        commands.add("rm -f $ADB_DIR/running_slot* $ADB_DIR/running_user 2>/dev/null || true")
-        commands.add("if [ -f $DAEMON_PID_FILE ]; then kill -9 \$(cat $DAEMON_PID_FILE) 2>/dev/null || true; rm -f $DAEMON_PID_FILE; fi")
-        commands.add("if [ -f $STUN_PID_FILE ]; then kill -9 \$(cat $STUN_PID_FILE) 2>/dev/null || true; rm -f $STUN_PID_FILE; fi")
-        commands.add("pkill -9 -f 'nameless_daemon.sh' 2>/dev/null || true")
-        commands.add("pkill -9 -f 'RootStunDaemon' 2>/dev/null || true")
         commands.add("killall -9 sing-box 2>/dev/null || true")
         commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
-        commands.add("rm -f $ADB_DIR/singbox_*.pid $EXIT_IP_FILE 2>/dev/null || true")
+        commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* $ADB_DIR/running_user 2>/dev/null || true")
 
         commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 

@@ -36,8 +36,8 @@ data class ProxySettings(
 
 object ConfigGenerator {
 
-    const val BOOTSTRAP_DNS_IPV4 = "1.1.1.1"
-    const val BOOTSTRAP_DNS_IPV6 = "2606:4700:4700::1111"
+    const val BOOTSTRAP_DNS_IPV4 = "9.9.9.9"
+    const val BOOTSTRAP_DNS_IPV6 = "2620:fe::fe"
 
     fun cleanHost(rawHost: String): String =
         rawHost.trim().removePrefix("[").removeSuffix("]")
@@ -74,13 +74,12 @@ object ConfigGenerator {
             })
         })
 
-        // 3. Zero-Leak DNS Configuration
-        // - dns-fakeip answers A/AAAA queries in <0.1ms locally and reverse-maps domains into proxy-out
-        // - dns-remote uses HTTPS (DoH on Port 443) through proxy-out so proxies that block Port 53 never hang!
+        // 3. DNS Configuration (FakeIP + Remote TCP/DoH Tunnel through Proxy)
         val dns = JSONObject()
         val dnsServers = JSONArray()
 
-        val remoteDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
+        val remoteDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) "2606:4700:4700::1111" else "1.1.1.1"
+        val directDnsServer = if (effectiveIpMode == IpMode.IPV6_ONLY) BOOTSTRAP_DNS_IPV6 else BOOTSTRAP_DNS_IPV4
 
         dnsServers.put(JSONObject().apply {
             put("type", "fakeip")
@@ -91,41 +90,28 @@ object ConfigGenerator {
 
         dnsServers.put(JSONObject().apply {
             put("tag", "dns-remote")
-            put("type", "https")
+            put("type", "tcp")
             put("server", remoteDnsServer)
-            put("server_port", 443)
+            put("server_port", 53)
             put("detour", "proxy-out")
+        })
+
+        dnsServers.put(JSONObject().apply {
+            put("tag", "dns-direct")
+            put("type", "udp")
+            put("server", directDnsServer)
+            put("server_port", 53)
         })
         dns.put("servers", dnsServers)
 
         val dnsRules = JSONArray()
 
-        // Standard RFC 8484 canary domain to keep browsers on system DNS (FakeIP)
-        dnsRules.put(JSONObject().apply {
-            put("domain", JSONArray().apply {
-                put("use-application-dns.net")
-                put("mask.icloud.com")
-                put("mask-h2.icloud.com")
-            })
-            put("action", "predefined")
-            put("rcode", "NXDOMAIN")
-        })
-
-        // Return instant NOERROR (0 answers) in <0.1ms for non-A/AAAA metadata queries (HTTPS, SVCB, PTR, TXT, SRV, SOA, NS)
-        // so Windows 11 and Chrome background DNS queries finish immediately without remote round-trips!
+        // Return clean NOERROR (0 answers) for HTTPS (65), SVCB (64), and AAAA (when IPv4_ONLY)
+        // so Chromium & Android netd parallel DNS queries finish in <1ms without RCODE=REFUSED!
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 put("HTTPS")
                 put("SVCB")
-                put("PTR")
-                put("TXT")
-                put("SRV")
-                put("SOA")
-                put("NS")
-                put("MX")
-                put("CAA")
-                put("NAPTR")
-                put("DNSKEY")
                 if (effectiveIpMode == IpMode.IPV4_ONLY) {
                     put("AAAA")
                 }
@@ -137,7 +123,6 @@ object ConfigGenerator {
             put("rcode", "NOERROR")
         })
 
-        // Route all A/AAAA queries to FakeIP (198.18.0.0/15)
         dnsRules.put(JSONObject().apply {
             put("query_type", JSONArray().apply {
                 if (effectiveIpMode != IpMode.IPV6_ONLY) put("A")
@@ -159,10 +144,10 @@ object ConfigGenerator {
         dns.put("reverse_mapping", true)
         root.put("dns", dns)
 
-        // 4. Inbounds
+        // 4. Inbounds — Dedicated AF_INET (127.0.0.1 / 0.0.0.0) + IPv6 Loopback DNS (::1)
         val inbounds = JSONArray()
 
-        // Phone OUTPUT TCP REDIRECT inbound (bound to 127.0.0.1 AF_INET)
+        // Phone OUTPUT TCP REDIRECT inbound (bound explicitly to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "redirect")
             put("tag", "redirect-in")
@@ -178,7 +163,7 @@ object ConfigGenerator {
             put("listen_port", inboundPort + 1)
         })
 
-        // Phone OUTPUT DNS REDIRECT inbound (bound to 127.0.0.1 AF_INET)
+        // Phone IPv4 OUTPUT DNS REDIRECT inbound (bound to 127.0.0.1 AF_INET)
         inbounds.put(JSONObject().apply {
             put("type", "direct")
             put("tag", "dns-in")
@@ -212,6 +197,21 @@ object ConfigGenerator {
             put("tag", "redirect-hs-in")
             put("listen", "0.0.0.0")
             put("listen_port", inboundPort + 6)
+        })
+
+        // Phone IPv6 OUTPUT DNS REDIRECT inbound (bound to ::1 AF_INET6 so IPv6 carrier DNS on Jazz LTE
+        // is hijacked into sing-box FakeIP without ever disabling IPv6 on rmnet_data0!)
+        inbounds.put(JSONObject().apply {
+            put("type", "direct")
+            put("tag", "dns-v6-in")
+            put("listen", "::1")
+            put("listen_port", inboundPort + 7)
+            put("network", JSONArray().apply {
+                put("tcp")
+                put("udp")
+            })
+            put("override_address", "1.1.1.1")
+            put("override_port", 53)
         })
 
         root.put("inbounds", inbounds)
@@ -347,9 +347,11 @@ object ConfigGenerator {
         root.put("outbounds", outbounds)
 
         // 6. Routing Rules
+        // Notice: TCP Port 853 (Android Private DNS DoT) and TCP Port 443 (Chrome DoH) are NOT rejected —
+        // they flow through 'final: proxy-out' so Android Private DNS stays ON and exits via the US Proxy!
         val route = JSONObject().apply {
             put("auto_detect_interface", false)
-            put("default_domain_resolver", "dns-remote")
+            put("default_domain_resolver", "dns-direct")
             put("final", "proxy-out")
         }
 
@@ -359,6 +361,7 @@ object ConfigGenerator {
             put("inbound", JSONArray().apply {
                 put("dns-in")
                 put("dns-hs-in")
+                put("dns-v6-in")
             })
             put("action", "hijack-dns")
         })
@@ -369,14 +372,10 @@ object ConfigGenerator {
 
         routeRules.put(JSONObject().apply {
             put("action", "sniff")
-            put("timeout", "150ms")
+            put("timeout", "200ms")
         })
 
-        routeRules.put(JSONObject().apply {
-            put("port", JSONArray().apply { put(853) })
-            put("action", "reject")
-        })
-
+        // Block UDP QUIC/DoQ on ports 80/443/853 so browsers & Private DNS use TCP 443/853 through proxy-out
         routeRules.put(JSONObject().apply {
             put("network", "udp")
             put("port", JSONArray().apply {
