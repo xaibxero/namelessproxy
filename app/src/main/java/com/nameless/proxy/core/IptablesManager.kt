@@ -16,7 +16,6 @@ object IptablesManager {
     const val CHAIN_HS_V6 = "NAMELESS_HS_V6"
 
     private const val APP_ROUTE_TABLE_V4 = 2088
-    private const val LO_VALID_PREF_V4 = 31000
     private const val APP_BLOCK_TABLE_V6 = 2288
     private const val APP_BLOCK_PREF_V6 = 8900
 
@@ -80,9 +79,11 @@ object IptablesManager {
         }
 
         // 1. Kernel sysctl configuration:
-        // NEVER set disable_ipv6=1 on physical rmnet interfaces! On Jazz LTE (IPv6 + 464XLAT),
-        // disabling IPv6 on rmnet_data0 kills the cellular bearer 3-5 seconds after connecting!
-        // NEVER touch `settings put global private_dns_mode`!
+        // - NEVER set disable_ipv6=1 on physical rmnet interfaces! On Jazz LTE (IPv6 + 464XLAT),
+        //   disabling IPv6 on rmnet_data0 kills the cellular bearer 3-5 seconds after connecting!
+        // - NEVER touch `settings put global private_dns_mode`!
+        // - NEVER add `ip rule add iif lo lookup 2088` (in Linux ip-rule, `iif lo` matches ALL locally
+        //   originated OUTPUT packets and blackholes them into loopback)!
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true")
         commands.add("echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true")
         commands.add("for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > \$f 2>/dev/null || true; done")
@@ -98,12 +99,7 @@ object IptablesManager {
         commands.add("for f in /proc/sys/net/ipv6/conf/*/disable_ipv6; do echo 0 > \$f 2>/dev/null || true; done")
         commands.add("conntrack -F 2>/dev/null || true")
 
-        // 2. Unicast loopback route at pref 31000 (right before Android's pref 32000 unreachable)
-        // so __fib_validate_source() on lo always sees RTN_UNICAST for redirected packets!
-        commands.add("ip route replace default dev lo table $APP_ROUTE_TABLE_V4 2>/dev/null || true")
-        commands.add("ip rule add iif lo lookup $APP_ROUTE_TABLE_V4 pref $LO_VALID_PREF_V4 2>/dev/null || true")
-
-        // Hotspot & LAN subnet return routing
+        // 2. Hotspot & LAN subnet return routing
         if (settings.routeHotspot) {
             commands.add("ip rule add to 192.168.0.0/16 lookup local_network pref 8500 2>/dev/null || true")
             commands.add("ip rule add to 192.168.0.0/16 lookup main pref 8501 2>/dev/null || true")
@@ -112,7 +108,7 @@ object IptablesManager {
         }
 
         // 3. App-UID Scoped IPv6 Unreachable Route (keeps clatd UID 1029 & netd UID 0 100% functional on Jazz LTE,
-        // while making app IPv6 socket connect() fail over to IPv4 in <0.1ms instead of hanging!)
+        // while making Bionic libc _have_ipv6() and app IPv6 connect() fail over to IPv4 in <0.1ms!)
         if (effectiveIpMode == IpMode.IPV4_ONLY) {
             commands.add("ip -6 route replace unreachable default table $APP_BLOCK_TABLE_V6 2>/dev/null || ip -6 route replace unreachable ::/0 table $APP_BLOCK_TABLE_V6 2>/dev/null || true")
             for (uRange in uidRanges) {
@@ -139,7 +135,7 @@ object IptablesManager {
         commands.add("iptables -w -A $CHAIN_HS_IN -p tcp --dport $hsInboundPort -j ACCEPT 2>/dev/null || true")
         commands.add("iptables -w -I INPUT 1 -j $CHAIN_HS_IN 2>/dev/null || true")
 
-        // 5. PHONE NAT OUTPUT (DNS -> 127.0.0.1:$dnsPort, Private DNS 853 -> 127.0.0.1:$inboundPort, STUN -> 127.0.0.1:$stunPort, TCP -> 127.0.0.1:$inboundPort)
+        // 5. PHONE NAT OUTPUT (DNS -> 127.0.0.1:$dnsPort, STUN -> 127.0.0.1:$stunPort, TCP -> 127.0.0.1:$inboundPort)
         commands.add("iptables -w -t nat -N $CHAIN_NAT_V4 2>/dev/null || true")
         // Rule #1: Exempt all local listener reply packets (including SYN-ACKs where sk == NULL!)
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -s 127.0.0.0/8 -j RETURN 2>/dev/null || true")
@@ -161,56 +157,61 @@ object IptablesManager {
             commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -d $effectiveHost -j RETURN 2>/dev/null || true")
         }
 
-        // Tunnel Android Private DNS (DNS-over-TLS, TCP Port 853 from netd UID 0 & apps) into sing-box's 127.0.0.1:$inboundPort!
-        // This keeps Android Private DNS ON in Android Settings and tunnels it 100% through the US Proxy!
-        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
-
         // Redirect all Phone IPv4 DNS (UDP & TCP Port 53) into sing-box's 127.0.0.1:$dnsPort AF_INET listener
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 53 -j REDIRECT --to-ports $dnsPort 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort 2>/dev/null || true")
 
-        // Fast-reject QUIC (UDP 80/443) and DoQ (UDP 853) via port 9
+        // Redirect Phone STUN/WebRTC UDP packets (by RFC 5389 Magic Cookie 0x2112A442 and standard STUN ports) into StunResponder
+        if (settings.strictWebRtcShield) {
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -m u32 --u32 \"0>>22&0x3C@12=0x2112A442\" -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -m string --algo bm --from 28 --to 36 --hex-string \"|2112a442|\" -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 3478:3497 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 5349:5350 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 19300:19350 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 3478:3497 -j RETURN 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 5349:5350 -j RETURN 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 19300:19350 -j RETURN 2>/dev/null || true")
+        }
+
+        // Fast-reject non-STUN QUIC (UDP 80/443) and DoQ (UDP 853) via port 9
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 80 -j REDIRECT --to-ports 9 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 443 -j REDIRECT --to-ports 9 2>/dev/null || true")
         commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 853 -j REDIRECT --to-ports 9 2>/dev/null || true")
 
-        // Redirect Phone STUN/WebRTC UDP ports into StunResponder
+        // CRITICAL: Redirect FakeIP range (198.18.0.0/15) for ALL non-root processes (including Android's
+        // NetworkMonitor UID 1073 & system_server UID 1000!) BEFORE `-m owner --uid-owner 0-9999 -j RETURN`!
+        // Because netd returns 198.18.0.0/15 FakeIPs to NetworkMonitor (connectivitycheck.gstatic.com),
+        // redirecting 198.18.0.0/15 here ensures Android's 3-second connectivity check succeeds through sing-box
+        // and NEVER marks the phone's Wi-Fi/Cellular connection as "No Internet"!
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp -d 198.18.0.0/15 -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
         if (settings.strictWebRtcShield) {
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 3478:3497 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 5349:5350 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp --dport 19300:19320 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 3478:3497 -j RETURN 2>/dev/null || true")
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 5349:5350 -j RETURN 2>/dev/null || true")
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 19300:19320 -j RETURN 2>/dev/null || true")
+            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -d 198.18.0.0/15 -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
         }
 
-        // System daemons (0-9999, including sing-box UID 0 and clatd UID 1029) bypass app TCP redirect
-        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
-
-        // Redirect FakeIP range (198.18.0.0/15) for target app UIDs before reservedV4 checks
-        for (uRange in uidRanges) {
-            commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp -d 198.18.0.0/15 -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
-            if (settings.strictWebRtcShield) {
-                commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -d 198.18.0.0/15 -m owner --uid-owner $uRange -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
-            }
-        }
-
+        // Bypass local/LAN/CGNAT/464XLAT ranges (10.0.0.0/8, 100.64.0.0/10, 192.0.0.0/24, 192.168.0.0/16)
         for (range in reservedV4) {
             commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -d $range -j RETURN 2>/dev/null || true")
         }
 
-        // Redirect all remaining public UDP from target apps to StunResponder (when WebRTC shield is ON)
-        // and all TCP to sing-box ($inboundPort), scoped by --uid-owner $uRange so kernel SYN-ACKs are untouched!
+        // Android Private DNS (TCP Port 853) support without ever turning off private_dns_mode:
+        // - If user set a custom Private DNS provider (`hostname` mode, e.g. dns.google / one.one.one.one),
+        //   redirect TCP Port 853 into sing-box ($inboundPort) so strict DoT tunnels through the proxy!
+        // - If Private DNS is `opportunistic` (Automatic) or `off`, let TCP 853 fall through to NAMELESS_FILTER
+        //   where it gets an instant TCP RST so netd uses Port 53 FakeIP without hanging on carrier DoT probes!
+        commands.add("if [ \"\$(settings get global private_dns_mode 2>/dev/null)\" = \"hostname\" ]; then iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 853 -j REDIRECT --to-ports $inboundPort 2>/dev/null || true; else iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp --dport 853 -j RETURN 2>/dev/null || true; fi")
+
+        // System daemons (0-9999) bypass general non-FakeIP TCP redirect
+        commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
+
+        // Redirect all remaining public TCP from target apps to sing-box ($inboundPort), scoped by --uid-owner $uRange
+        // so kernel SYN-ACKs (sk == NULL) are never redirected, and let non-STUN UDP hit NAMELESS_FILTER for instant ICMP reject!
         for (uRange in uidRanges) {
-            if (settings.strictWebRtcShield) {
-                commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p udp -m owner --uid-owner $uRange -j REDIRECT --to-ports $stunPort 2>/dev/null || true")
-            }
             commands.add("iptables -w -t nat -A $CHAIN_NAT_V4 -p tcp -m owner --uid-owner $uRange -j REDIRECT --to-ports $inboundPort 2>/dev/null || true")
         }
         commands.add("iptables -w -t nat -I OUTPUT 1 -j $CHAIN_NAT_V4 2>/dev/null || true")
 
-        // 6. IPv6 NAT OUTPUT (Crucial for Jazz LTE 2404:3100:... so IPv6 carrier DNS from netd UID 0
-        // is hijacked into sing-box [::1]:$dnsV6Port without disabling IPv6 on rmnet_data0!)
+        // 6. IPv6 NAT OUTPUT (Hijacks IPv6 DNS into sing-box [::1]:$dnsV6Port when kernel supports ip6table_nat)
         commands.add("ip6tables -w -t nat -N $CHAIN_NAT_V6 2>/dev/null || true")
         commands.add("ip6tables -w -t nat -A $CHAIN_NAT_V6 -s ::1/128 -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -w -t nat -A $CHAIN_NAT_V6 -d ::1/128 -j RETURN 2>/dev/null || true")
@@ -231,17 +232,25 @@ object IptablesManager {
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -d 127.0.0.0/8 -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -s 127.0.0.0/8 -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -m addrtype --dst-type LOCAL -j RETURN 2>/dev/null || true")
+
+        // Allow bootstrap DNS for root (UID 0), and block any unredirected direct DNS on physical interfaces (! -o lo)
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p udp --dport 53 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p udp --dport 53 -j DROP 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p tcp --dport 53 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p tcp --dport 53 -j DROP 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p tcp --dport 853 -j DROP 2>/dev/null || true")
+        commands.add("iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p udp --dport 853 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 ! -o lo -p udp --dport 853 -j DROP 2>/dev/null || true")
+
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -m state --state ESTABLISHED,RELATED -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp --sport $stunPort -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp --sport $hsStunPort -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp --dport 9 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p udp --dport 9 -j DROP 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 9 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 9 -j DROP 2>/dev/null || true")
-        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp --dport 853 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p udp --dport 853 -j DROP 2>/dev/null || true")
 
         if (settings.strictWebRtcShield) {
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 3478:3497 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 3478:3497 -j DROP 2>/dev/null || true")
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 5349:5350 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 5349:5350 -j DROP 2>/dev/null || true")
-            commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 19300:19320 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 19300:19320 -j DROP 2>/dev/null || true")
+            commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 19300:19350 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport 19300:19350 -j DROP 2>/dev/null || true")
         }
 
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport $inboundPort -j RETURN 2>/dev/null || true")
@@ -259,9 +268,6 @@ object IptablesManager {
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --dport $hsInboundPort -j RETURN 2>/dev/null || true")
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp --sport $hsInboundPort -j RETURN 2>/dev/null || true")
 
-        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
-        commands.add("iptables -w -A $CHAIN_FILTER_V4 -p tcp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV4} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
-
         if (hostIsIpv4) {
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -d $effectiveHost -j RETURN 2>/dev/null || true")
         }
@@ -274,15 +280,15 @@ object IptablesManager {
 
         commands.add("iptables -w -A $CHAIN_FILTER_V4 -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true")
 
-        // Always scope UDP/TCP kill-switch by --uid-owner $uRange so kernel packets (SYN-ACK, TIME_WAIT, clatd) are never dropped!
+        // Instant ICMP Port Unreachable for non-STUN UDP so Chrome/YouTube fall back from QUIC to TCP in <0.1ms!
         for (uRange in uidRanges) {
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -p udp -m owner --uid-owner $uRange -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -A $CHAIN_FILTER_V4 -p udp -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
             commands.add("iptables -w -A $CHAIN_FILTER_V4 -m owner --uid-owner $uRange -j DROP 2>/dev/null || true")
         }
         commands.add("iptables -w -I OUTPUT 1 -j $CHAIN_FILTER_V4 2>/dev/null || true")
 
-        // 8. IPV6 FILTER SHIELD (Allows ::1:$dnsV6Port & clatd UID 0-9999 so Jazz LTE 464XLAT never drops,
-        // while rejecting IPv6 DoT 853 so netd immediately uses IPv4 TCP 853 through sing-box!)
+        // 8. IPV6 FILTER SHIELD (Allows ::1:$dnsV6Port & clatd UID 1029 so Jazz LTE 464XLAT never drops,
+        // while rejecting direct IPv6 Port 53/853 on physical interfaces so netd uses IPv4 FakeIP!)
         commands.add("ip6tables -w -N $CHAIN_FILTER_V6 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -o lo -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -d ::1/128 -j RETURN 2>/dev/null || true")
@@ -291,6 +297,10 @@ object IptablesManager {
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p tcp --dport $dnsV6Port -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p udp --sport $dnsV6Port -j RETURN 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p tcp --sport $dnsV6Port -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p udp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV6} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p tcp -d ${ConfigGenerator.BOOTSTRAP_DNS_IPV6} --dport 53 -m owner --uid-owner 0 -j RETURN 2>/dev/null || true")
+        commands.add("ip6tables -w -A $CHAIN_FILTER_V6 ! -o lo -p udp --dport 53 -j REJECT --reject-with icmp6-port-unreachable 2>/dev/null || ip6tables -w -A $CHAIN_FILTER_V6 ! -o lo -p udp --dport 53 -j DROP 2>/dev/null || true")
+        commands.add("ip6tables -w -A $CHAIN_FILTER_V6 ! -o lo -p tcp --dport 53 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -w -A $CHAIN_FILTER_V6 ! -o lo -p tcp --dport 53 -j DROP 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p tcp --dport 853 -j REJECT --reject-with tcp-reset 2>/dev/null || ip6tables -w -A $CHAIN_FILTER_V6 -p tcp --dport 853 -j DROP 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p udp --dport 853 -j REJECT --reject-with icmp6-port-unreachable 2>/dev/null || ip6tables -w -A $CHAIN_FILTER_V6 -p udp --dport 853 -j DROP 2>/dev/null || true")
         commands.add("ip6tables -w -A $CHAIN_FILTER_V6 -p ipv6-icmp -j RETURN 2>/dev/null || true")
@@ -329,27 +339,25 @@ object IptablesManager {
                 commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -s $effectiveHost -j RETURN 2>/dev/null || true")
             }
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 67:68 -j RETURN 2>/dev/null || true")
-            commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p tcp --dport 853 -j REDIRECT --to-ports $hsInboundPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 53 -j REDIRECT --to-ports $hsDnsPort 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p tcp --dport 53 -j REDIRECT --to-ports $hsDnsPort 2>/dev/null || true")
+            if (settings.strictWebRtcShield) {
+                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp -m u32 --u32 \"0>>22&0x3C@12=0x2112A442\" -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
+                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp -m string --algo bm --from 28 --to 36 --hex-string \"|2112a442|\" -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
+                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 3478:3497 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
+                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 5349:5350 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
+                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 19300:19350 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
+                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp -d 198.18.0.0/15 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
+            }
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 80 -j RETURN 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 443 -j RETURN 2>/dev/null || true")
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 853 -j RETURN 2>/dev/null || true")
-            if (settings.strictWebRtcShield) {
-                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 3478:3497 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
-                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 5349:5350 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
-                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp --dport 19300:19320 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
-                commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p udp -d 198.18.0.0/15 -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
-            }
             commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -p tcp -d 198.18.0.0/15 -j REDIRECT --to-ports $hsInboundPort 2>/dev/null || true")
             for (range in reservedV4) {
                 commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -d $range -j RETURN 2>/dev/null || true")
             }
             for (iface in tetherInterfaces) {
                 commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -i $iface -p tcp -j REDIRECT --to-ports $hsInboundPort 2>/dev/null || true")
-                if (settings.strictWebRtcShield) {
-                    commands.add("iptables -w -t nat -A $CHAIN_HS_NAT -i $iface -p udp -j REDIRECT --to-ports $hsStunPort 2>/dev/null || true")
-                }
             }
             commands.add("iptables -w -t nat -I PREROUTING 1 -j $CHAIN_HS_NAT 2>/dev/null || true")
 
@@ -385,9 +393,8 @@ object IptablesManager {
             "for f in /proc/sys/net/ipv4/conf/*/accept_local; do echo 1 > \$f 2>/dev/null || true; done",
             "echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true",
             "for f in /proc/sys/net/ipv6/conf/*/disable_ipv6; do echo 0 > \$f 2>/dev/null || true; done",
-            "ip route replace default dev lo table $APP_ROUTE_TABLE_V4 2>/dev/null || true",
-            "while ip rule del pref $LO_VALID_PREF_V4 2>/dev/null; do :; done",
-            "ip rule add iif lo lookup $APP_ROUTE_TABLE_V4 pref $LO_VALID_PREF_V4 2>/dev/null || true",
+            "while ip rule del pref 31000 2>/dev/null; do :; done",
+            "ip route flush table $APP_ROUTE_TABLE_V4 2>/dev/null || true",
             "iptables -w -D INPUT -j $CHAIN_HS_IN 2>/dev/null; iptables -w -I INPUT 1 -j $CHAIN_HS_IN 2>/dev/null || true",
             "iptables -w -D OUTPUT -j $CHAIN_FILTER_V4 2>/dev/null; iptables -w -I OUTPUT 1 -j $CHAIN_FILTER_V4 2>/dev/null || true",
             "iptables -w -t nat -D OUTPUT -j $CHAIN_NAT_V4 2>/dev/null; iptables -w -t nat -I OUTPUT 1 -j $CHAIN_NAT_V4 2>/dev/null || true",
@@ -411,7 +418,7 @@ object IptablesManager {
             "echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true",
             "echo 0 > /proc/sys/net/ipv6/conf/default/disable_ipv6 2>/dev/null || true",
             "for f in /proc/sys/net/ipv6/conf/*/disable_ipv6; do echo 0 > \$f 2>/dev/null || true; done",
-            "for p in 8500 8501 8502 8503 8504 8505 8800 8805 8806 $LO_VALID_PREF_V4 31001 31002 31003; do while ip rule del pref \$p 2>/dev/null; do :; done; done",
+            "for p in 8500 8501 8502 8503 8504 8505 8800 8805 8806 31000 31001 31002 31003; do while ip rule del pref \$p 2>/dev/null; do :; done; done",
             "ip route flush table $APP_ROUTE_TABLE_V4 2>/dev/null || true",
             "while ip -6 rule del pref $APP_BLOCK_PREF_V6 2>/dev/null; do :; done",
             "ip -6 route flush table $APP_BLOCK_TABLE_V6 2>/dev/null || true",

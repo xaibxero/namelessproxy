@@ -1,5 +1,5 @@
 -keepattributes *Annotation*,InnerClasses,EnclosingMethod,Signature
--keep class com.nameless.proxy.core.** { *; }
+-keep class com.nameless.proxy.** { *; }
 -keep class androidx.webkit.** { *; }
 -dontwarn androidx.webkit.**
 -dontwarn kotlinx.coroutines.**

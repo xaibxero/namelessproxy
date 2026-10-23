@@ -183,7 +183,9 @@ object ProxyController {
     fun isRunning(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): Boolean {
         val pidFile = getPidFile(user, slot)
         val result = executeSuWithOutput(listOf(
-            "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then echo 'RUNNING'; else echo 'STOPPED'; fi"
+            "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then echo 'RUNNING'; " +
+            "elif pidof sing-box >/dev/null 2>&1; then pidof sing-box | awk '{print \$1}' > " + pidFile + "; echo 'RUNNING'; " +
+            "else echo 'STOPPED'; fi"
         ))
         return result.contains("RUNNING")
     }
@@ -191,7 +193,8 @@ object ProxyController {
     fun getActivePid(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String? {
         val pidFile = getPidFile(user, slot)
         val result = executeSuWithOutput(listOf(
-            "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then cat " + pidFile + "; fi"
+            "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then cat " + pidFile + "; " +
+            "elif pidof sing-box >/dev/null 2>&1; then pidof sing-box | awk '{print \$1}'; fi"
         ))
         return result.lineSequence().lastOrNull()?.trim()?.takeIf { it.all(Char::isDigit) && it.isNotEmpty() }
     }
@@ -266,6 +269,8 @@ object ProxyController {
             "echo '=== KERNEL DAEMON (U#" + user + " • SLOT P" + (slot + 1) + ") ==='",
             "if [ -f " + pidFile + " ] && kill -0 \$(cat " + pidFile + ") 2>/dev/null; then",
             "  echo 'Status   : ONLINE (PID '\$(cat " + pidFile + ")')'",
+            "elif pidof sing-box >/dev/null 2>&1; then",
+            "  echo 'Status   : ONLINE (PID '\$(pidof sing-box)')'",
             "else",
             "  echo 'Status   : STANDBY'",
             "fi",
@@ -281,7 +286,7 @@ object ProxyController {
     fun getKernelAuditReport(user: Int = ProfileManager.androidUserId, slot: Int = ProfileManager.activeSlot): String {
         val raw = executeSuWithOutput(listOf(
             "echo '=== ROUTING RULES ==='",
-            "ip rule show | grep -E '8500|8501|8502|8503|22000|31000' || true",
+            "ip rule show | grep -E '8500|8501|8502|8503|22000' || true",
             "echo ''",
             "echo '=== NAT DNS & WEBRTC (${IptablesManager.CHAIN_NAT_V4}) ==='",
             "iptables -w -t nat -S ${IptablesManager.CHAIN_NAT_V4} 2>&1 || true",
@@ -312,6 +317,7 @@ object ProxyController {
         val logFile = getLogFile(user, slot)
         val slotFile = getActiveSlotFile(user)
         val port = ProfileManager.localInboundPort
+        val appPid = android.os.Process.myPid()
 
         if (!isBinaryExecutable()) {
             val extracted = extractBinaryDirectly(context)
@@ -350,7 +356,17 @@ object ProxyController {
             "mkdir -p $ADB_DIR",
             "rm -f $ADB_DIR/cache_u${user}_s${slot}.db",
             "echo 0 > /proc/sys/net/ipv6/conf/lo/disable_ipv6 2>/dev/null || true",
-            "( trap '' HUP; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
+            "( trap '' HUP INT TERM; $binaryPath run -c $configPath > $logFile 2>&1 < /dev/null & echo \$! > $pidFile )",
+            "SB_PID=\$(cat $pidFile 2>/dev/null)",
+            "if [ -n \"\$SB_PID\" ]; then",
+            "  echo -1000 > /proc/\$SB_PID/oom_score_adj 2>/dev/null || true",
+            "  echo \$SB_PID > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
+            "fi",
+            "echo -800 > /proc/$appPid/oom_score_adj 2>/dev/null || true",
+            "echo $appPid > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
+            "cmd deviceidle whitelist +com.nameless.proxy >/dev/null 2>&1 || true",
+            "cmd appops set --user $user com.nameless.proxy RUN_IN_BACKGROUND allow >/dev/null 2>&1 || true",
+            "cmd appops set --user $user com.nameless.proxy RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1 || true",
             "echo $slot > $slotFile",
             "echo $slot > $ADB_DIR/running_slot",
             "echo $user > $ADB_DIR/running_user"
@@ -406,9 +422,13 @@ object ProxyController {
         StunResponder.stop()
         val commands = mutableListOf<String>()
 
+        // Also clean up any legacy daemon files/processes from older builds
+        commands.add("rm -f $ADB_DIR/running_slot* $ADB_DIR/running_user $ADB_DIR/nameless_daemon.sh $ADB_DIR/daemon.pid $ADB_DIR/stun_daemon.pid 2>/dev/null || true")
+        commands.add("pkill -9 -f 'nameless_daemon.sh' 2>/dev/null || true")
+        commands.add("pkill -9 -f 'RootStunDaemon' 2>/dev/null || true")
         commands.add("killall -9 sing-box 2>/dev/null || true")
         commands.add("pkill -9 -f 'sing-box' 2>/dev/null || true")
-        commands.add("rm -f $ADB_DIR/singbox_*.pid $ADB_DIR/running_slot* $ADB_DIR/running_user 2>/dev/null || true")
+        commands.add("rm -f $ADB_DIR/singbox_*.pid 2>/dev/null || true")
 
         commands.addAll(IptablesManager.generateDisableCommands(user, ProfileManager.activeSlot))
 
