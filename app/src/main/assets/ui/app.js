@@ -1,708 +1,570 @@
-// ============================================================================
-// Nameless Proxy v2.0 • 120Hz Hooke's Law Jelly Physics & Bubble Controller
-// ============================================================================
+(function () {
+  "use strict";
 
-const defaultSlot = () => ({
-  type: "SOCKS5",
-  host: "",
-  port: 1080,
-  username: "",
-  password: "",
-  sni: "",
-  ssMethod: "chacha20-ietf-poly1305",
-  realityPublicKey: "",
-  realityShortId: ""
-});
+  const Bridge = window.NamelessBridge || null;
 
-let state = {
-  activeTab: 0,
-  activeSlot: 0,
-  runningSlot: null,
-  isRunning: false,
-  isTransitioning: false,
-  routeHotspot: true,
-  routeAllApps: true,
-  selectedUids: [],
-  installedApps: [],
-  webrtcMode: "SPOOF",
-  sessionStartMs: 0,
-  slots: [defaultSlot(), defaultSlot(), defaultSlot(), defaultSlot(), defaultSlot()],
-  prevRx: 0,
-  prevTx: 0,
-  startRx: 0,
-  startTx: 0,
-  prevTime: Date.now(),
-  rxHistory: new Array(28).fill(0),
-  txHistory: new Array(28).fill(0),
-  auditMode: false
-};
-
-// ============================================================================
-// Real Hooke's Law Spring-Jelly Physics Engine for Every .jelly Element
-// ============================================================================
-const springs = new Map();
-
-function attachJellyPhysics(el) {
-  if (springs.has(el)) return;
-  const sp = {
-    sx: 1, sy: 1,
-    tx: 1, ty: 1,
-    vx: 0, vy: 0
+  const state = {
+    activeTab: 0,
+    running: false,
+    connecting: false,
+    proto: "socks5",
+    host: "",
+    port: "",
+    user: "",
+    pass: "",
+    hotspot: false,
+    killswitch: true,
+    appMode: "all",
+    selectedApps: new Set(),
+    installedApps: [],
+    profiles: [],
+    checkerUrl: "https://ipfighter.com",
+    lastRx: 0,
+    lastTx: 0,
+    lastTs: Date.now()
   };
-  springs.set(el, sp);
 
-  el.addEventListener("pointerdown", () => {
-    sp.tx = 1.12;
-    sp.ty = 0.88;
-  }, { passive: true });
-
-  const release = () => {
-    if (sp.tx !== 1 || sp.ty !== 1) {
-      sp.vx += 0.09;
-      sp.vy -= 0.09;
-      sp.tx = 1;
-      sp.ty = 1;
-    }
+  const els = {
+    body: document.body,
+    exitIpBadge: document.getElementById("exitIpBadge"),
+    powerOrb: document.getElementById("powerOrb"),
+    orbStateText: document.getElementById("orbStateText"),
+    rxSpeed: document.getElementById("rxSpeed"),
+    txSpeed: document.getElementById("txSpeed"),
+    rxTotal: document.getElementById("rxTotal"),
+    txTotal: document.getElementById("txTotal"),
+    protoSocks5: document.getElementById("protoSocks5"),
+    protoHttp: document.getElementById("protoHttp"),
+    quickPasteBtn: document.getElementById("quickPasteBtn"),
+    proxyHost: document.getElementById("proxyHost"),
+    proxyPort: document.getElementById("proxyPort"),
+    proxyUser: document.getElementById("proxyUser"),
+    proxyPass: document.getElementById("proxyPass"),
+    hotspotBtn: document.getElementById("hotspotBtn"),
+    killswitchBtn: document.getElementById("killswitchBtn"),
+    saveProfileBtn: document.getElementById("saveProfileBtn"),
+    profilesStrip: document.getElementById("profilesStrip"),
+    checkerFrameSlot: document.getElementById("checkerFrameSlot"),
+    chkReload: document.getElementById("chkReload"),
+    appSearchInput: document.getElementById("appSearchInput"),
+    clearAppsBtn: document.getElementById("clearAppsBtn"),
+    appsList: document.getElementById("appsList"),
+    toastBubble: document.getElementById("toastBubble")
   };
-  el.addEventListener("pointerup", release, { passive: true });
-  el.addEventListener("pointercancel", release, { passive: true });
-  el.addEventListener("pointerleave", release, { passive: true });
-}
 
-function pulseAllVisibleBubbles() {
-  const pane = document.getElementById(`tab-${state.activeTab}`);
-  if (!pane) return;
-  pane.querySelectorAll(".jelly").forEach((el, i) => {
-    const sp = springs.get(el);
-    if (sp) {
-      setTimeout(() => {
-        sp.sx = 0.86;
-        sp.sy = 1.14;
-        sp.vx = 0.08;
-        sp.vy = -0.08;
-      }, i * 28);
-    }
-  });
-}
-
-function stepSpringPhysics() {
-  const stiffness = 0.26;
-  const damping = 0.72;
-  springs.forEach((sp, el) => {
-    const fx = (sp.tx - sp.sx) * stiffness;
-    const fy = (sp.ty - sp.sy) * stiffness;
-    sp.vx = (sp.vx + fx) * damping;
-    sp.vy = (sp.vy + fy) * damping;
-    sp.sx += sp.vx;
-    sp.sy += sp.vy;
-    if (Math.abs(sp.sx - 1) > 0.001 || Math.abs(sp.sy - 1) > 0.001 || Math.abs(sp.vx) > 0.001) {
-      el.style.transform = `scale(${sp.sx.toFixed(4)}, ${sp.sy.toFixed(4)})`;
-    } else if (el.style.transform) {
-      el.style.transform = "";
-    }
-  });
-  requestAnimationFrame(stepSpringPhysics);
-}
-
-function flagEmojiFromCode(cc) {
-  if (!cc || cc.length !== 2) return "🛡️";
-  const codePoints = cc.toUpperCase().split("").map(c => 127397 + c.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
-
-function formatBytes(b) {
-  if (b <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let val = b;
-  while (val >= 1024 && i < units.length - 1) {
-    val /= 1024;
-    i++;
+  let toastTimer = null;
+  function showToast(msg) {
+    if (!els.toastBubble) return;
+    els.toastBubble.textContent = msg;
+    els.toastBubble.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      els.toastBubble.classList.remove("show");
+    }, 1550);
   }
-  return (i === 0 ? val : val.toFixed(1)) + " " + units[i];
-}
 
-function formatDuration(ms) {
-  if (ms <= 0) return "00:00:00";
-  const s = Math.floor(ms / 1000);
-  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-  const ss = String(s % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
+  /* 100% GPU-Composited Touch-to-Bubble Squish & Elastic Rebound */
+  function bindJellyTouch() {
+    document.addEventListener("pointerdown", (e) => {
+      const target = e.target.closest(".jelly-el");
+      if (!target) return;
+      target.classList.remove("is-bouncing");
+      target.classList.add("is-pressed");
+    }, { passive: true });
 
-function initApp() {
-  document.querySelectorAll(".jelly").forEach(attachJellyPhysics);
-  requestAnimationFrame(stepSpringPhysics);
+    const releaseJelly = () => {
+      const pressed = document.querySelectorAll(".jelly-el.is-pressed");
+      pressed.forEach((el) => {
+        el.classList.remove("is-pressed");
+        void el.offsetWidth; // trigger lightweight reflow for CSS animation restart
+        el.classList.add("is-bouncing");
+      });
+    };
 
-  if (window.NamelessBridge) {
+    document.addEventListener("pointerup", releaseJelly, { passive: true });
+    document.addEventListener("pointercancel", releaseJelly, { passive: true });
+  }
+
+  /* Persist & Restore Local Configuration */
+  function loadSavedConfig() {
     try {
-      const raw = JSON.parse(window.NamelessBridge.getInitialState() || "{}");
-      if (raw.network) {
-        document.getElementById("netSummaryText").textContent = raw.network;
+      const raw = localStorage.getItem("nameless_v21_cfg");
+      if (raw) {
+        const cfg = JSON.parse(raw);
+        state.proto = cfg.proto || "socks5";
+        state.host = cfg.host || "";
+        state.port = cfg.port || "";
+        state.user = cfg.user || "";
+        state.pass = cfg.pass || "";
+        state.hotspot = !!cfg.hotspot;
+        state.killswitch = cfg.killswitch !== false;
+        state.appMode = cfg.appMode || "all";
+        state.selectedApps = new Set(Array.isArray(cfg.selectedApps) ? cfg.selectedApps : []);
+        state.profiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
       }
-      if (raw.slotsJson) {
-        const parsed = JSON.parse(raw.slotsJson);
-        if (Array.isArray(parsed.slots) && parsed.slots.length === 5) {
-          state.slots = parsed.slots;
-        }
-        if (typeof parsed.activeSlot === "number") state.activeSlot = parsed.activeSlot;
-        if (typeof parsed.routeHotspot === "boolean") state.routeHotspot = parsed.routeHotspot;
-        if (typeof parsed.routeAllApps === "boolean") state.routeAllApps = parsed.routeAllApps;
-        if (Array.isArray(parsed.selectedUids)) state.selectedUids = parsed.selectedUids;
-        if (parsed.webrtcMode) state.webrtcMode = parsed.webrtcMode;
-      }
-      if (raw.status) {
-        applyPolledStatus(raw.status, true);
-      }
-    } catch (e) {}
+    } catch (_) {}
 
-    setTimeout(() => {
-      try {
-        const appsRaw = JSON.parse(window.NamelessBridge.getInstalledApps() || "[]");
-        if (Array.isArray(appsRaw)) {
-          state.installedApps = appsRaw;
-          renderAppsList();
-        }
-      } catch (e) {}
-    }, 150);
+    els.proxyHost.value = state.host;
+    els.proxyPort.value = state.port;
+    els.proxyUser.value = state.user;
+    els.proxyPass.value = state.pass;
+    syncFormUI();
+    renderProfiles();
   }
 
-  loadSlotIntoForm(state.activeSlot);
-  renderSlotCapsules();
-  renderQuickPills();
-  startCanvasLoops();
-
-  setInterval(pollBackendStatus, 1000);
-}
-
-function persistAllSlots() {
-  const payload = JSON.stringify({
-    activeSlot: state.activeSlot,
-    routeHotspot: state.routeHotspot,
-    routeAllApps: state.routeAllApps,
-    selectedUids: state.selectedUids,
-    webrtcMode: state.webrtcMode,
-    slots: state.slots
-  });
-  if (window.NamelessBridge) {
-    window.NamelessBridge.saveSlots(payload);
+  function saveConfig() {
+    state.host = els.proxyHost.value.trim();
+    state.port = els.proxyPort.value.trim();
+    state.user = els.proxyUser.value.trim();
+    state.pass = els.proxyPass.value;
+    try {
+      localStorage.setItem("nameless_v21_cfg", JSON.stringify({
+        proto: state.proto,
+        host: state.host,
+        port: state.port,
+        user: state.user,
+        pass: state.pass,
+        hotspot: state.hotspot,
+        killswitch: state.killswitch,
+        appMode: state.appMode,
+        selectedApps: Array.from(state.selectedApps),
+        profiles: state.profiles
+      }));
+    } catch (_) {}
   }
-}
 
-function selectSlot(idx) {
-  saveFormIntoSlot(state.activeSlot);
-  state.activeSlot = idx;
-  loadSlotIntoForm(idx);
-  renderSlotCapsules();
-  persistAllSlots();
-}
+  function syncFormUI() {
+    els.protoSocks5.classList.toggle("active", state.proto === "socks5");
+    els.protoHttp.classList.toggle("active", state.proto === "http");
+    els.hotspotBtn.classList.toggle("active", state.hotspot);
+    els.killswitchBtn.classList.toggle("active", state.killswitch);
 
-function renderSlotCapsules() {
-  document.querySelectorAll(".slot-orb").forEach((btn, idx) => {
-    btn.classList.toggle("active", idx === state.activeSlot);
-    btn.classList.toggle("running", state.isRunning && idx === state.runningSlot);
-  });
-
-  const cur = state.slots[state.activeSlot] || defaultSlot();
-  const nodeLabel = document.getElementById("hubNodeLabel");
-  if (cur.host && cur.host.trim() !== "") {
-    nodeLabel.textContent = `${cur.host}:${cur.port}`;
-  } else {
-    nodeLabel.textContent = `P${state.activeSlot + 1} (${cur.type})`;
-  }
-  document.getElementById("editingSlotTitle").textContent = `P${state.activeSlot + 1} • ${cur.type}`;
-}
-
-function renderQuickPills() {
-  const hsPill = document.getElementById("pillHotspot");
-  hsPill.classList.toggle("on", state.routeHotspot);
-  document.getElementById("lblHotspotState").textContent = state.routeHotspot ? "ON" : "OFF";
-
-  const appsPill = document.getElementById("pillApps");
-  appsPill.classList.toggle("on", true);
-  document.getElementById("lblAppsState").textContent = state.routeAllApps
-    ? "ALL"
-    : `${state.selectedUids.length} APPS`;
-
-  const rtcPill = document.getElementById("pillWebrtc");
-  const isSpoof = state.webrtcMode !== "DISABLE";
-  rtcPill.classList.toggle("on", isSpoof);
-  document.getElementById("lblWebrtcState").textContent = isSpoof ? "IP" : "N/A";
-
-  document.getElementById("btnAllApps").classList.toggle("active", state.routeAllApps);
-  document.getElementById("btnSelApps").classList.toggle("active", !state.routeAllApps);
-}
-
-function toggleHotspotSetting() {
-  state.routeHotspot = !state.routeHotspot;
-  renderQuickPills();
-  persistAllSlots();
-}
-
-function toggleWebrtcMode() {
-  state.webrtcMode = state.webrtcMode === "SPOOF" ? "DISABLE" : "SPOOF";
-  renderQuickPills();
-  persistAllSlots();
-}
-
-function setAppRouteMode(all) {
-  state.routeAllApps = !!all;
-  renderQuickPills();
-  persistAllSlots();
-}
-
-function selectAllApps() {
-  state.routeAllApps = false;
-  state.selectedUids = state.installedApps.map(a => a.uid);
-  renderQuickPills();
-  renderAppsList();
-  persistAllSlots();
-}
-
-function clearSelectedApps() {
-  state.routeAllApps = false;
-  state.selectedUids = [];
-  renderQuickPills();
-  renderAppsList();
-  persistAllSlots();
-}
-
-function toggleAppUid(uid) {
-  state.routeAllApps = false;
-  const idx = state.selectedUids.indexOf(uid);
-  if (idx >= 0) state.selectedUids.splice(idx, 1);
-  else state.selectedUids.push(uid);
-  renderQuickPills();
-  renderAppsList();
-  persistAllSlots();
-}
-
-function renderAppsList() {
-  const container = document.getElementById("appsListContainer");
-  if (!container) return;
-  const q = (document.getElementById("appSearchInput").value || "").trim().toLowerCase();
-  const filtered = state.installedApps.filter(a =>
-    !q || (a.name && a.name.toLowerCase().includes(q)) || (a.pkg && a.pkg.toLowerCase().includes(q))
-  );
-  container.innerHTML = "";
-  filtered.forEach(app => {
-    const selected = state.routeAllApps || state.selectedUids.includes(app.uid);
-    const row = document.createElement("div");
-    row.className = "app-row jelly" + (selected ? " selected" : "");
-    row.onclick = () => toggleAppUid(app.uid);
-    row.innerHTML = `
-      <div>
-        <div class="app-name">${app.name}</div>
-        <div class="app-pkg">${app.pkg}</div>
-      </div>
-      <div class="app-check">✓</div>
-    `;
-    container.appendChild(row);
-    attachJellyPhysics(row);
-  });
-}
-
-function loadSlotIntoForm(idx) {
-  const s = state.slots[idx] || defaultSlot();
-  document.getElementById("inpHost").value = s.host || "";
-  document.getElementById("inpPort").value = s.port || 1080;
-  document.getElementById("inpUser").value = s.username || "";
-  document.getElementById("inpPass").value = s.password || "";
-  document.getElementById("inpSni").value = s.sni || "";
-  document.getElementById("inpExtra").value = s.realityPublicKey || s.ssMethod || "";
-  document.querySelectorAll(".proto-orb").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-proto") === (s.type || "SOCKS5"));
-  });
-}
-
-function saveFormIntoSlot(idx) {
-  const s = state.slots[idx] || defaultSlot();
-  s.host = (document.getElementById("inpHost").value || "").trim();
-  s.port = parseInt(document.getElementById("inpPort").value || "1080", 10) || 1080;
-  s.username = (document.getElementById("inpUser").value || "").trim();
-  s.password = (document.getElementById("inpPass").value || "").trim();
-  s.sni = (document.getElementById("inpSni").value || "").trim();
-  const extra = (document.getElementById("inpExtra").value || "").trim();
-  if (s.type === "SHADOWSOCKS") {
-    s.ssMethod = extra || "chacha20-ietf-poly1305";
-  } else {
-    s.realityPublicKey = extra;
-  }
-  state.slots[idx] = s;
-}
-
-function onFormEdited() {
-  saveFormIntoSlot(state.activeSlot);
-  renderSlotCapsules();
-  persistAllSlots();
-}
-
-function setProtocol(proto) {
-  state.slots[state.activeSlot].type = proto;
-  document.querySelectorAll(".proto-orb").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
-  });
-  renderSlotCapsules();
-  persistAllSlots();
-}
-
-function clearCurrentSlot() {
-  state.slots[state.activeSlot] = defaultSlot();
-  loadSlotIntoForm(state.activeSlot);
-  renderSlotCapsules();
-  persistAllSlots();
-}
-
-function pasteUriFromClipboard() {
-  if (!window.NamelessBridge) return;
-  try {
-    const parsed = JSON.parse(window.NamelessBridge.importClipboardUri() || "{}");
-    if (parsed.host) {
-      const s = state.slots[state.activeSlot];
-      s.type = parsed.type || "SOCKS5";
-      s.host = parsed.host || "";
-      s.port = parsed.port || 1080;
-      s.username = parsed.username || "";
-      s.password = parsed.password || "";
-      s.sni = parsed.sni || "";
-      s.realityPublicKey = parsed.realityPublicKey || "";
-      s.realityShortId = parsed.realityShortId || "";
-      loadSlotIntoForm(state.activeSlot);
-      renderSlotCapsules();
-      persistAllSlots();
-      window.NamelessBridge.showToast("Imported into P" + (state.activeSlot + 1));
-    } else {
-      window.NamelessBridge.showToast("Invalid URI");
-    }
-  } catch (e) {}
-}
-
-function toggleTunnel() {
-  if (state.isTransitioning) return;
-  saveFormIntoSlot(state.activeSlot);
-  persistAllSlots();
-
-  if (state.isRunning && state.runningSlot === state.activeSlot) {
-    state.isTransitioning = true;
-    document.getElementById("coreStateText").textContent = "WAIT";
-    if (window.NamelessBridge) {
-      window.NamelessBridge.stopTunnelAsync();
-    }
-  } else {
-    const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
-      ? "ALL"
-      : state.selectedUids.join(",");
-    const cfg = Object.assign({}, state.slots[state.activeSlot], {
-      slot: state.activeSlot,
-      routeHotspot: state.routeHotspot,
-      targetUids: targetUidsStr,
-      webrtcMode: state.webrtcMode
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.mode === state.appMode);
     });
-    if (!cfg.host || cfg.host.trim() === "") {
-      switchTab(2);
-      if (window.NamelessBridge) window.NamelessBridge.showToast("Set Host first");
+  }
+
+  /* Smart Proxy String Parser (host:port:user:pass or scheme://user:pass@host:port) */
+  function parseProxyString(str) {
+    if (!str) return false;
+    let s = str.trim();
+    if (!s) return false;
+
+    if (s.toLowerCase().startsWith("http://") || s.toLowerCase().startsWith("https://")) {
+      state.proto = "http";
+      s = s.replace(/^https?:\/\//i, "");
+    } else if (s.toLowerCase().startsWith("socks5://") || s.toLowerCase().startsWith("socks://")) {
+      state.proto = "socks5";
+      s = s.replace(/^socks5?:\/\//i, "");
+    }
+
+    if (s.includes("@")) {
+      const [cred, endpoint] = s.split("@");
+      const [u, p] = cred.split(":");
+      const [h, pt] = endpoint.split(":");
+      if (h && pt) {
+        els.proxyHost.value = h;
+        els.proxyPort.value = pt;
+        els.proxyUser.value = u || "";
+        els.proxyPass.value = p || "";
+        saveConfig();
+        syncFormUI();
+        return true;
+      }
+    }
+
+    const parts = s.split(":");
+    if (parts.length >= 2) {
+      els.proxyHost.value = parts[0];
+      els.proxyPort.value = parts[1];
+      els.proxyUser.value = parts[2] || "";
+      els.proxyPass.value = parts.slice(3).join(":") || "";
+      saveConfig();
+      syncFormUI();
+      return true;
+    }
+    return false;
+  }
+
+  /* Compute Screen Ratios and Mount Native Hardware-Accelerated Checker WebView */
+  function launchEmbeddedChecker(url) {
+    if (url) state.checkerUrl = url;
+    document.querySelectorAll(".checker-pill").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.url === state.checkerUrl);
+    });
+
+    if (!Bridge || state.activeTab !== 1) return;
+
+    requestAnimationFrame(() => {
+      const rect = els.checkerFrameSlot.getBoundingClientRect();
+      const vh = window.innerHeight || 800;
+      const topRatio = Math.max(0.12, Math.min(0.35, rect.top / vh));
+      const bottomRatio = Math.max(0.08, Math.min(0.25, (vh - rect.bottom) / vh));
+      try {
+        if (typeof Bridge.showCheckerRatio === "function") {
+          Bridge.showCheckerRatio(state.checkerUrl, topRatio, bottomRatio);
+        } else if (typeof Bridge.showChecker === "function") {
+          Bridge.showChecker(state.checkerUrl, Math.round(rect.top), Math.round(vh - rect.bottom));
+        }
+      } catch (_) {}
+    });
+  }
+
+  function switchTab(tabIdx) {
+    state.activeTab = tabIdx;
+    document.querySelectorAll(".tab-view").forEach((sec, idx) => {
+      sec.classList.toggle("active", idx === tabIdx);
+    });
+    document.querySelectorAll(".dock-btn").forEach((btn) => {
+      btn.classList.toggle("active", Number(btn.dataset.tab) === tabIdx);
+    });
+
+    if (tabIdx === 1) {
+      launchEmbeddedChecker(state.checkerUrl);
+    } else if (Bridge && typeof Bridge.hideChecker === "function") {
+      try { Bridge.hideChecker(); } catch (_) {}
+    }
+
+    if (tabIdx === 2 && state.installedApps.length === 0) {
+      loadInstalledApps();
+    }
+  }
+
+  /* Profiles Management */
+  function renderProfiles() {
+    if (!els.profilesStrip) return;
+    els.profilesStrip.innerHTML = "";
+    state.profiles.forEach((prof, idx) => {
+      const pill = document.createElement("div");
+      pill.className = "profile-Bubble jelly-el";
+      pill.innerHTML = `<span>${prof.proto.toUpperCase()} • ${prof.host}:${prof.port}</span><span class="profile-del" data-del="${idx}">✕</span>`;
+      pill.addEventListener("click", (e) => {
+        if (e.target.dataset.del !== undefined) {
+          state.profiles.splice(idx, 1);
+          saveConfig();
+          renderProfiles();
+          showToast("Removed");
+          return;
+        }
+        state.proto = prof.proto;
+        els.proxyHost.value = prof.host;
+        els.proxyPort.value = prof.port;
+        els.proxyUser.value = prof.user || "";
+        els.proxyPass.value = prof.pass || "";
+        saveConfig();
+        syncFormUI();
+        showToast("Loaded " + prof.host);
+      });
+      els.profilesStrip.appendChild(pill);
+    });
+  }
+
+  /* Per-App Routing Selector */
+  function loadInstalledApps() {
+    if (!Bridge || typeof Bridge.getInstalledAppsJson !== "function") return;
+    try {
+      const raw = Bridge.getInstalledAppsJson();
+      const parsed = JSON.parse(raw || "[]");
+      if (Array.isArray(parsed)) {
+        state.installedApps = parsed;
+        renderAppsList();
+      }
+    } catch (_) {}
+  }
+
+  function renderAppsList() {
+    if (!els.appsList) return;
+    const q = (els.appSearchInput.value || "").trim().toLowerCase();
+    const frag = document.createDocumentFragment();
+
+    const filtered = state.installedApps.filter((a) => {
+      if (!q) return true;
+      return (a.label && a.label.toLowerCase().includes(q)) ||
+             (a.pkg && a.pkg.toLowerCase().includes(q));
+    });
+
+    filtered.sort((a, b) => {
+      const sa = state.selectedApps.has(a.pkg) ? 0 : 1;
+      const sb = state.selectedApps.has(b.pkg) ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      return (a.label || "").localeCompare(b.label || "");
+    });
+
+    filtered.forEach((app) => {
+      const row = document.createElement("div");
+      const isSel = state.selectedApps.has(app.pkg);
+      row.className = "app-item jelly-el" + (isSel ? " selected" : "");
+      row.innerHTML = `
+        <div class="app-info">
+          <span class="app-name">${app.label || app.pkg}</span>
+          <span class="app-pkg">${app.pkg} (${app.uid})</span>
+        </div>
+        <div class="app-check">✓</div>
+      `;
+      row.addEventListener("click", () => {
+        if (state.selectedApps.has(app.pkg)) {
+          state.selectedApps.delete(app.pkg);
+          row.classList.remove("selected");
+        } else {
+          state.selectedApps.add(app.pkg);
+          row.classList.add("selected");
+        }
+        saveConfig();
+      });
+      frag.appendChild(row);
+    });
+
+    els.appsList.innerHTML = "";
+    els.appsList.appendChild(frag);
+  }
+
+  function getSelectedUidCsv() {
+    if (state.appMode === "all" || state.selectedApps.size === 0) return "";
+    const uids = [];
+    state.installedApps.forEach((app) => {
+      if (state.selectedApps.has(app.pkg) && app.uid) {
+        uids.push(app.uid);
+      }
+    });
+    return uids.join(",");
+  }
+
+  /* Start / Stop Tunnel */
+  function toggleTunnel() {
+    if (state.connecting) return;
+    saveConfig();
+
+    if (state.running) {
+      state.connecting = true;
+      els.body.dataset.state = "connecting";
+      els.orbStateText.textContent = "STOPPING";
+      setTimeout(() => {
+        try {
+          if (Bridge) Bridge.stopTunnel();
+        } catch (_) {}
+        state.running = false;
+        state.connecting = false;
+        updateVisualState(false, "");
+        showToast("Disconnected");
+      }, 40);
       return;
     }
-    state.isTransitioning = true;
-    document.getElementById("coreStateText").textContent = "BOOT";
-    if (window.NamelessBridge) {
-      window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
+
+    if (!state.host || !state.port) {
+      showToast("Enter Host & Port");
+      return;
     }
-  }
-}
 
-window.onTunnelActionComplete = function(jsonStr) {
-  state.isTransitioning = false;
-  try {
-    const res = JSON.parse(jsonStr);
-    if (!res.ok && res.error && window.NamelessBridge) {
-      window.NamelessBridge.showToast(res.error);
+    state.connecting = true;
+    els.body.dataset.state = "connecting";
+    els.orbStateText.textContent = "LINKING";
+
+    if (state.appMode !== "all" && state.installedApps.length === 0) {
+      loadInstalledApps();
     }
-  } catch (e) {}
-  pollBackendStatus();
-};
 
-function pingCurrentNode() {
-  saveFormIntoSlot(state.activeSlot);
-  const s = state.slots[state.activeSlot];
-  if (!s.host) {
-    switchTab(2);
-    return;
-  }
-  document.getElementById("hubPingLabel").textContent = "...";
-  if (window.NamelessBridge) {
-    window.NamelessBridge.pingServerAsync(s.host, s.port || 1080);
-  }
-}
+    const payload = JSON.stringify({
+      type: state.proto,
+      host: state.host,
+      port: parseInt(state.port, 10) || 1080,
+      user: state.user,
+      pass: state.pass,
+      dns: "1.1.1.1",
+      hotspot: state.hotspot,
+      killswitch: state.killswitch,
+      appMode: state.appMode,
+      appUids: getSelectedUidCsv()
+    });
 
-window.onPingResult = function(ms) {
-  const el = document.getElementById("hubPingLabel");
-  el.textContent = ms > 0 ? `${ms} ms` : "Fail";
-};
+    setTimeout(() => {
+      let resp = {};
+      try {
+        if (Bridge) {
+          const raw = Bridge.startTunnel(payload);
+          resp = JSON.parse(raw || "{}");
+        }
+      } catch (_) {}
 
-function applyPolledStatus(st, firstInit) {
-  const wasRunning = state.isRunning;
-  state.isRunning = !!st.running;
-  state.runningSlot = state.isRunning ? (st.slot || 0) : null;
-
-  if (st.network) {
-    document.getElementById("netSummaryText").textContent = st.network;
-  }
-
-  const orb = document.getElementById("headerOrb");
-  const coreBtn = document.getElementById("coreBtn");
-  const coreStateText = document.getElementById("coreStateText");
-  const coreTimerText = document.getElementById("coreTimerText");
-
-  orb.classList.toggle("online", state.isRunning);
-  coreBtn.classList.toggle("online", state.isRunning);
-
-  if (state.isRunning) {
-    if (!wasRunning || state.sessionStartMs === 0) {
-      state.sessionStartMs = Date.now();
-      state.startRx = st.rxBytes || 0;
-      state.startTx = st.txBytes || 0;
-      state.prevRx = st.rxBytes || 0;
-      state.prevTx = st.txBytes || 0;
-      state.prevTime = Date.now();
-    }
-    if (!state.isTransitioning) {
-      coreStateText.textContent = `P${(state.runningSlot || 0) + 1} ON`;
-    }
-    coreTimerText.textContent = formatDuration(Date.now() - state.sessionStartMs);
-
-    const now = Date.now();
-    const dt = Math.max(0.5, (now - state.prevTime) / 1000);
-    const curRx = Math.max(state.prevRx, st.rxBytes || 0);
-    const curTx = Math.max(state.prevTx, st.txBytes || 0);
-    const rxRate = firstInit ? 0 : Math.max(0, Math.round((curRx - state.prevRx) / dt));
-    const txRate = firstInit ? 0 : Math.max(0, Math.round((curTx - state.prevTx) / dt));
-    state.prevRx = curRx;
-    state.prevTx = curTx;
-    state.prevTime = now;
-
-    state.rxHistory.push(rxRate);
-    if (state.rxHistory.length > 28) state.rxHistory.shift();
-    state.txHistory.push(txRate);
-    if (state.txHistory.length > 28) state.txHistory.shift();
-
-    document.getElementById("rxSpeedText").textContent = formatBytes(rxRate) + "/s";
-    document.getElementById("txSpeedText").textContent = formatBytes(txRate) + "/s";
-    document.getElementById("rxTotalText").textContent = formatBytes(Math.max(0, curRx - state.startRx));
-    document.getElementById("txTotalText").textContent = formatBytes(Math.max(0, curTx - state.startTx));
-
-    const g = st.geo;
-    const ip = (g && g.query) || st.exitIp || state.slots[state.runningSlot || 0].host || "Active";
-    document.getElementById("exitIpText").textContent = ip;
-    if (g && g.country) {
-      document.getElementById("exitFlag").textContent = flagEmojiFromCode(g.countryCode);
-      document.getElementById("exitLocText").textContent = g.countryCode || g.country;
-    } else {
-      document.getElementById("exitFlag").textContent = "🛡️";
-      document.getElementById("exitLocText").textContent = "Tunnel";
-    }
-  } else {
-    state.sessionStartMs = 0;
-    if (!state.isTransitioning) {
-      coreStateText.textContent = "OFF";
-    }
-    coreTimerText.textContent = "00:00:00";
-    document.getElementById("rxSpeedText").textContent = "0 B/s";
-    document.getElementById("txSpeedText").textContent = "0 B/s";
-    document.getElementById("exitFlag").textContent = "🌐";
-    document.getElementById("exitIpText").textContent = "Offline";
-    document.getElementById("exitLocText").textContent = "Exit IP";
+      state.connecting = false;
+      if (resp && resp.ok) {
+        state.running = true;
+        updateVisualState(true, resp.exitIp || state.host);
+        showToast("Connected • " + (resp.exitIp || state.host));
+      } else {
+        state.running = false;
+        updateVisualState(false, "");
+        showToast((resp && resp.msg) ? resp.msg : "Connection Failed");
+      }
+    }, 50);
   }
 
-  renderSlotCapsules();
-}
-
-function pollBackendStatus() {
-  if (!window.NamelessBridge) return;
-  try {
-    const raw = JSON.parse(window.NamelessBridge.pollStatus() || "{}");
-    applyPolledStatus(raw, false);
-    if (state.activeTab === 4) {
-      refreshLogsNow();
-    }
-  } catch (e) {}
-}
-
-function switchTab(idx) {
-  state.activeTab = idx;
-  document.querySelectorAll(".tab-view").forEach((pane, i) => {
-    pane.classList.toggle("active", i === idx);
-  });
-  document.querySelectorAll(".dock-orb").forEach((btn, i) => {
-    btn.classList.toggle("active", i === idx);
-  });
-
-  pulseAllVisibleBubbles();
-
-  if (window.NamelessBridge) {
-    if (idx === 1) {
-      setTimeout(() => {
-        const toolbar = document.getElementById("checkerToolbar");
-        const dock = document.getElementById("bottomDock");
-        const topDp = Math.round(toolbar.getBoundingClientRect().bottom + 8);
-        const bottomDp = Math.round((window.innerHeight - dock.getBoundingClientRect().top) + 8);
-        const url = document.getElementById("checkerUrlInput").value || "https://ipfighter.com";
-        window.NamelessBridge.showCheckerView(url, topDp, bottomDp);
-      }, 60);
-    } else {
-      window.NamelessBridge.hideCheckerView();
-    }
+  function updateVisualState(running, exitIp) {
+    state.running = running;
+    els.body.dataset.state = running ? "connected" : "disconnected";
+    els.orbStateText.textContent = running ? "ACTIVE" : "TAP";
+    els.exitIpBadge.textContent = running ? (exitIp || state.host || "ONLINE") : "OFFLINE";
   }
 
-  if (idx === 4) {
-    refreshLogsNow();
+  function formatBytes(bytes) {
+    if (!bytes || bytes < 0) return "0.0 KB";
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1024) return (mb / 1024).toFixed(2) + " GB";
+    if (mb >= 1) return mb.toFixed(1) + " MB";
+    return (bytes / 1024).toFixed(1) + " KB";
   }
-}
 
-function loadCheckerPreset(url, btnId) {
-  document.querySelectorAll(".preset-orb").forEach(b => b.classList.remove("active"));
-  const btn = document.getElementById(btnId);
-  if (btn) btn.classList.add("active");
-  document.getElementById("checkerUrlInput").value = url;
-  if (window.NamelessBridge) {
-    window.NamelessBridge.navigateChecker(url);
+  function formatRate(bytesPerSec) {
+    if (!bytesPerSec || bytesPerSec <= 0) return "0.0 KB/s";
+    const mbps = bytesPerSec / (1024 * 1024);
+    if (mbps >= 1) return mbps.toFixed(2) + " MB/s";
+    return (bytesPerSec / 1024).toFixed(1) + " KB/s";
   }
-}
 
-function goCheckerUrl() {
-  let u = (document.getElementById("checkerUrlInput").value || "").trim();
-  if (!u) return;
-  if (!u.startsWith("http://") && !u.startsWith("https://")) {
-    u = "https://" + u;
-    document.getElementById("checkerUrlInput").value = u;
-  }
-  if (window.NamelessBridge) {
-    window.NamelessBridge.navigateChecker(u);
-  }
-}
-
-function reloadCheckerView(wipe) {
-  if (window.NamelessBridge) {
-    window.NamelessBridge.reloadChecker(!!wipe);
-  }
-}
-
-window.onCheckerState = function(url, loading) {
-  if (url) {
-    document.getElementById("checkerUrlInput").value = url;
-  }
-};
-
-function setLogMode(audit) {
-  state.auditMode = !!audit;
-  document.getElementById("btnModeLogs").classList.toggle("active", !state.auditMode);
-  document.getElementById("btnModeAudit").classList.toggle("active", state.auditMode);
-  refreshLogsNow();
-}
-
-function refreshLogsNow() {
-  if (!window.NamelessBridge) return;
-  const text = window.NamelessBridge.fetchLogs(state.auditMode);
-  document.getElementById("logConsole").textContent = text || "";
-}
-
-function clearLogsNow() {
-  if (!window.NamelessBridge) return;
-  window.NamelessBridge.clearKernelLogs();
-  setTimeout(refreshLogsNow, 150);
-}
-
-function exportAllSlots() {
-  saveFormIntoSlot(state.activeSlot);
-  persistAllSlots();
-  if (window.NamelessBridge) {
-    const ok = window.NamelessBridge.exportAllSlots();
-    window.NamelessBridge.showToast(ok ? "Exported" : "Export failed");
-  }
-}
-
-function importAllSlots() {
-  if (!window.NamelessBridge) return;
-  const raw = window.NamelessBridge.importAllSlots();
-  if (raw) {
+  /* Non-Blocking Cached Status Poller (<0.1ms native read) */
+  function pollTunnelStatus() {
+    if (!Bridge || state.connecting) return;
     try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.slots) && parsed.slots.length === 5) {
-        state.slots = parsed.slots;
-        loadSlotIntoForm(state.activeSlot);
-        renderSlotCapsules();
-        window.NamelessBridge.showToast("Imported 5 slots");
+      const raw = Bridge.getTunnelStatusJson();
+      if (!raw) return;
+      const st = JSON.parse(raw);
+      const now = Date.now();
+      const dt = Math.max(0.25, (now - state.lastTs) / 1000);
+
+      const rx = Number(st.rxBytes) || 0;
+      const tx = Number(st.txBytes) || 0;
+      const rxRate = state.lastRx > 0 && rx >= state.lastRx ? (rx - state.lastRx) / dt : 0;
+      const txRate = state.lastTx > 0 && tx >= state.lastTx ? (tx - state.lastTx) / dt : 0;
+
+      state.lastRx = rx;
+      state.lastTx = tx;
+      state.lastTs = now;
+
+      els.rxSpeed.textContent = formatRate(rxRate);
+      els.txSpeed.textContent = formatRate(txRate);
+      els.rxTotal.textContent = formatBytes(rx);
+      els.txTotal.textContent = formatBytes(tx);
+
+      updateVisualState(!!st.running, st.exitIp || "");
+    } catch (_) {}
+  }
+
+  /* Event Bindings */
+  function initEvents() {
+    els.powerOrb.addEventListener("click", toggleTunnel);
+
+    els.protoSocks5.addEventListener("click", () => {
+      state.proto = "socks5";
+      saveConfig();
+      syncFormUI();
+    });
+
+    els.protoHttp.addEventListener("click", () => {
+      state.proto = "http";
+      saveConfig();
+      syncFormUI();
+    });
+
+    els.quickPasteBtn.addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (parseProxyString(text)) {
+          showToast("Proxy Pasted");
+        } else {
+          showToast("Format: host:port:user:pass");
+        }
+      } catch (_) {
+        const manual = prompt("Paste proxy (host:port:user:pass):");
+        if (manual && parseProxyString(manual)) showToast("Proxy Pasted");
+      }
+    });
+
+    els.proxyHost.addEventListener("input", (e) => {
+      const v = e.target.value;
+      if (v.includes(":")) {
+        parseProxyString(v);
+      } else {
+        saveConfig();
+      }
+    });
+    els.proxyPort.addEventListener("input", saveConfig);
+    els.proxyUser.addEventListener("input", saveConfig);
+    els.proxyPass.addEventListener("input", saveConfig);
+
+    els.hotspotBtn.addEventListener("click", () => {
+      state.hotspot = !state.hotspot;
+      saveConfig();
+      syncFormUI();
+      if (Bridge && typeof Bridge.toggleHotspot === "function" && state.running) {
+        try { Bridge.toggleHotspot(state.hotspot); } catch (_) {}
+      }
+      showToast(state.hotspot ? "Hotspot Share ON" : "Hotspot Share OFF");
+    });
+
+    els.killswitchBtn.addEventListener("click", () => {
+      state.killswitch = !state.killswitch;
+      saveConfig();
+      syncFormUI();
+      showToast(state.killswitch ? "Killswitch ON" : "Killswitch OFF");
+    });
+
+    els.saveProfileBtn.addEventListener("click", () => {
+      saveConfig();
+      if (!state.host || !state.port) {
+        showToast("Enter Host & Port");
         return;
       }
-    } catch (e) {}
-  }
-  window.NamelessBridge.showToast("No backup found");
-}
+      state.profiles.unshift({
+        proto: state.proto,
+        host: state.host,
+        port: state.port,
+        user: state.user,
+        pass: state.pass
+      });
+      if (state.profiles.length > 8) state.profiles.pop();
+      saveConfig();
+      renderProfiles();
+      showToast("Saved Profile");
+    });
 
-// ============================================================================
-// 120fps Liquid Blob Satellites & Wave Canvas Engine
-// ============================================================================
-function startCanvasLoops() {
-  const orbCanvas = document.getElementById("orbitalCanvas");
-  const waveCanvas = document.getElementById("waveCanvas");
-  const orbCtx = orbCanvas.getContext("2d");
-  const waveCtx = waveCanvas.getContext("2d");
-  let phase = 0;
+    document.querySelectorAll(".dock-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        switchTab(Number(btn.dataset.tab));
+      });
+    });
 
-  function renderFrame() {
-    phase += state.isRunning ? 0.052 : 0.022;
+    document.querySelectorAll(".checker-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        launchEmbeddedChecker(btn.dataset.url);
+      });
+    });
 
-    orbCtx.clearRect(0, 0, orbCanvas.width, orbCanvas.height);
-    const cx = orbCanvas.width / 2;
-    const cy = orbCanvas.height / 2;
-    const baseColor = state.isRunning ? "52, 211, 153" : "56, 189, 248";
+    els.chkReload.addEventListener("click", () => {
+      launchEmbeddedChecker(state.checkerUrl);
+      showToast("Reloading...");
+    });
 
-    // Soft wobbling jelly halo + orbiting liquid droplets
-    for (let i = 0; i < 6; i++) {
-      const ang = phase * (i % 2 === 0 ? 1 : -0.8) + (i * Math.PI) / 3;
-      const dist = 88 + Math.sin(phase * 1.8 + i) * 7;
-      const bx = cx + Math.cos(ang) * dist;
-      const by = cy + Math.sin(ang) * dist;
-      const rad = 7 + (i % 3) * 3 + Math.cos(phase * 2 + i) * 1.8;
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.appMode = btn.dataset.mode;
+        saveConfig();
+        syncFormUI();
+        showToast("Mode: " + btn.textContent);
+      });
+    });
 
-      orbCtx.beginPath();
-      orbCtx.arc(bx, by, rad, 0, Math.PI * 2);
-      orbCtx.fillStyle = `rgba(${baseColor}, ${0.32 - i * 0.03})`;
-      orbCtx.fill();
-    }
-
-    waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
-    const w = waveCanvas.width;
-    const h = waveCanvas.height;
-    const maxVal = Math.max(1024, ...state.rxHistory, ...state.txHistory);
-
-    function drawSeries(arr, stroke, fill) {
-      waveCtx.beginPath();
-      for (let i = 0; i < arr.length; i++) {
-        const x = (i / (arr.length - 1)) * w;
-        const norm = Math.min(1, arr[i] / maxVal);
-        const y = h - 7 - norm * (h - 16) + Math.sin(phase * 2.2 + i * 0.4) * (state.isRunning ? 2.5 : 0.9);
-        if (i === 0) waveCtx.moveTo(x, y);
-        else waveCtx.lineTo(x, y);
-      }
-      waveCtx.strokeStyle = stroke;
-      waveCtx.lineWidth = 2.4;
-      waveCtx.stroke();
-      waveCtx.lineTo(w, h);
-      waveCtx.lineTo(0, h);
-      waveCtx.closePath();
-      waveCtx.fillStyle = fill;
-      waveCtx.fill();
-    }
-
-    drawSeries(state.rxHistory, "#38BDF8", "rgba(56, 189, 248, 0.18)");
-    drawSeries(state.txHistory, "#34D399", "rgba(52, 211, 153, 0.14)");
-
-    requestAnimationFrame(renderFrame);
+    els.appSearchInput.addEventListener("input", renderAppsList);
+    els.clearAppsBtn.addEventListener("click", () => {
+      state.selectedApps.clear();
+      saveConfig();
+      renderAppsList();
+      showToast("Cleared Selection");
+    });
   }
 
-  requestAnimationFrame(renderFrame);
-}
-
-window.addEventListener("DOMContentLoaded", initApp);
+  /* Initialize */
+  bindJellyTouch();
+  loadSavedConfig();
+  initEvents();
+  pollTunnelStatus();
+  setInterval(pollTunnelStatus, 1500);
+})();

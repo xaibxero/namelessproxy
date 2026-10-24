@@ -218,10 +218,12 @@ start_tunnel() {
         UID_LIST="$(echo "$TARGET_UIDS" | tr ',' ' ') $SDK_START-$SDK_END $ISO_START-$ISO_END"
     fi
 
-    # 6. Loopback Source-Binding Engine (Table 2088: default dev lo src 127.0.0.1)
+    # 6. TCP-Only Loopback Source-Binding Engine (Table 2088: default dev lo src 127.0.0.1)
+    # Scoping uidrange to `ipproto tcp` keeps all outside-app TCP 100% stable on lo while allowing
+    # Chrome & WebView WebRTC UDP sockets to see the active interface and send STUN requests to stun-responder!
     ip route replace default dev lo src 127.0.0.1 table 2088 2>/dev/null || true
     for rng in $UID_LIST; do
-        ip rule add uidrange "$rng" lookup 2088 pref 8800 2>/dev/null || true
+        ip rule add ipproto tcp uidrange "$rng" lookup 2088 pref 8800 2>/dev/null || true
     done
     ip rule add from 127.0.0.0/8 lookup 2088 pref 8805 2>/dev/null || true
     ip rule add to 198.18.0.0/15 lookup 2088 pref 8806 2>/dev/null || true

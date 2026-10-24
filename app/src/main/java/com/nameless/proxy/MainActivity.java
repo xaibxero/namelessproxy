@@ -31,10 +31,6 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
-import androidx.webkit.ProxyConfig;
-import androidx.webkit.ProxyController;
-import androidx.webkit.WebViewFeature;
-
 import com.nameless.proxy.core.RootBridge;
 
 import org.json.JSONObject;
@@ -44,6 +40,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
+    private FrameLayout rootLayout;
     private WebView uiWebView;
     private WebView checkerWebView;
     private FrameLayout checkerContainer;
@@ -81,8 +78,9 @@ public class MainActivity extends Activity {
 
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
-        window.setStatusBarColor(Color.parseColor("#050811"));
-        window.setNavigationBarColor(Color.parseColor("#050811"));
+        window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        window.setStatusBarColor(Color.parseColor("#07080D"));
+        window.setNavigationBarColor(Color.parseColor("#07080D"));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
@@ -104,11 +102,13 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
         }
 
-        FrameLayout rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#050811"));
+        RootBridge.startBackgroundPoller();
+
+        rootLayout = new FrameLayout(this);
+        rootLayout.setBackgroundColor(Color.parseColor("#07080D"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#050811"));
+        uiWebView.setBackgroundColor(Color.parseColor("#07080D"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         WebSettings ws = uiWebView.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -122,7 +122,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#080D1A"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#0A0C14"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -139,28 +139,14 @@ public class MainActivity extends Activity {
         ioPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
     }
 
-    private void updateWebViewProxy(boolean active) {
-        try {
-            if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-                if (active) {
-                    ProxyConfig cfg = new ProxyConfig.Builder()
-                        .addProxyRule("127.0.0.1:10801")
-                        .addBypassRule("localhost")
-                        .addBypassRule("127.0.0.1")
-                        .build();
-                    ProxyController.getInstance().setProxyOverride(cfg, Runnable::run, () -> {});
-                } else {
-                    ProxyController.getInstance().clearProxyOverride(Runnable::run, () -> {});
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
-    private void ensureCheckerWebView(String url, int topDp, int bottomDp) {
+    private void ensureCheckerWebView(String url, float topRatio, float bottomRatio) {
+        int totalH = rootLayout.getHeight();
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int topPx = Math.round(topDp * dm.density);
-        int bottomPx = Math.round(bottomDp * dm.density);
+        if (totalH <= 0) totalH = dm.heightPixels;
+
+        int topPx = Math.max(Math.round(130 * dm.density), Math.round(topRatio * totalH));
+        int bottomPx = Math.max(Math.round(74 * dm.density), Math.round(bottomRatio * totalH));
         int sidePx = Math.round(12 * dm.density);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -172,16 +158,19 @@ public class MainActivity extends Activity {
         checkerContainer.setLayoutParams(lp);
         checkerContainer.setVisibility(View.VISIBLE);
 
+        boolean firstCreate = false;
         if (checkerWebView == null) {
+            firstCreate = true;
             checkerWebView = new WebView(this);
-            checkerWebView.setBackgroundColor(Color.parseColor("#080D1A"));
+            checkerWebView.setBackgroundColor(Color.parseColor("#0A0C14"));
             checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             WebSettings s = checkerWebView.getSettings();
             s.setJavaScriptEnabled(true);
             s.setDomStorageEnabled(true);
             s.setDatabaseEnabled(true);
-            s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+            s.setCacheMode(WebSettings.LOAD_DEFAULT);
             s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            s.setMediaPlaybackRequiresUserGesture(false);
             s.setUserAgentString(
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
             );
@@ -211,8 +200,12 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT
             ));
         }
+
         if (url != null && !url.isEmpty()) {
-            checkerWebView.loadUrl(url);
+            String current = checkerWebView.getUrl();
+            if (firstCreate || current == null || !current.equals(url)) {
+                checkerWebView.loadUrl(url);
+            }
         }
     }
 
@@ -253,8 +246,7 @@ public class MainActivity extends Activity {
         public String getInitialState() {
             try {
                 JSONObject res = new JSONObject();
-                boolean root = RootBridge.checkRoot();
-                res.put("root", root);
+                res.put("root", true);
                 res.put("userId", RootBridge.getAndroidUserId());
                 res.put("network", getActiveNetworkSummary());
                 res.put("slotsJson", RootBridge.loadAllSlotsFromDisk(getApplicationContext()));
@@ -292,13 +284,16 @@ public class MainActivity extends Activity {
                 try {
                     JSONObject cfg = new JSONObject(configJsonStr);
                     JSONObject r = RootBridge.startTunnel(getApplicationContext(), cfg);
-                    boolean ok = r.optBoolean("ok", false);
-                    updateWebViewProxy(ok);
                     final String payload = r.toString().replace("\\", "\\\\").replace("'", "\\'");
-                    runOnUiThread(() -> uiWebView.evaluateJavascript(
-                        "window.onTunnelActionComplete && window.onTunnelActionComplete('" + payload + "');",
-                        null
-                    ));
+                    runOnUiThread(() -> {
+                        if (checkerWebView != null && checkerContainer.getVisibility() == View.VISIBLE) {
+                            checkerWebView.reload();
+                        }
+                        uiWebView.evaluateJavascript(
+                            "window.onTunnelActionComplete && window.onTunnelActionComplete('" + payload + "');",
+                            null
+                        );
+                    });
                 } catch (Exception e) {
                     runOnUiThread(() -> uiWebView.evaluateJavascript(
                         "window.onTunnelActionComplete && window.onTunnelActionComplete('{\"ok\":false,\"error\":\"Invalid config\"}');",
@@ -312,7 +307,6 @@ public class MainActivity extends Activity {
         public void stopTunnelAsync() {
             ioPool.execute(() -> {
                 RootBridge.stopTunnel(getApplicationContext());
-                updateWebViewProxy(false);
                 runOnUiThread(() -> uiWebView.evaluateJavascript(
                     "window.onTunnelActionComplete && window.onTunnelActionComplete('{\"ok\":true,\"stopped\":true}');",
                     null
@@ -349,8 +343,8 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void showCheckerView(String url, int topDp, int bottomDp) {
-            runOnUiThread(() -> ensureCheckerWebView(url, topDp, bottomDp));
+        public void showCheckerRatio(String url, float topRatio, float bottomRatio) {
+            runOnUiThread(() -> ensureCheckerWebView(url, topRatio, bottomRatio));
         }
 
         @JavascriptInterface
@@ -367,6 +361,8 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (checkerWebView != null && url != null && !url.isEmpty()) {
                     checkerWebView.loadUrl(url);
+                } else if (url != null && !url.isEmpty()) {
+                    ensureCheckerWebView(url, 0.18f, 0.10f);
                 }
             });
         }

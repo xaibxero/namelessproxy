@@ -28,6 +28,9 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class RootBridge {
 
@@ -38,6 +41,60 @@ public class RootBridge {
     public static final String CONFIG_PATH = ADB_DIR + "/config.json";
     public static final String EXIT_JSON_PATH = ADB_DIR + "/exit_info.json";
     public static final String PUBLIC_BACKUP = "/sdcard/Download/nameless_proxy_backup.json";
+
+    private static volatile boolean cachedRunning = false;
+    private static volatile String cachedPid = "";
+    private static volatile int cachedSlot = 0;
+    private static volatile String cachedExitIp = "";
+    private static volatile JSONObject cachedGeo = null;
+    private static volatile String cachedAppsJson = null;
+    private static boolean pollerStarted = false;
+    private static final ScheduledExecutorService statusPoller = Executors.newSingleThreadScheduledExecutor();
+
+    public static synchronized void startBackgroundPoller() {
+        if (pollerStarted) return;
+        pollerStarted = true;
+        statusPoller.scheduleWithFixedDelay(RootBridge::refreshStatusFromRootNow, 0, 2200, TimeUnit.MILLISECONDS);
+    }
+
+    public static void refreshStatusFromRootNow() {
+        try {
+            String out = execSu(
+                "/system/bin/sh " + TUNNEL_SH + " status",
+                "if [ -f " + EXIT_JSON_PATH + " ]; then echo 'GEO:'$(cat " + EXIT_JSON_PATH + "); fi"
+            );
+            boolean running = false;
+            String pid = "";
+            int slot = 0;
+            String exitIp = "";
+            JSONObject geo = null;
+
+            for (String line : out.split("\n")) {
+                line = line.trim();
+                if (line.startsWith("RUNNING|")) {
+                    running = true;
+                    String[] parts = line.split("\\|");
+                    if (parts.length > 1) pid = parts[1];
+                    if (parts.length > 2 && parts[2].contains(":")) {
+                        String[] us = parts[2].split(":");
+                        if (us.length > 1) {
+                            try { slot = Integer.parseInt(us[1]); } catch (Exception ignored) {}
+                        }
+                    }
+                    if (parts.length > 3) exitIp = parts[3];
+                } else if (line.startsWith("GEO:")) {
+                    try {
+                        geo = new JSONObject(line.substring(4).trim());
+                    } catch (Exception ignored) {}
+                }
+            }
+            cachedRunning = running;
+            cachedPid = pid;
+            cachedSlot = slot;
+            cachedExitIp = exitIp;
+            cachedGeo = geo;
+        } catch (Exception ignored) {}
+    }
 
     public static int getAndroidUserId() {
         return Process.myUid() / 100000;
@@ -147,6 +204,7 @@ public class RootBridge {
     }
 
     public static String getInstalledAppsJson(Context context) {
+        if (cachedAppsJson != null) return cachedAppsJson;
         JSONArray arr = new JSONArray();
         try {
             PackageManager pm = context.getPackageManager();
@@ -176,6 +234,7 @@ public class RootBridge {
             for (JSONObject item : items) {
                 arr.put(item);
             }
+            cachedAppsJson = arr.toString();
         } catch (Exception ignored) {}
         return arr.toString();
     }
@@ -422,8 +481,9 @@ public class RootBridge {
                 "cmd deviceidle whitelist +com.nameless.proxy >/dev/null 2>&1 || true",
                 "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\" \"" + targetUids + "\" \"" + webrtcMode + "\""
             );
-            if (out.contains("OK") || isTunnelRunning()) {
-                return res.put("ok", true).put("status", getTunnelStatusJson().optString("pid", ""));
+            refreshStatusFromRootNow();
+            if (out.contains("OK") || cachedRunning) {
+                return res.put("ok", true).put("status", cachedPid);
             } else {
                 return res.put("ok", false).put("error", out.isEmpty() ? "Tunnel failed to start" : out);
             }
@@ -438,56 +498,30 @@ public class RootBridge {
     public static boolean stopTunnel(Context context) {
         ensureBinariesExtracted(context);
         execSu("/system/bin/sh " + TUNNEL_SH + " stop");
+        cachedRunning = false;
+        cachedPid = "";
+        cachedExitIp = "";
+        cachedGeo = null;
         return true;
     }
 
     public static boolean isTunnelRunning() {
-        String out = execSu("/system/bin/sh " + TUNNEL_SH + " status");
-        return out.startsWith("RUNNING|");
+        refreshStatusFromRootNow();
+        return cachedRunning;
     }
 
     public static JSONObject getTunnelStatusJson() {
         JSONObject obj = new JSONObject();
         try {
-            String out = execSu(
-                "/system/bin/sh " + TUNNEL_SH + " status",
-                "if [ -f " + EXIT_JSON_PATH + " ]; then echo 'GEO:'$(cat " + EXIT_JSON_PATH + "); fi"
-            );
-            boolean running = false;
-            String pid = "";
-            int slot = 0;
-            String exitIp = "";
-            JSONObject geo = null;
-
-            for (String line : out.split("\n")) {
-                line = line.trim();
-                if (line.startsWith("RUNNING|")) {
-                    running = true;
-                    String[] parts = line.split("\\|");
-                    if (parts.length > 1) pid = parts[1];
-                    if (parts.length > 2 && parts[2].contains(":")) {
-                        String[] us = parts[2].split(":");
-                        if (us.length > 1) {
-                            try { slot = Integer.parseInt(us[1]); } catch (Exception ignored) {}
-                        }
-                    }
-                    if (parts.length > 3) exitIp = parts[3];
-                } else if (line.startsWith("GEO:")) {
-                    try {
-                        geo = new JSONObject(line.substring(4).trim());
-                    } catch (Exception ignored) {}
-                }
-            }
-
             long[] bytes = readPhysicalNetworkBytes();
-            obj.put("running", running);
-            obj.put("pid", pid);
-            obj.put("slot", slot);
-            obj.put("exitIp", exitIp);
+            obj.put("running", cachedRunning);
+            obj.put("pid", cachedPid);
+            obj.put("slot", cachedSlot);
+            obj.put("exitIp", cachedExitIp);
             obj.put("rxBytes", bytes[0]);
             obj.put("txBytes", bytes[1]);
-            if (geo != null) {
-                obj.put("geo", geo);
+            if (cachedGeo != null) {
+                obj.put("geo", cachedGeo);
             }
         } catch (Exception ignored) {}
         return obj;
