@@ -3,236 +3,233 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Nameless Proxy</title>
+  <title>Nameless</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Hidden SVG Gooey Liquid Filter for Morphing Droplets -->
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <filter id="gooey">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur" />
+        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="goo" />
+        <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+      </filter>
+    </defs>
+  </svg>
+
   <div class="app-shell">
-    <header class="top-header">
-      <div class="brand-row">
-        <div class="brand-left">
-          <div class="status-orb" id="headerOrb"></div>
-          <div>
-            <div class="brand-title">NAMELESS <span class="brand-badge">ROOT v2.0</span></div>
-            <div class="brand-sub" id="netSummaryText">Checking network...</div>
-          </div>
-        </div>
-        <div class="root-pill" id="rootBadge">ROOT READY</div>
+    <!-- Top Floating Bubble Bar: Status + P1..P5 Spheres -->
+    <header class="top-bar">
+      <div class="net-bubble jelly" onclick="pollBackendStatus()">
+        <span class="dot" id="headerOrb"></span>
+        <span class="net-txt" id="netSummaryText">Online</span>
       </div>
 
-      <div class="slot-strip" id="slotStrip">
-        <button class="slot-pill active" data-slot="0" onclick="selectSlot(0)">
-          <span class="slot-name">P1</span>
-          <span class="slot-proto" id="slotProto0">SOCKS5</span>
-        </button>
-        <button class="slot-pill" data-slot="1" onclick="selectSlot(1)">
-          <span class="slot-name">P2</span>
-          <span class="slot-proto" id="slotProto1">SOCKS5</span>
-        </button>
-        <button class="slot-pill" data-slot="2" onclick="selectSlot(2)">
-          <span class="slot-name">P3</span>
-          <span class="slot-proto" id="slotProto2">SOCKS5</span>
-        </button>
-        <button class="slot-pill" data-slot="3" onclick="selectSlot(3)">
-          <span class="slot-name">P4</span>
-          <span class="slot-proto" id="slotProto3">SOCKS5</span>
-        </button>
-        <button class="slot-pill" data-slot="4" onclick="selectSlot(4)">
-          <span class="slot-name">P5</span>
-          <span class="slot-proto" id="slotProto4">SOCKS5</span>
-        </button>
+      <div class="slot-bubbles" id="slotStrip">
+        <button class="slot-orb jelly active" data-slot="0" onclick="selectSlot(0)">P1</button>
+        <button class="slot-orb jelly" data-slot="1" onclick="selectSlot(1)">P2</button>
+        <button class="slot-orb jelly" data-slot="2" onclick="selectSlot(2)">P3</button>
+        <button class="slot-orb jelly" data-slot="3" onclick="selectSlot(3)">P4</button>
+        <button class="slot-orb jelly" data-slot="4" onclick="selectSlot(4)">P5</button>
       </div>
     </header>
 
-    <main class="tab-viewport">
-      <section class="tab-pane active" id="tab-0">
-        <div class="bubble-card hero-core-card">
-          <div class="core-ring-wrap" onclick="toggleTunnel()">
-            <canvas id="orbitalCanvas" width="220" height="220"></canvas>
-            <div class="core-center-btn" id="coreBtn">
-              <div class="core-power-icon" id="coreIcon">⏻</div>
-              <div class="core-state-label" id="coreStateText">STANDBY</div>
-              <div class="core-timer" id="coreTimerText">TAP TO CONNECT</div>
-            </div>
-          </div>
-
-          <div class="hero-meta-strip">
-            <div class="meta-chip">
-              <span class="meta-label">ACTIVE NODE</span>
-              <span class="meta-val" id="hubNodeLabel">Not Configured</span>
-            </div>
-            <div class="meta-chip" onclick="pingCurrentNode()">
-              <span class="meta-label">TCP LATENCY ↻</span>
-              <span class="meta-val accent" id="hubPingLabel">Tap to Ping</span>
+    <!-- Main Animated Viewport -->
+    <main class="viewport">
+      <!-- TAB 0: HUB -->
+      <section class="tab-view active" id="tab-0">
+        <!-- Center 3D Liquid Jelly Power Sphere -->
+        <div class="orb-stage">
+          <div class="orb-touch-wrap jelly" id="orbTouchWrap" onclick="toggleTunnel()">
+            <canvas id="orbitalCanvas" width="260" height="260"></canvas>
+            <div class="clay-sphere" id="coreBtn">
+              <div class="sphere-shine"></div>
+              <div class="sphere-icon" id="coreIcon">⏻</div>
+              <div class="sphere-state" id="coreStateText">OFF</div>
+              <div class="sphere-timer" id="coreTimerText">00:00:00</div>
             </div>
           </div>
         </div>
 
-        <div class="bubble-card exit-card">
-          <div class="card-head">
-            <span class="card-title">EXIT TUNNEL IDENTITY</span>
-            <button class="mini-bubble-btn" onclick="switchTab(1)">Verify Leaks →</button>
-          </div>
-          <div class="exit-row">
-            <div class="exit-flag" id="exitFlag">🌐</div>
-            <div class="exit-info">
-              <div class="exit-ip" id="exitIpText">Tunnel Offline</div>
-              <div class="exit-loc" id="exitLocText">Connect a slot to mask Phone &amp; Hotspot</div>
+        <!-- 2 Side-by-Side 3D Jelly Pods: Exit IP & Ping -->
+        <div class="pod-row">
+          <div class="clay-pod jelly" onclick="switchTab(1)">
+            <div class="pod-icon" id="exitFlag">🌐</div>
+            <div class="pod-body">
+              <div class="pod-val" id="exitIpText">Offline</div>
+              <div class="pod-lbl" id="exitLocText">Exit IP</div>
             </div>
           </div>
-          <div class="shield-tags">
-            <span class="shield-tag">WebRTC STUN: Go Native</span>
-            <span class="shield-tag">Private DNS: Preserved</span>
-            <span class="shield-tag">464XLAT: Safe</span>
+
+          <div class="clay-pod jelly" onclick="pingCurrentNode()">
+            <div class="pod-icon cyan">⚡</div>
+            <div class="pod-body">
+              <div class="pod-val cyan" id="hubPingLabel">Ping</div>
+              <div class="pod-lbl" id="hubNodeLabel">P1</div>
+            </div>
           </div>
         </div>
 
-        <div class="bubble-card wave-card">
-          <div class="speed-grid">
-            <div class="speed-box">
-              <span class="speed-lbl">▼ DOWNLOAD</span>
-              <span class="speed-val cyan" id="rxSpeedText">0 B/s</span>
-              <span class="speed-tot" id="rxTotalText">Total: 0 MB</span>
+        <!-- Live Speed Wave Bubble -->
+        <div class="clay-card wave-bubble jelly">
+          <div class="wave-stats">
+            <div class="w-stat">
+              <span class="w-arrow cyan">▼</span>
+              <span class="w-rate" id="rxSpeedText">0 B/s</span>
+              <span class="w-tot" id="rxTotalText">0 B</span>
             </div>
-            <div class="speed-box">
-              <span class="speed-lbl">▲ UPLOAD</span>
-              <span class="speed-val mint" id="txSpeedText">0 B/s</span>
-              <span class="speed-tot" id="txTotalText">Total: 0 MB</span>
+            <div class="w-stat">
+              <span class="w-arrow mint">▲</span>
+              <span class="w-rate" id="txSpeedText">0 B/s</span>
+              <span class="w-tot" id="txTotalText">0 B</span>
             </div>
           </div>
-          <canvas id="waveCanvas" width="360" height="68"></canvas>
+          <canvas id="waveCanvas" width="360" height="54"></canvas>
         </div>
 
-        <div class="bubble-card toggle-row-card" onclick="toggleHotspotSetting()">
-          <div>
-            <div class="toggle-title">Wi-Fi Hotspot &amp; USB Tethering Shield</div>
-            <div class="toggle-sub">Routes Windows 11 / Laptop traffic + STUN WebRTC through proxy</div>
-          </div>
-          <div class="bubble-switch on" id="hotspotSwitch">
-            <div class="switch-knob"></div>
-          </div>
-        </div>
-      </section>
+        <!-- 3 Quick Control Jelly Pills: Hotspot | Apps | WebRTC -->
+        <div class="quick-pills">
+          <button class="q-pill jelly on" id="pillHotspot" onclick="toggleHotspotSetting()">
+            <span class="q-ico">📡</span>
+            <span class="q-name">Hotspot</span>
+            <span class="q-state" id="lblHotspotState">ON</span>
+          </button>
 
-      <section class="tab-pane" id="tab-1">
-        <div class="bubble-card checker-toolbar-card" id="checkerToolbar">
-          <div class="checker-preset-row">
-            <button class="preset-pill active" id="presetIpFighter" onclick="loadCheckerPreset('https://ipfighter.com', 'presetIpFighter')">IPFighter</button>
-            <button class="preset-pill" id="presetWebRtc" onclick="loadCheckerPreset('https://browserleaks.com/webrtc', 'presetWebRtc')">WebRTC Check</button>
-            <button class="preset-pill" id="presetDns" onclick="loadCheckerPreset('https://browserleaks.com/dns', 'presetDns')">DNS Check</button>
-          </div>
-          <div class="checker-url-row">
-            <input type="text" id="checkerUrlInput" class="checker-url-input" value="https://ipfighter.com" onkeydown="if(event.key==='Enter') goCheckerUrl()" />
-            <button class="icon-bubble-btn" onclick="reloadCheckerView(false)" title="Reload">↻</button>
-            <button class="icon-bubble-btn danger" onclick="reloadCheckerView(true)" title="Wipe Cookies &amp; Reload">🧹</button>
-          </div>
-        </div>
-        <div class="checker-placeholder" id="checkerPlaceholder">
-          Loading Live Ephemeral Verification Browser...
+          <button class="q-pill jelly on" id="pillApps" onclick="switchTab(3)">
+            <span class="q-ico">⊞</span>
+            <span class="q-name">Apps</span>
+            <span class="q-state" id="lblAppsState">ALL</span>
+          </button>
+
+          <button class="q-pill jelly on" id="pillWebrtc" onclick="toggleWebrtcMode()">
+            <span class="q-ico">🛡</span>
+            <span class="q-name">WebRTC</span>
+            <span class="q-state" id="lblWebrtcState">IP</span>
+          </button>
         </div>
       </section>
 
-      <section class="tab-pane" id="tab-2">
-        <div class="bubble-card">
-          <div class="card-head">
-            <span class="card-title" id="editingSlotTitle">SLOT P1 CONFIGURATION</span>
-            <div class="btn-group">
-              <button class="mini-bubble-btn" onclick="pasteUriFromClipboard()">📋 Paste URI</button>
-              <button class="mini-bubble-btn danger" onclick="clearCurrentSlot()">Reset</button>
+      <!-- TAB 1: IPFIGHTER / WEBRTC / DNS CHECKER -->
+      <section class="tab-view" id="tab-1">
+        <div class="clay-card checker-bar" id="checkerToolbar">
+          <div class="preset-row">
+            <button class="preset-orb jelly active" id="presetIpFighter" onclick="loadCheckerPreset('https://ipfighter.com', 'presetIpFighter')">IPFighter</button>
+            <button class="preset-orb jelly" id="presetWebRtc" onclick="loadCheckerPreset('https://browserleaks.com/webrtc', 'presetWebRtc')">WebRTC</button>
+            <button class="preset-orb jelly" id="presetDns" onclick="loadCheckerPreset('https://browserleaks.com/dns', 'presetDns')">DNS</button>
+          </div>
+          <div class="url-row">
+            <input type="text" id="checkerUrlInput" class="clay-input url-inp" value="https://ipfighter.com" onkeydown="if(event.key==='Enter') goCheckerUrl()" />
+            <button class="icon-orb jelly" onclick="reloadCheckerView(false)">↻</button>
+            <button class="icon-orb jelly danger" onclick="reloadCheckerView(true)">🧹</button>
+          </div>
+        </div>
+        <div class="checker-slot" id="checkerPlaceholder"></div>
+      </section>
+
+      <!-- TAB 2: NODE CONFIG -->
+      <section class="tab-view" id="tab-2">
+        <div class="clay-card">
+          <div class="row-between">
+            <span class="sec-title" id="editingSlotTitle">P1 NODE</span>
+            <div class="btn-cluster">
+              <button class="pill-btn jelly" onclick="pasteUriFromClipboard()">📋 Paste</button>
+              <button class="pill-btn jelly danger" onclick="clearCurrentSlot()">Reset</button>
             </div>
           </div>
 
-          <div class="proto-grid" id="protoGrid">
-            <button class="proto-chip active" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
-            <button class="proto-chip" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
-            <button class="proto-chip" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
-            <button class="proto-chip" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
-            <button class="proto-chip" data-proto="SHADOWSOCKS" onclick="setProtocol('SHADOWSOCKS')">SS</button>
-            <button class="proto-chip" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
-            <button class="proto-chip" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
-            <button class="proto-chip" data-proto="SOCKS4" onclick="setProtocol('SOCKS4')">SOCKS4</button>
+          <div class="proto-bubbles" id="protoGrid">
+            <button class="proto-orb jelly active" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
+            <button class="proto-orb jelly" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
+            <button class="proto-orb jelly" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
+            <button class="proto-orb jelly" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
+            <button class="proto-orb jelly" data-proto="SHADOWSOCKS" onclick="setProtocol('SHADOWSOCKS')">SS</button>
+            <button class="proto-orb jelly" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
+            <button class="proto-orb jelly" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
+            <button class="proto-orb jelly" data-proto="SOCKS4" onclick="setProtocol('SOCKS4')">SOCKS4</button>
           </div>
 
-          <div class="form-grid">
-            <div class="field-row">
-              <div class="field-box flex-2">
-                <label>Server Host / IP</label>
-                <input type="text" id="inpHost" placeholder="e.g. 45.132.x.x or us.proxy.com" oninput="onFormEdited()" />
-              </div>
-              <div class="field-box flex-1">
-                <label>Port</label>
-                <input type="number" id="inpPort" placeholder="1080" oninput="onFormEdited()" />
-              </div>
+          <div class="input-stack">
+            <div class="split-row">
+              <input type="text" id="inpHost" class="clay-input flex-3" placeholder="Host / IP" oninput="onFormEdited()" />
+              <input type="number" id="inpPort" class="clay-input flex-1" placeholder="Port" oninput="onFormEdited()" />
             </div>
-
-            <div class="field-row">
-              <div class="field-box">
-                <label id="lblUser">Username / UUID</label>
-                <input type="text" id="inpUser" placeholder="Optional username or UUID" oninput="onFormEdited()" />
-              </div>
-              <div class="field-box">
-                <label id="lblPass">Password / Secret</label>
-                <input type="password" id="inpPass" placeholder="Optional password" oninput="onFormEdited()" />
-              </div>
+            <div class="split-row">
+              <input type="text" id="inpUser" class="clay-input" placeholder="Username / UUID" oninput="onFormEdited()" />
+              <input type="password" id="inpPass" class="clay-input" placeholder="Password" oninput="onFormEdited()" />
             </div>
-
-            <div class="field-row" id="tlsExtraRow">
-              <div class="field-box">
-                <label>SNI / Server Name (TLS)</label>
-                <input type="text" id="inpSni" placeholder="Optional SNI hostname" oninput="onFormEdited()" />
-              </div>
-              <div class="field-box">
-                <label>Reality Public Key / SS Method</label>
-                <input type="text" id="inpExtra" placeholder="Optional pbk or cipher" oninput="onFormEdited()" />
-              </div>
+            <div class="split-row">
+              <input type="text" id="inpSni" class="clay-input" placeholder="SNI" oninput="onFormEdited()" />
+              <input type="text" id="inpExtra" class="clay-input" placeholder="Key / Cipher" oninput="onFormEdited()" />
             </div>
           </div>
         </div>
 
-        <div class="bubble-card">
-          <div class="card-head">
-            <span class="card-title">PROFILE BACKUP &amp; RESTORE</span>
-          </div>
-          <div class="backup-btn-row">
-            <button class="action-bubble-btn" onclick="exportAllSlots()">⬇ Export 5 Slots to Downloads</button>
-            <button class="action-bubble-btn" onclick="importAllSlots()">⬆ Import from Downloads</button>
-          </div>
+        <div class="pod-row">
+          <button class="clay-btn jelly" onclick="exportAllSlots()">⬇ Export</button>
+          <button class="clay-btn jelly" onclick="importAllSlots()">⬆ Import</button>
         </div>
       </section>
 
-      <section class="tab-pane" id="tab-3">
-        <div class="bubble-card log-card">
-          <div class="card-head">
-            <div class="btn-group">
-              <button class="mini-bubble-btn active" id="btnModeLogs" onclick="setLogMode(false)">Daemon Stream</button>
-              <button class="mini-bubble-btn" id="btnModeAudit" onclick="setLogMode(true)">Netfilter Audit</button>
+      <!-- TAB 3: APP ROUTING PICKER (ALL APPS vs SELECTED APPS) -->
+      <section class="tab-view" id="tab-3">
+        <div class="clay-card apps-card">
+          <div class="row-between">
+            <div class="mode-switch">
+              <button class="pill-btn jelly active" id="btnAllApps" onclick="setAppRouteMode(true)">All Apps</button>
+              <button class="pill-btn jelly" id="btnSelApps" onclick="setAppRouteMode(false)">Selected</button>
             </div>
-            <div class="btn-group">
-              <button class="mini-bubble-btn" onclick="refreshLogsNow()">↻</button>
-              <button class="mini-bubble-btn danger" onclick="clearLogsNow()">Clear</button>
+            <div class="btn-cluster">
+              <button class="pill-btn jelly" onclick="selectAllApps()">All</button>
+              <button class="pill-btn jelly danger" onclick="clearSelectedApps()">None</button>
             </div>
           </div>
-          <pre class="log-console" id="logConsole">Initializing kernel stream...</pre>
+
+          <input type="text" id="appSearchInput" class="clay-input" placeholder="Search apps..." oninput="renderAppsList()" />
+
+          <div class="apps-list" id="appsListContainer"></div>
+        </div>
+      </section>
+
+      <!-- TAB 4: LOGS & AUDIT -->
+      <section class="tab-view" id="tab-4">
+        <div class="clay-card log-wrap">
+          <div class="row-between">
+            <div class="btn-cluster">
+              <button class="pill-btn jelly active" id="btnModeLogs" onclick="setLogMode(false)">Logs</button>
+              <button class="pill-btn jelly" id="btnModeAudit" onclick="setLogMode(true)">Audit</button>
+            </div>
+            <div class="btn-cluster">
+              <button class="pill-btn jelly" onclick="refreshLogsNow()">↻</button>
+              <button class="pill-btn jelly danger" onclick="clearLogsNow()">Clear</button>
+            </div>
+          </div>
+          <pre class="log-box" id="logConsole"></pre>
         </div>
       </section>
     </main>
 
-    <nav class="bottom-dock" id="bottomDock">
-      <button class="dock-item active" data-tab="0" onclick="switchTab(0)">
-        <span class="dock-icon">◎</span>
-        <span class="dock-lbl">Hub</span>
+    <!-- Bottom 3D Clay Bubble Dock -->
+    <nav class="bubble-dock" id="bottomDock">
+      <button class="dock-orb jelly active" data-tab="0" onclick="switchTab(0)">
+        <span class="d-ico">◎</span>
+        <span class="d-txt">Hub</span>
       </button>
-      <button class="dock-item" data-tab="1" onclick="switchTab(1)">
-        <span class="dock-icon">🛡</span>
-        <span class="dock-lbl">IPFighter</span>
+      <button class="dock-orb jelly" data-tab="1" onclick="switchTab(1)">
+        <span class="d-ico">🛡</span>
+        <span class="d-txt">Check</span>
       </button>
-      <button class="dock-item" data-tab="2" onclick="switchTab(2)">
-        <span class="dock-icon">⚡</span>
-        <span class="dock-lbl">Node</span>
+      <button class="dock-orb jelly" data-tab="2" onclick="switchTab(2)">
+        <span class="d-ico">⚡</span>
+        <span class="d-txt">Node</span>
       </button>
-      <button class="dock-item" data-tab="3" onclick="switchTab(3)">
-        <span class="dock-icon">⌘</span>
-        <span class="dock-lbl">Kernel</span>
+      <button class="dock-orb jelly" data-tab="3" onclick="switchTab(3)">
+        <span class="d-ico">⊞</span>
+        <span class="d-txt">Apps</span>
+      </button>
+      <button class="dock-orb jelly" data-tab="4" onclick="switchTab(4)">
+        <span class="d-ico">⌘</span>
+        <span class="d-txt">Logs</span>
       </button>
     </nav>
   </div>

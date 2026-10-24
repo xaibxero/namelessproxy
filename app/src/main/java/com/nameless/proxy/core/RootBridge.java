@@ -2,6 +2,8 @@ package com.nameless.proxy.core;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.net.TrafficStats;
 import android.os.Process;
 
@@ -21,7 +23,11 @@ import java.net.Socket;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 public class RootBridge {
 
@@ -140,6 +146,40 @@ public class RootBridge {
         }
     }
 
+    public static String getInstalledAppsJson(Context context) {
+        JSONArray arr = new JSONArray();
+        try {
+            PackageManager pm = context.getPackageManager();
+            List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+            List<JSONObject> items = new ArrayList<>();
+            for (ApplicationInfo app : apps) {
+                String pkg = app.packageName != null ? app.packageName : "";
+                boolean isUserApp = (app.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
+                boolean isBrowserOrMedia = pkg.contains("chrome") || pkg.contains("youtube")
+                    || pkg.contains("brave") || pkg.contains("firefox") || pkg.contains("edge")
+                    || pkg.contains("opera") || pkg.contains("vending");
+                if (isUserApp || isBrowserOrMedia) {
+                    JSONObject o = new JSONObject();
+                    String label = pm.getApplicationLabel(app).toString();
+                    o.put("name", label);
+                    o.put("pkg", pkg);
+                    o.put("uid", app.uid);
+                    items.add(o);
+                }
+            }
+            Collections.sort(items, new Comparator<JSONObject>() {
+                @Override
+                public int compare(JSONObject a, JSONObject b) {
+                    return a.optString("name", "").compareToIgnoreCase(b.optString("name", ""));
+                }
+            });
+            for (JSONObject item : items) {
+                arr.put(item);
+            }
+        } catch (Exception ignored) {}
+        return arr.toString();
+    }
+
     public static String generateSingBoxConfig(JSONObject cfg, String resolvedHost) throws Exception {
         String type = cfg.optString("type", "SOCKS5").toUpperCase();
         String rawHost = cleanHost(cfg.optString("host", ""));
@@ -161,7 +201,6 @@ public class RootBridge {
             .put("store_fakeip", true)
         ));
 
-        // DNS
         JSONObject dns = new JSONObject();
         JSONArray servers = new JSONArray();
         servers.put(new JSONObject()
@@ -211,7 +250,6 @@ public class RootBridge {
         dns.put("reverse_mapping", true);
         root.put("dns", dns);
 
-        // Inbounds
         JSONArray inbounds = new JSONArray();
         inbounds.put(new JSONObject()
             .put("type", "redirect")
@@ -260,7 +298,6 @@ public class RootBridge {
         );
         root.put("inbounds", inbounds);
 
-        // Outbounds
         JSONArray outbounds = new JSONArray();
         JSONObject proxyOut = new JSONObject().put("tag", "proxy-out");
         switch (type) {
@@ -329,7 +366,6 @@ public class RootBridge {
         outbounds.put(new JSONObject().put("type", "direct").put("tag", "direct-out"));
         root.put("outbounds", outbounds);
 
-        // Route
         JSONObject route = new JSONObject()
             .put("auto_detect_interface", false)
             .put("default_domain_resolver", "dns-direct")
@@ -356,7 +392,7 @@ public class RootBridge {
         JSONObject res = new JSONObject();
         try {
             if (!ensureBinariesExtracted(context)) {
-                return res.put("ok", false).put("error", "Failed to extract native sing-box / stun-responder to " + ADB_DIR);
+                return res.put("ok", false).put("error", "Failed to extract binaries");
             }
             String rawHost = cleanHost(cfg.optString("host", ""));
             if (rawHost.isEmpty()) {
@@ -365,18 +401,26 @@ public class RootBridge {
             String resolvedIp = resolveServerIp(rawHost);
             String sbJson = generateSingBoxConfig(cfg, resolvedIp);
             if (!writeTextToAdb(sbJson, CONFIG_PATH)) {
-                return res.put("ok", false).put("error", "Failed to write " + CONFIG_PATH);
+                return res.put("ok", false).put("error", "Failed to write config");
             }
             int userId = getAndroidUserId();
             int slot = cfg.optInt("slot", 0);
             int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
+            String webrtcMode = cfg.optString("webrtcMode", "SPOOF");
+            String targetUids = cfg.optString("targetUids", "ALL");
+            if (!targetUids.equals("ALL") && !targetUids.isEmpty()) {
+                int myUid = Process.myUid();
+                targetUids = targetUids + "," + myUid;
+            } else {
+                targetUids = "ALL";
+            }
 
             int appPid = Process.myPid();
             String out = execSu(
                 "echo -800 > /proc/" + appPid + "/oom_score_adj 2>/dev/null || true",
                 "echo " + appPid + " > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
                 "cmd deviceidle whitelist +com.nameless.proxy >/dev/null 2>&1 || true",
-                "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\""
+                "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\" \"" + targetUids + "\" \"" + webrtcMode + "\""
             );
             if (out.contains("OK") || isTunnelRunning()) {
                 return res.put("ok", true).put("status", getTunnelStatusJson().optString("pid", ""));

@@ -54,14 +54,14 @@ public class MainActivity extends Activity {
         "try{" +
         "const orig = window.RTCPeerConnection || window.webkitRTCPeerConnection;" +
         "if(!orig || orig.__namelessPatched) return;" +
-        "function isPrivateCand(c){" +
+        "function isHostCand(c){" +
         "if(!c) return false;" +
-        "return /(10\\.\\d+\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+|172\\.(1[6-9]|2\\d|3[01])\\.\\d+\\.\\d+|100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\.\\d+\\.\\d+|192\\.0\\.0\\.\\d+|127\\.\\d+\\.\\d+\\.\\d+|169\\.254\\.\\d+\\.\\d+|\\.local|typ host)/i.test(c);" +
+        "return /typ host/i.test(c);" +
         "}" +
         "const Wrapped = function(cfg, constraints){" +
         "const pc = new orig(cfg, constraints);" +
         "pc.addEventListener('icecandidate', function(e){" +
-        "if(e && e.candidate && e.candidate.candidate && isPrivateCand(e.candidate.candidate)){" +
+        "if(e && e.candidate && e.candidate.candidate && isHostCand(e.candidate.candidate)){" +
         "e.stopImmediatePropagation();" +
         "}" +
         "}, true);" +
@@ -81,8 +81,8 @@ public class MainActivity extends Activity {
 
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
-        window.setStatusBarColor(Color.parseColor("#060A12"));
-        window.setNavigationBarColor(Color.parseColor("#060A12"));
+        window.setStatusBarColor(Color.parseColor("#050811"));
+        window.setNavigationBarColor(Color.parseColor("#050811"));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
@@ -105,10 +105,10 @@ public class MainActivity extends Activity {
         }
 
         FrameLayout rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#060A12"));
+        rootLayout.setBackgroundColor(Color.parseColor("#050811"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#060A12"));
+        uiWebView.setBackgroundColor(Color.parseColor("#050811"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         WebSettings ws = uiWebView.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -122,7 +122,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#0A101D"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#080D1A"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -174,7 +174,7 @@ public class MainActivity extends Activity {
 
         if (checkerWebView == null) {
             checkerWebView = new WebView(this);
-            checkerWebView.setBackgroundColor(Color.parseColor("#0A101D"));
+            checkerWebView.setBackgroundColor(Color.parseColor("#080D1A"));
             checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             WebSettings s = checkerWebView.getSettings();
             s.setJavaScriptEnabled(true);
@@ -231,19 +231,19 @@ public class MainActivity extends Activity {
     private String getActiveNetworkSummary() {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return "Online • auto";
+            if (cm == null) return "Online";
             Network net = cm.getActiveNetwork();
-            if (net == null) return "Offline • none";
+            if (net == null) return "Offline";
             NetworkCapabilities caps = cm.getNetworkCapabilities(net);
             LinkProperties lp = cm.getLinkProperties(net);
             String iface = (lp != null && lp.getInterfaceName() != null) ? lp.getInterfaceName() : "auto";
             if (caps != null) {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi • " + iface;
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "Cellular • " + iface;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "LTE • " + iface;
             }
-            return "Network • " + iface;
+            return iface;
         } catch (Exception e) {
-            return "Online • auto";
+            return "Online";
         }
     }
 
@@ -263,6 +263,11 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 return "{}";
             }
+        }
+
+        @JavascriptInterface
+        public String getInstalledApps() {
+            return RootBridge.getInstalledAppsJson(getApplicationContext());
         }
 
         @JavascriptInterface
