@@ -826,19 +826,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleInterfaceHandoverIfNeeded() {
-        val prevIface = lastActiveIfaceName
         probeActiveNetwork()
         val newIface = liveNetState.interfaceName
-        if (prevIface.isNotEmpty() && newIface.isNotEmpty() && prevIface != newIface) {
-            lastActiveIfaceName = newIface
-            lifecycleScope.launch(Dispatchers.IO) {
-                val user = ProfileManager.androidUserId
-                val rSlot = ProxyController.getRunningSlot(user)
-                if (rSlot != null) {
-                    ProxyController.refreshHandoverRules(user, rSlot)
-                }
-            }
-        } else if (newIface.isNotEmpty()) {
+        if (newIface.isNotEmpty()) {
             lastActiveIfaceName = newIface
         }
     }
