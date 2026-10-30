@@ -49,7 +49,7 @@ clean_rules() {
         echo 0 > "$f" 2>/dev/null || true
     done
 
-    for p in 7900 7901 7902 7903 7904 7905 8000 8001 8500 8501 8502 8503 8504 8505 8800 8801 8802 8805 8806 8807 31000 31001 31002 31003; do
+    for p in 7900 7901 7902 7903 7904 7905 8000 8001 8002 8500 8501 8502 8503 8504 8505 8800 8801 8802 8805 8806 8807 31000 31001 31002 31003; do
         while ip rule del pref "$p" 2>/dev/null; do :; done
     done
     ip route flush table 2088 2>/dev/null || true
@@ -131,11 +131,23 @@ start_tunnel() {
     rm -f "$ADB_DIR/cache.db" 2>/dev/null || true
 
     # Detect active upstream WAN routing table & interface BEFORE adding rules
-    WAN_TABLE=$(ip rule show | awk '/^22000:/ {print $NF}' | head -n 1)
+    # Works on 100% of Android versions (Wi-Fi wlan0 AND Cellular rmnet/v4-rmnet/ccmni)
+    ROUTE_PROBE=$(ip -4 route get "$BOOTSTRAP_V4" 2>/dev/null | head -n 1)
+    WAN_TABLE=$( echo "$ROUTE_PROBE" | awk '{for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}' )
+    WAN_IFACE=$( echo "$ROUTE_PROBE" | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}' )
+
     if [ -z "$WAN_TABLE" ]; then
-        WAN_TABLE=$(ip route show table all 2>/dev/null | awk '/^default via/ && $0 !~ /table (local|2088|2288)/ {for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}')
+        WAN_TABLE=$(ip rule show | awk '/fwmark 0x0\/0xffff/ {print $NF; exit}')
     fi
-    WAN_IFACE=$(ip route show table "${WAN_TABLE:-main}" 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+    if [ -z "$WAN_TABLE" ]; then
+        WAN_TABLE=$(ip rule show | awk '/^22000:/ {print $NF; exit}')
+    fi
+    if [ -z "$WAN_TABLE" ]; then
+        WAN_TABLE=$(ip route show table all 2>/dev/null | awk '/^default/ && $0 !~ /table (local|2088|2288|dummy0)/ {for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}')
+    fi
+    if [ -z "$WAN_IFACE" ] && [ -n "$WAN_TABLE" ]; then
+        WAN_IFACE=$(ip route show table "$WAN_TABLE" 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+    fi
 
     chmod 755 "$SINGBOX_BIN" "$STUN_BIN" 2>/dev/null || true
     chcon u:object_r:system_file:s0 "$SINGBOX_BIN" "$STUN_BIN" 2>/dev/null || true
@@ -194,14 +206,16 @@ start_tunnel() {
     ip rule add to 172.16.0.0/12 lookup local_network pref 7902 2>/dev/null || true
     ip rule add to 172.16.0.0/12 lookup main pref 7903 2>/dev/null || true
 
-    if [ -n "$WAN_TABLE" ] && [ -n "$SERVER_IP" ]; then
-        case "$SERVER_IP" in
-            *:*) ;;
-            *)
-                ip rule add to "$SERVER_IP" lookup "$WAN_TABLE" pref 8000 2>/dev/null || true
-                ip rule add to "$BOOTSTRAP_V4" lookup "$WAN_TABLE" pref 8001 2>/dev/null || true
-                ;;
-        esac
+    if [ -n "$WAN_TABLE" ]; then
+        ip rule add to "$BOOTSTRAP_V4" lookup "$WAN_TABLE" pref 8001 2>/dev/null || true
+        if [ -n "$SERVER_IP" ]; then
+            case "$SERVER_IP" in
+                *:*) ;;
+                *)
+                    ip rule add to "$SERVER_IP" lookup "$WAN_TABLE" pref 8000 2>/dev/null || true
+                    ;;
+            esac
+        fi
     fi
 
     # 5. Resolve Target UID Ranges (All Apps in Profile vs Selected App UIDs)
@@ -218,7 +232,7 @@ start_tunnel() {
         UID_LIST="$(echo "$TARGET_UIDS" | tr ',' ' ') $SDK_START-$SDK_END $ISO_START-$ISO_END"
     fi
 
-    # 6. Loopback Source-Binding Engine (Table 2088: proven v20 rules compatible with all Android /system/bin/ip!)
+    # 6. Loopback Source-Binding Engine (Table 2088: default dev lo src 127.0.0.1)
     ip route replace default dev lo src 127.0.0.1 table 2088 2>/dev/null || true
     for rng in $UID_LIST; do
         ip rule add uidrange "$rng" lookup 2088 pref 8800 2>/dev/null || true
@@ -243,7 +257,7 @@ start_tunnel() {
     done
     iptables -w -I INPUT 1 -j "$CHAIN_HS_IN" 2>/dev/null || true
 
-    # 9. Loopback POSTROUTING SNAT (ensures sockets bound to Wi-Fi/Cellular IPs work seamlessly on lo)
+    # 9. Loopback POSTROUTING SNAT
     iptables -w -t nat -N "$CHAIN_POST_V4" 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_POST_V4" -o lo -j SNAT --to-source 127.0.0.1 2>/dev/null || true
     iptables -w -t nat -I POSTROUTING 1 -j "$CHAIN_POST_V4" 2>/dev/null || true

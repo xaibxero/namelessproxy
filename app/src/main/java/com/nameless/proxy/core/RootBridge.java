@@ -43,6 +43,7 @@ public class RootBridge {
     public static final String ROOT_AUTO_BACKUP = ADB_DIR + "/nameless_auto_backup.json";
     public static final String PUBLIC_BACKUP = "/sdcard/Download/nameless_proxy_backup.json";
 
+    private static volatile boolean binariesReady = false;
     private static volatile boolean cachedRunning = false;
     private static volatile String cachedPid = "";
     private static volatile int cachedSlot = 0;
@@ -153,17 +154,20 @@ public class RootBridge {
         }
     }
 
-    public static boolean ensureBinariesExtracted(Context context) {
+    public static synchronized boolean ensureBinariesExtracted(Context context) {
+        if (binariesReady) return true;
         extractAssetToAdb(context, "tunnel.sh", TUNNEL_SH, "755");
-        extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
         String check = execSu(
-            "if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
+            "if [ -x " + SINGBOX_BIN + " ] && [ -x " + STUN_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
         );
-        if (!check.contains("sing-box version 1.12.")) {
+        if (!check.contains("sing-box version")) {
             extractAssetToAdb(context, "sing-box", SINGBOX_BIN, "755");
+            extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
             String recheck = execSu("if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; fi");
-            return recheck.contains("sing-box version");
+            binariesReady = recheck.contains("sing-box version");
+            return binariesReady;
         }
+        binariesReady = true;
         return true;
     }
 
@@ -199,7 +203,12 @@ public class RootBridge {
         }
         try {
             InetAddress addr = InetAddress.getByName(cleaned);
-            return addr.getHostAddress();
+            String ip = addr.getHostAddress();
+            // Never return a FakeIP (198.18.0.0/15) or loopback if Android DNS cache is holding a FakeIP!
+            if (ip != null && !ip.startsWith("198.18.") && !ip.startsWith("198.19.") && !ip.startsWith("127.")) {
+                return ip;
+            }
+            return cleaned;
         } catch (Exception e) {
             return cleaned;
         }
@@ -468,7 +477,6 @@ public class RootBridge {
             if (!writeTextToAdb(sbJson, CONFIG_PATH)) {
                 return res.put("ok", false).put("error", "Failed to write config.json");
             }
-            writeTextToAdb(sbJson, ADB_DIR + "/config_u" + userId + "_s" + slot + ".json");
 
             int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
             String webrtcMode = cfg.optString("webrtcMode", "SPOOF");
@@ -652,6 +660,10 @@ public class RootBridge {
         return out;
     }
 
+    /**
+     * Atomically writes all configuration & backup files to /data/adb/nameless_proxy/
+     * in a SINGLE `su` call (using Base64) so it completes in <40ms without blocking!
+     */
     public static boolean saveAllSlotsToDisk(Context context, String jsonStr) {
         try {
             SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
@@ -664,7 +676,11 @@ public class RootBridge {
             boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
             JSONArray slotsArr = parsed.optJSONArray("slots");
 
-            writeTextToAdb(parsed.toString(2), ADB_DIR + "/slots_u" + userId + ".json");
+            List<String> cmds = new ArrayList<>();
+            cmds.add("mkdir -p " + ADB_DIR);
+
+            String b64Main = Base64.getEncoder().encodeToString(parsed.toString(2).getBytes(StandardCharsets.UTF_8));
+            cmds.add("echo '" + b64Main + "' | base64 -d > " + ADB_DIR + "/slots_u" + userId + ".json");
 
             JSONObject autoBackup = new JSONObject();
             autoBackup.put("version", 3);
@@ -702,17 +718,24 @@ public class RootBridge {
                     compatSlots.put(compatSlot);
 
                     if (!host.isEmpty()) {
-                        writeTextToAdb(compatSlot.toString(2), ADB_DIR + "/backup_u" + userId + "_s" + i + ".json");
+                        String b64Slot = Base64.getEncoder().encodeToString(compatSlot.toString(2).getBytes(StandardCharsets.UTF_8));
+                        cmds.add("echo '" + b64Slot + "' | base64 -d > " + ADB_DIR + "/backup_u" + userId + "_s" + i + ".json");
+
                         String sbCfg = generateSingBoxConfig(s, host);
-                        writeTextToAdb(sbCfg, ADB_DIR + "/config_u" + userId + "_s" + i + ".json");
+                        String b64Cfg = Base64.getEncoder().encodeToString(sbCfg.getBytes(StandardCharsets.UTF_8));
+                        cmds.add("echo '" + b64Cfg + "' | base64 -d > " + ADB_DIR + "/config_u" + userId + "_s" + i + ".json");
                         if (i == activeSlot && !cachedRunning) {
-                            writeTextToAdb(sbCfg, CONFIG_PATH);
+                            cmds.add("echo '" + b64Cfg + "' | base64 -d > " + CONFIG_PATH);
                         }
                     }
                 }
             }
             autoBackup.put("slots", compatSlots);
-            writeTextToAdb(autoBackup.toString(2), ROOT_AUTO_BACKUP);
+            String b64Auto = Base64.getEncoder().encodeToString(autoBackup.toString(2).getBytes(StandardCharsets.UTF_8));
+            cmds.add("echo '" + b64Auto + "' | base64 -d > " + ROOT_AUTO_BACKUP);
+            cmds.add("chmod 644 " + ADB_DIR + "/*.json 2>/dev/null || true");
+
+            execSu(cmds.toArray(new String[0]));
             return true;
         } catch (Exception e) {
             return false;

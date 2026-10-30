@@ -42,8 +42,9 @@ public class MainActivity extends Activity {
     private WebView uiWebView;
     private WebView checkerWebView;
     private FrameLayout checkerContainer;
-    // Single-threaded engine executor so saveSlots and startTunnel NEVER race or overwrite config.json simultaneously
-    private final ExecutorService engineSerialPool = Executors.newSingleThreadExecutor();
+    // Separate single-thread executors for tunnel actions vs disk saves so Connect/Disconnect is ALWAYS instant!
+    private final ExecutorService tunnelPool = Executors.newSingleThreadExecutor();
+    private final ExecutorService savePool = Executors.newSingleThreadExecutor();
     private final ExecutorService pingPool = Executors.newCachedThreadPool();
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
@@ -54,16 +55,16 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-        window.setStatusBarColor(Color.parseColor("#0D1117"));
-        window.setNavigationBarColor(Color.parseColor("#0D1117"));
+        window.setStatusBarColor(Color.parseColor("#000000"));
+        window.setNavigationBarColor(Color.parseColor("#090A0F"));
 
         RootBridge.startBackgroundPoller();
 
         rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#0D1117"));
+        rootLayout.setBackgroundColor(Color.parseColor("#000000"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#0D1117"));
+        uiWebView.setBackgroundColor(Color.parseColor("#000000"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         uiWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         WebSettings ws = uiWebView.getSettings();
@@ -78,7 +79,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#0D1117"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#000000"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -92,7 +93,7 @@ public class MainActivity extends Activity {
         setContentView(rootLayout);
         uiWebView.loadUrl("file:///android_asset/ui/index.html");
 
-        engineSerialPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
+        tunnelPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -101,9 +102,9 @@ public class MainActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         if (totalH <= 0) totalH = dm.heightPixels;
 
-        int topPx = Math.max(Math.round(108 * dm.density), Math.round(topRatio * totalH));
-        int bottomPx = Math.max(Math.round(62 * dm.density), Math.round(bottomRatio * totalH));
-        int sidePx = Math.round(8 * dm.density);
+        int topPx = Math.max(Math.round(112 * dm.density), Math.round(topRatio * totalH));
+        int bottomPx = Math.max(Math.round(64 * dm.density), Math.round(bottomRatio * totalH));
+        int sidePx = Math.round(10 * dm.density);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -118,7 +119,7 @@ public class MainActivity extends Activity {
         if (checkerWebView == null) {
             firstCreate = true;
             checkerWebView = new WebView(this);
-            checkerWebView.setBackgroundColor(Color.parseColor("#0D1117"));
+            checkerWebView.setBackgroundColor(Color.parseColor("#000000"));
             checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             WebSettings s = checkerWebView.getSettings();
             s.setJavaScriptEnabled(true);
@@ -185,8 +186,8 @@ public class MainActivity extends Activity {
             LinkProperties lp = cm.getLinkProperties(net);
             String iface = (lp != null && lp.getInterfaceName() != null) ? lp.getInterfaceName() : "auto";
             if (caps != null) {
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi (" + iface + ")";
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "Mobile (" + iface + ")";
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi • " + iface;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "Mobile • " + iface;
             }
             return iface;
         } catch (Exception e) {
@@ -232,7 +233,7 @@ public class MainActivity extends Activity {
             final Context appCtx = getApplicationContext();
             appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE)
                 .edit().putString("slots_json", jsonStr).apply();
-            engineSerialPool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
+            savePool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
         }
 
         @JavascriptInterface
@@ -240,13 +241,13 @@ public class MainActivity extends Activity {
             final Context appCtx = getApplicationContext();
             appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE)
                 .edit().putString("slots_json", jsonStr).apply();
-            engineSerialPool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
+            savePool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
             return true;
         }
 
         @JavascriptInterface
         public void startTunnelAsync(String configJsonStr) {
-            engineSerialPool.execute(() -> {
+            tunnelPool.execute(() -> {
                 try {
                     JSONObject cfg = new JSONObject(configJsonStr);
                     JSONObject r = RootBridge.startTunnel(getApplicationContext(), cfg);
@@ -271,7 +272,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void stopTunnelAsync() {
-            engineSerialPool.execute(() -> {
+            tunnelPool.execute(() -> {
                 RootBridge.stopTunnel(getApplicationContext());
                 runOnUiThread(() -> uiWebView.evaluateJavascript(
                     "window.onTunnelActionComplete && window.onTunnelActionComplete('{\"ok\":true,\"stopped\":true}');",
@@ -357,7 +358,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void clearKernelLogs() {
-            engineSerialPool.execute(RootBridge::clearLogs);
+            savePool.execute(RootBridge::clearLogs);
         }
 
         @JavascriptInterface

@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • Clean, Simple, Zero-Animation Controller
+// Nameless Proxy • Settled AMOLED UI & Non-Blocking Root Controller
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -128,9 +128,9 @@ function persistAllSlots() {
     const cur = state.slots[state.activeSlot] || defaultSlot();
     const statusEl = document.getElementById("adbSaveStatusText");
     if (statusEl && cur.host) {
-      statusEl.textContent = `Saved: /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
+      statusEl.textContent = `✓ Saved /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
     }
-  }, 300);
+  }, 450);
 }
 
 function saveSlotToAdbNow() {
@@ -140,11 +140,11 @@ function saveSlotToAdbNow() {
   const payload = buildSlotsPayload();
   if (window.NamelessBridge) {
     window.NamelessBridge.saveSlotsNow(payload);
-    window.NamelessBridge.showToast(`Saved Slot P${state.activeSlot + 1} to /data/adb/nameless_proxy`);
+    window.NamelessBridge.showToast(`Saved Slot P${state.activeSlot + 1} in /data/adb/nameless_proxy`);
   }
   const statusEl = document.getElementById("adbSaveStatusText");
   if (statusEl) {
-    statusEl.textContent = `Saved: /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
+    statusEl.textContent = `✓ Saved /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
   }
 }
 
@@ -194,51 +194,51 @@ function updateProtocolFieldsUI(proto) {
     groupUser.classList.remove("hidden");
     groupPass.classList.remove("hidden");
     lblUser.textContent = "SOCKS5 USERNAME (OPTIONAL)";
-    inpUser.placeholder = "Username";
+    inpUser.placeholder = "Enter username";
     lblPass.textContent = "SOCKS5 PASSWORD (OPTIONAL)";
-    inpPass.placeholder = "Password";
+    inpPass.placeholder = "Enter password";
   } else if (p === "HTTP") {
     groupUser.classList.remove("hidden");
     groupPass.classList.remove("hidden");
     groupSni.classList.remove("hidden");
     lblUser.textContent = "HTTP USERNAME (OPTIONAL)";
-    inpUser.placeholder = "Username";
+    inpUser.placeholder = "Enter username";
     lblPass.textContent = "HTTP PASSWORD (OPTIONAL)";
-    inpPass.placeholder = "Password";
+    inpPass.placeholder = "Enter password";
     lblSni.textContent = "TLS SNI (OPTIONAL)";
   } else if (p === "SOCKS4") {
     groupUser.classList.remove("hidden");
     lblUser.textContent = "SOCKS4 USER ID (OPTIONAL)";
-    inpUser.placeholder = "User ID";
+    inpUser.placeholder = "Enter User ID";
   } else if (p === "SHADOWSOCKS") {
     groupCipher.classList.remove("hidden");
     groupPass.classList.remove("hidden");
-    lblPass.textContent = "SHADOWSOCKS PASSWORD";
-    inpPass.placeholder = "Password / PSK";
+    lblPass.textContent = "SHADOWSOCKS PASSWORD / PSK";
+    inpPass.placeholder = "Enter password";
   } else if (p === "VLESS") {
     groupUser.classList.remove("hidden");
     groupSni.classList.remove("hidden");
     groupReality.classList.remove("hidden");
     lblUser.textContent = "VLESS UUID";
-    inpUser.placeholder = "UUID";
+    inpUser.placeholder = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     lblSni.textContent = "TLS / REALITY SNI";
   } else if (p === "VMESS") {
     groupUser.classList.remove("hidden");
     groupSni.classList.remove("hidden");
     lblUser.textContent = "VMESS UUID";
-    inpUser.placeholder = "UUID";
+    inpUser.placeholder = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     lblSni.textContent = "TLS SNI / HOST";
   } else if (p === "TROJAN") {
     groupPass.classList.remove("hidden");
     groupSni.classList.remove("hidden");
     lblPass.textContent = "TROJAN PASSWORD";
-    inpPass.placeholder = "Password";
+    inpPass.placeholder = "Enter Trojan password";
     lblSni.textContent = "TLS SNI";
   } else if (p === "HYSTERIA2") {
     groupPass.classList.remove("hidden");
     groupSni.classList.remove("hidden");
-    lblPass.textContent = "HYSTERIA2 PASSWORD";
-    inpPass.placeholder = "Auth Password";
+    lblPass.textContent = "HYSTERIA2 AUTH PASSWORD";
+    inpPass.placeholder = "Enter Hysteria2 password";
     lblSni.textContent = "TLS SNI";
   }
 }
@@ -273,7 +273,7 @@ function renderQuickPills() {
   const rtcPill = document.getElementById("pillWebrtc");
   const isSpoof = state.webrtcMode !== "DISABLE";
   rtcPill.classList.toggle("on", isSpoof);
-  document.getElementById("lblWebrtcState").textContent = isSpoof ? "ON" : "OFF";
+  document.getElementById("lblWebrtcState").textContent = isSpoof ? "SPOOF" : "OFF";
 
   document.getElementById("btnAllApps").classList.toggle("active", state.routeAllApps);
   document.getElementById("btnSelApps").classList.toggle("active", !state.routeAllApps);
@@ -459,7 +459,7 @@ function toggleTunnel() {
   if (state.isRunning && state.runningSlot === state.activeSlot) {
     state.isTransitioning = true;
     document.getElementById("coreStateText").textContent = "STOPPING...";
-    document.getElementById("coreIcon").textContent = "WAIT...";
+    document.getElementById("coreIcon").textContent = "WAIT";
     if (window.NamelessBridge) {
       window.NamelessBridge.stopTunnelAsync();
     }
@@ -475,12 +475,12 @@ function toggleTunnel() {
     });
     if (!cfg.host || cfg.host.trim() === "") {
       document.getElementById("inpHost").focus();
-      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port first");
+      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port below");
       return;
     }
     state.isTransitioning = true;
-    document.getElementById("coreStateText").textContent = "CONNECTING...";
-    document.getElementById("coreIcon").textContent = "WAIT...";
+    document.getElementById("coreStateText").textContent = "STARTING...";
+    document.getElementById("coreIcon").textContent = "WAIT";
     if (window.NamelessBridge) {
       window.NamelessBridge.saveSlots(buildSlotsPayload());
       window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
@@ -514,7 +514,7 @@ function pingCurrentNode() {
 
 window.onPingResult = function(ms) {
   const el = document.getElementById("hubPingLabel");
-  el.textContent = ms > 0 ? `${ms} ms` : "Timeout";
+  el.textContent = ms > 0 ? `${ms} ms` : "Fail";
 };
 
 function applyPolledStatus(st, firstInit) {
@@ -547,8 +547,8 @@ function applyPolledStatus(st, firstInit) {
       state.prevTime = Date.now();
     }
     if (!state.isTransitioning) {
-      coreStateText.textContent = `CONNECTED (SLOT P${(state.runningSlot || 0) + 1})`;
-      coreIcon.textContent = "DISCONNECT";
+      coreStateText.textContent = `ACTIVE • SLOT P${(state.runningSlot || 0) + 1}`;
+      coreIcon.textContent = "STOP";
     }
     coreTimerText.textContent = formatDuration(Date.now() - state.sessionStartMs);
 
@@ -564,31 +564,31 @@ function applyPolledStatus(st, firstInit) {
 
     document.getElementById("rxSpeedText").textContent = formatBytes(rxRate) + "/s";
     document.getElementById("txSpeedText").textContent = formatBytes(txRate) + "/s";
-    document.getElementById("rxTotalText").textContent = "(" + formatBytes(Math.max(0, curRx - state.startRx)) + ")";
-    document.getElementById("txTotalText").textContent = "(" + formatBytes(Math.max(0, curTx - state.startTx)) + ")";
+    document.getElementById("rxTotalText").textContent = formatBytes(Math.max(0, curRx - state.startRx));
+    document.getElementById("txTotalText").textContent = formatBytes(Math.max(0, curTx - state.startTx));
 
     const g = st.geo;
     const ip = (g && g.query) || st.exitIp || state.slots[state.runningSlot || 0].host || "Active";
     document.getElementById("exitIpText").textContent = ip;
     if (g && g.country) {
       document.getElementById("exitFlag").textContent = flagEmojiFromCode(g.countryCode);
-      document.getElementById("exitLocText").textContent = g.countryCode ? `(${g.country} • ${g.countryCode})` : `(${g.country})`;
+      document.getElementById("exitLocText").textContent = g.countryCode ? `${g.country} (${g.countryCode}) • Protected` : g.country;
     } else {
       document.getElementById("exitFlag").textContent = "🛡️";
-      document.getElementById("exitLocText").textContent = "(Tunnel Active)";
+      document.getElementById("exitLocText").textContent = "Root Kernel Tunnel Active";
     }
   } else {
     state.sessionStartMs = 0;
     if (!state.isTransitioning) {
-      coreStateText.textContent = "DISCONNECTED";
+      coreStateText.textContent = "STANDBY";
       coreIcon.textContent = "CONNECT";
     }
     coreTimerText.textContent = "00:00:00";
     document.getElementById("rxSpeedText").textContent = "0 B/s";
     document.getElementById("txSpeedText").textContent = "0 B/s";
     document.getElementById("exitFlag").textContent = "🌐";
-    document.getElementById("exitIpText").textContent = "Offline";
-    document.getElementById("exitLocText").textContent = "(Exit IP)";
+    document.getElementById("exitIpText").textContent = "Tunnel Offline";
+    document.getElementById("exitLocText").textContent = "Tap Connect to start root tunnel";
   }
 
   renderSlotCapsules();
