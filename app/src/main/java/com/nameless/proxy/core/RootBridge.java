@@ -28,7 +28,6 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -53,22 +52,11 @@ public class RootBridge {
     private static boolean pollerStarted = false;
 
     private static final ScheduledExecutorService statusPoller = Executors.newSingleThreadScheduledExecutor();
-    // Single-threaded serialized root writer so rapid edits never collide or corrupt files in /data/adb/nameless_proxy
-    private static final ExecutorService diskSaveExecutor = Executors.newSingleThreadExecutor();
 
     public static synchronized void startBackgroundPoller() {
         if (pollerStarted) return;
         pollerStarted = true;
         statusPoller.scheduleWithFixedDelay(RootBridge::refreshStatusFromRootNow, 0, 2000, TimeUnit.MILLISECONDS);
-    }
-
-    public static void scheduleSaveSlots(Context context, String jsonStr) {
-        final Context appCtx = context.getApplicationContext();
-        // Save immediately to app SharedPreferences on caller thread so UI state is never lost
-        SharedPreferences sp = appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
-        sp.edit().putString("slots_json", jsonStr).apply();
-        // Queue serialized root write to /data/adb/nameless_proxy/
-        diskSaveExecutor.execute(() -> saveAllSlotsToDisk(appCtx, jsonStr));
     }
 
     public static void refreshStatusFromRootNow() {
@@ -171,7 +159,7 @@ public class RootBridge {
         String check = execSu(
             "if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
         );
-        if (!check.contains("sing-box version")) {
+        if (!check.contains("sing-box version 1.12.")) {
             extractAssetToAdb(context, "sing-box", SINGBOX_BIN, "755");
             String recheck = execSu("if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; fi");
             return recheck.contains("sing-box version");
@@ -477,7 +465,9 @@ public class RootBridge {
             int userId = getAndroidUserId();
             int slot = cfg.optInt("slot", 0);
 
-            writeTextToAdb(sbJson, CONFIG_PATH);
+            if (!writeTextToAdb(sbJson, CONFIG_PATH)) {
+                return res.put("ok", false).put("error", "Failed to write config.json");
+            }
             writeTextToAdb(sbJson, ADB_DIR + "/config_u" + userId + "_s" + slot + ".json");
 
             int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
@@ -662,14 +652,6 @@ public class RootBridge {
         return out;
     }
 
-    /**
-     * Immediately creates and saves all configuration & backup files inside /data/adb/nameless_proxy/:
-     * 1. /data/adb/nameless_proxy/slots_u{userId}.json
-     * 2. /data/adb/nameless_proxy/nameless_auto_backup.json
-     * 3. /data/adb/nameless_proxy/backup_u{userId}_s{slot}.json (for every configured slot)
-     * 4. /data/adb/nameless_proxy/config_u{userId}_s{slot}.json (sing-box config for every configured slot)
-     * 5. /data/adb/nameless_proxy/config.json (active slot sing-box config)
-     */
     public static boolean saveAllSlotsToDisk(Context context, String jsonStr) {
         try {
             SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
@@ -682,10 +664,8 @@ public class RootBridge {
             boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
             JSONArray slotsArr = parsed.optJSONArray("slots");
 
-            // Write main slots file
-            writeTextToAdb( parsed.toString(2), ADB_DIR + "/slots_u" + userId + ".json");
+            writeTextToAdb(parsed.toString(2), ADB_DIR + "/slots_u" + userId + ".json");
 
-            // Also build v18-compatible nameless_auto_backup.json and per-slot backup_u0_sX.json + config_u0_sX.json
             JSONObject autoBackup = new JSONObject();
             autoBackup.put("version", 3);
             autoBackup.put("boot_slot", activeSlot);
@@ -721,12 +701,11 @@ public class RootBridge {
                     compatSlot.put("route_whole_profile", routeAllApps);
                     compatSlots.put(compatSlot);
 
-                    // Save per-slot backup file and pre-generated sing-box config file whenever host is entered
                     if (!host.isEmpty()) {
                         writeTextToAdb(compatSlot.toString(2), ADB_DIR + "/backup_u" + userId + "_s" + i + ".json");
                         String sbCfg = generateSingBoxConfig(s, host);
                         writeTextToAdb(sbCfg, ADB_DIR + "/config_u" + userId + "_s" + i + ".json");
-                        if (i == activeSlot) {
+                        if (i == activeSlot && !cachedRunning) {
                             writeTextToAdb(sbCfg, CONFIG_PATH);
                         }
                     }
@@ -752,7 +731,6 @@ public class RootBridge {
             sp.edit().putString("slots_json", fromAdb).apply();
             return fromAdb;
         }
-        // Fallback: Check if nameless_auto_backup.json from v18 or earlier exists in /data/adb/nameless_proxy/
         String fromAuto = execSu("if [ -f " + ROOT_AUTO_BACKUP + " ]; then cat " + ROOT_AUTO_BACKUP + "; fi");
         if (!fromAuto.isEmpty() && fromAuto.contains("{")) {
             try {

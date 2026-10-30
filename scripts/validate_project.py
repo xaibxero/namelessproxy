@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 """
 Nameless Proxy Multi-Language Build & Cross-Layer Integrity Validator (Python 3)
-Verifies:
-1. All required files exist.
-2. AndroidManifest.xml has MAIN action and LAUNCHER category.
-3. tunnel.sh never turns off Android Private DNS or disables IPv6 on physical interfaces,
-   and scopes Table 2088 (lo) rules to `ipproto tcp` so WebRTC UDP getsockname() succeeds.
-4. Every `window.NamelessBridge.<method>` called in `app.js` exists as a `@JavascriptInterface`
-   method in `MainActivity.java`.
-5. Every `document.getElementById("<id>")` called in `app.js` exists in `index.html`.
 """
 import os
 import re
@@ -51,7 +43,7 @@ def main():
         print("ERROR: Missing android.intent.category.LAUNCHER in AndroidManifest.xml", file=sys.stderr)
         sys.exit(1)
 
-    # 2. Verify tunnel.sh safety and WebRTC Table 2088 TCP-scoping
+    # 2. Verify tunnel.sh safety and proven v20 Table 2088 rules (no unsupported `ipproto tcp` in ip rule!)
     with open("app/src/main/assets/tunnel.sh", "r", encoding="utf-8") as f:
         sh_text = f.read()
     if "private_dns_mode off" in sh_text:
@@ -60,11 +52,21 @@ def main():
     if "echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6" in sh_text:
         print("ERROR: tunnel.sh must not disable IPv6 on cellular interfaces!", file=sys.stderr)
         sys.exit(1)
-    if "ip rule add ipproto tcp to 198.18.0.0/15 lookup 2088 pref 8806" not in sh_text:
-        print("ERROR: tunnel.sh must scope 198.18.0.0/15 Table 2088 rule to ipproto tcp!", file=sys.stderr)
+    if "ipproto tcp" in sh_text:
+        print("ERROR: tunnel.sh must not use unsupported `ipproto tcp` in Android `ip rule`!", file=sys.stderr)
+        sys.exit(1)
+    if 'ip rule add uidrange "$rng" lookup 2088 pref 8800' not in sh_text:
+        print("ERROR: tunnel.sh missing Table 2088 uidrange rule!", file=sys.stderr)
         sys.exit(1)
 
-    # 3. Verify all NamelessBridge calls in app.js exist in MainActivity.java
+    # 3. Verify style.css has zero animations or transitions
+    with open("app/src/main/assets/ui/style.css", "r", encoding="utf-8") as f:
+        css_text = f.read()
+    if "@keyframes" in css_text or "transition:" in css_text:
+        print("ERROR: style.css must not contain @keyframes or transition properties!", file=sys.stderr)
+        sys.exit(1)
+
+    # 4. Verify all NamelessBridge calls in app.js exist in MainActivity.java
     with open("app/src/main/assets/ui/app.js", "r", encoding="utf-8") as f:
         js_text = f.read()
     with open("app/src/main/java/com/nameless/proxy/MainActivity.java", "r", encoding="utf-8") as f:
@@ -77,7 +79,7 @@ def main():
         print(f"ERROR: app.js calls missing NamelessBridge methods: {missing_methods}", file=sys.stderr)
         sys.exit(1)
 
-    # 4. Verify all document.getElementById calls in app.js exist in index.html
+    # 5. Verify all document.getElementById calls in app.js exist in index.html
     with open("app/src/main/assets/ui/index.html", "r", encoding="utf-8") as f:
         html_text = f.read()
     html_ids = set(re.findall(r'id="([^"]+)"', html_text))
@@ -87,7 +89,7 @@ def main():
         print(f"ERROR: app.js references missing HTML IDs: {missing_ids}", file=sys.stderr)
         sys.exit(1)
 
-    # 5. Verify all onclick="fn(...)" handlers in index.html exist in app.js
+    # 6. Verify all onclick="fn(...)" handlers in index.html exist in app.js
     onclick_fns = set(re.findall(r'onclick="([a-zA-Z0-9_]+)\(', html_text))
     js_fns = set(re.findall(r'function\s+([a-zA-Z0-9_]+)\s*\(', js_text))
     missing_fns = onclick_fns - js_fns
@@ -95,7 +97,7 @@ def main():
         print(f"ERROR: index.html onclick references missing JS functions: {missing_fns}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Verified {len(js_bridge_calls)} Bridge methods, {len(js_ids)} DOM IDs, and {len(onclick_fns)} UI handlers.")
+    print(f"Verified {len(js_bridge_calls)} Bridge methods, {len(js_ids)} DOM IDs, and {len(onclick_fns)} UI handlers (Zero animations/transitions).")
     print("Nameless Proxy Multi-Language Validation: ALL CHECKS PASSED")
 
 if __name__ == "__main__":

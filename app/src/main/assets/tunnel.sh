@@ -146,7 +146,7 @@ start_tunnel() {
         "$SINGBOX_BIN" run -c "$CONFIG_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
         echo $! > "$SB_PID_FILE"
     )
-    sleep 0.25
+    sleep 0.3
     SB_PID=$(cat "$SB_PID_FILE" 2>/dev/null)
     if [ -z "$SB_PID" ] || ! kill -0 "$SB_PID" 2>/dev/null; then
         echo "ERROR: sing-box failed to start"
@@ -218,22 +218,13 @@ start_tunnel() {
         UID_LIST="$(echo "$TARGET_UIDS" | tr ',' ' ') $SDK_START-$SDK_END $ISO_START-$ISO_END"
     fi
 
-    # 6. TCP-Only Loopback Source-Binding Engine (Table 2088: default dev lo src 127.0.0.1)
-    # CRITICAL FIX: Scope ALL Table 2088 rules (including 198.18.0.0/15 FakeIP!) strictly to `ipproto tcp`,
-    # and route `ipproto udp` to WAN_TABLE so Chromium/WebView WebRTC `getsockname()` ALWAYS sees the
-    # real Wi-Fi/LTE interface IP (never 127.0.0.1 loopback) and sends STUN UDP packets to stun-responder!
+    # 6. Loopback Source-Binding Engine (Table 2088: proven v20 rules compatible with all Android /system/bin/ip!)
     ip route replace default dev lo src 127.0.0.1 table 2088 2>/dev/null || true
     for rng in $UID_LIST; do
-        ip rule add ipproto tcp uidrange "$rng" lookup 2088 pref 8800 2>/dev/null || true
-        if [ -n "$WAN_TABLE" ]; then
-            ip rule add ipproto udp uidrange "$rng" lookup "$WAN_TABLE" pref 8801 2>/dev/null || true
-        fi
+        ip rule add uidrange "$rng" lookup 2088 pref 8800 2>/dev/null || true
     done
-    ip rule add ipproto tcp from 127.0.0.0/8 lookup 2088 pref 8805 2>/dev/null || true
-    ip rule add ipproto tcp to 198.18.0.0/15 lookup 2088 pref 8806 2>/dev/null || true
-    if [ -n "$WAN_TABLE" ]; then
-        ip rule add ipproto udp to 198.18.0.0/15 lookup "$WAN_TABLE" pref 8807 2>/dev/null || true
-    fi
+    ip rule add from 127.0.0.0/8 lookup 2088 pref 8805 2>/dev/null || true
+    ip rule add to 198.18.0.0/15 lookup 2088 pref 8806 2>/dev/null || true
 
     # 7. App-UID Scoped IPv6 Unreachable Route (Keeps clatd UID 1029 100% alive on Jazz LTE!)
     ip -6 route replace unreachable default table 2288 2>/dev/null || ip -6 route replace unreachable ::/0 table 2288 2>/dev/null || true
@@ -252,7 +243,12 @@ start_tunnel() {
     done
     iptables -w -I INPUT 1 -j "$CHAIN_HS_IN" 2>/dev/null || true
 
-    # 9. PHONE NAT OUTPUT (No POSTROUTING SNAT to 127.0.0.1 so STUN replies to local Wi-Fi/LTE socket IPs are never dropped!)
+    # 9. Loopback POSTROUTING SNAT (ensures sockets bound to Wi-Fi/Cellular IPs work seamlessly on lo)
+    iptables -w -t nat -N "$CHAIN_POST_V4" 2>/dev/null || true
+    iptables -w -t nat -A "$CHAIN_POST_V4" -o lo -j SNAT --to-source 127.0.0.1 2>/dev/null || true
+    iptables -w -t nat -I POSTROUTING 1 -j "$CHAIN_POST_V4" 2>/dev/null || true
+
+    # 10. PHONE NAT OUTPUT
     iptables -w -t nat -N "$CHAIN_NAT_V4" 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_NAT_V4" -d 127.0.0.0/8 -j RETURN 2>/dev/null || true
     for p in "$INBOUND_PORT" "$SOCKS_PORT" "$HS_INBOUND_PORT" "$DNS_PORT" "$HS_DNS_PORT" "$STUN_PORT" "$HS_STUN_PORT"; do
@@ -274,7 +270,7 @@ start_tunnel() {
     iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 53 -j REDIRECT --to-ports "$DNS_PORT" 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 53 -j REDIRECT --to-ports "$DNS_PORT" 2>/dev/null || true
 
-    # WebRTC STUN Interception BEFORE UDP 80/443 rejection
+    # WebRTC STUN Handling BEFORE UDP 80/443 rejection
     if [ "$WEBRTC_MODE" = "SPOOF" ]; then
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
@@ -312,14 +308,10 @@ start_tunnel() {
 
     for rng in $UID_LIST; do
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp -m owner --uid-owner "$rng" -j REDIRECT --to-ports "$INBOUND_PORT" 2>/dev/null || true
-        if [ "$WEBRTC_MODE" = "SPOOF" ]; then
-            # Redirect any remaining non-LAN app UDP (such as STUN on custom ports) to stun-responder!
-            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 1024:65535 -m owner --uid-owner "$rng" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
-        fi
     done
     iptables -w -t nat -I OUTPUT 1 -j "$CHAIN_NAT_V4" 2>/dev/null || true
 
-    # 10. IPv6 NAT OUTPUT
+    # 11. IPv6 NAT OUTPUT
     ip6tables -w -t nat -N "$CHAIN_NAT_V6" 2>/dev/null || true
     ip6tables -w -t nat -A "$CHAIN_NAT_V6" -s ::1/128 -j RETURN 2>/dev/null || true
     ip6tables -w -t nat -A "$CHAIN_NAT_V6" -d ::1/128 -j RETURN 2>/dev/null || true
@@ -331,7 +323,7 @@ start_tunnel() {
     ip6tables -w -t nat -A "$CHAIN_NAT_V6" -p tcp --dport 53 -j REDIRECT --to-ports "$DNS_V6_PORT" 2>/dev/null || true
     ip6tables -w -t nat -I OUTPUT 1 -j "$CHAIN_NAT_V6" 2>/dev/null || true
 
-    # 11. PHONE IPv4 FILTER SHIELD
+    # 12. PHONE IPv4 FILTER SHIELD
     iptables -w -N "$CHAIN_FILTER_V4" 2>/dev/null || true
     iptables -w -A "$CHAIN_FILTER_V4" -o lo -j RETURN 2>/dev/null || true
     iptables -w -A "$CHAIN_FILTER_V4" -d 127.0.0.0/8 -j RETURN 2>/dev/null || true
@@ -367,7 +359,7 @@ start_tunnel() {
     done
     iptables -w -I OUTPUT 1 -j "$CHAIN_FILTER_V4" 2>/dev/null || true
 
-    # 12. IPv6 FILTER SHIELD
+    # 13. IPv6 FILTER SHIELD
     ip6tables -w -N "$CHAIN_FILTER_V6" 2>/dev/null || true
     ip6tables -w -A "$CHAIN_FILTER_V6" -o lo -j RETURN 2>/dev/null || true
     ip6tables -w -A "$CHAIN_FILTER_V6" -d ::1/128 -j RETURN 2>/dev/null || true
@@ -392,7 +384,7 @@ start_tunnel() {
     done
     ip6tables -w -I OUTPUT 1 -j "$CHAIN_FILTER_V6" 2>/dev/null || true
 
-    # 13. HOTSPOT ROUTING (Matches BOTH Tether Interface Names AND 192.168.0.0/16 & 172.16.0.0/12 Hotspot Client Subnets)
+    # 14. HOTSPOT ROUTING
     if [ "$ROUTE_HOTSPOT" = "1" ]; then
         ip6tables -w -N "$CHAIN_HS_V6" 2>/dev/null || true
         for iface in $TETHER_IFACES; do
@@ -425,7 +417,6 @@ start_tunnel() {
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 53 -j REDIRECT --to-ports "$HS_DNS_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p tcp --dport 53 -j REDIRECT --to-ports "$HS_DNS_PORT" 2>/dev/null || true
 
-        # Hotspot WebRTC STUN interception
         if [ "$WEBRTC_MODE" = "SPOOF" ]; then
             iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
             iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
@@ -447,15 +438,8 @@ start_tunnel() {
 
         iptables -w -t nat -A "$CHAIN_HS_NAT" -s 192.168.0.0/16 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -s 172.16.0.0/12 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
-        if [ "$WEBRTC_MODE" = "SPOOF" ]; then
-            iptables -w -t nat -A "$CHAIN_HS_NAT" -s 192.168.0.0/16 -p udp --dport 1024:65535 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
-            iptables -w -t nat -A "$CHAIN_HS_NAT" -s 172.16.0.0/12 -p udp --dport 1024:65535 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
-        fi
         for iface in $TETHER_IFACES; do
             iptables -w -t nat -A "$CHAIN_HS_NAT" -i "$iface" -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
-            if [ "$WEBRTC_MODE" = "SPOOF" ]; then
-                iptables -w -t nat -A "$CHAIN_HS_NAT" -i "$iface" -p udp --dport 1024:65535 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
-            fi
         done
         iptables -w -t nat -I PREROUTING 1 -j "$CHAIN_HS_NAT" 2>/dev/null || true
 
@@ -532,7 +516,7 @@ case "$1" in
         ;;
     audit)
         echo "=== IP RULES ==="
-        ip rule show | grep -E "7900|7901|8000|8001|8800|8801|8805|8806|8807|22000" || true
+        ip rule show | grep -E "7900|7901|8000|8001|8800|8805|8806|22000" || true
         echo ""
         echo "=== NAT (${CHAIN_NAT_V4}) ==="
         iptables -w -t nat -S "$CHAIN_NAT_V4" 2>&1 || true

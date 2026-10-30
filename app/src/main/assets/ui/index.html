@@ -3,269 +3,223 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Nameless</title>
+  <title>Nameless Proxy</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="disconnected">
-  <!-- 100% GPU-Composited Ambient Liquid Stage -->
-  <div class="ambient-stage" aria-hidden="true">
-    <div class="glow-orb glow-cyan"></div>
-    <div class="glow-orb glow-violet"></div>
-  </div>
-
-  <!-- GPU Touch Ripple Layer -->
-  <div class="ripple-stage" id="rippleStage" aria-hidden="true"></div>
-
   <div class="app-shell">
-    <!-- Top Floating 3D Bubble Bar: Network Pill + P1..P5 Profile Spheres -->
+    <!-- Top Header: Status + 5 Profile Slots -->
     <header class="top-bar">
-      <button type="button" class="net-bubble jelly" data-squish="mid" onclick="pollBackendStatus()">
-        <span class="dot" id="headerOrb"></span>
-        <span class="net-txt" id="netSummaryText">Online</span>
-      </button>
-
-      <div class="slot-bubbles" id="slotStrip">
-        <button type="button" class="slot-orb jelly active" data-squish="deep" data-slot="0" onclick="selectSlot(0)">P1</button>
-        <button type="button" class="slot-orb jelly" data-squish="deep" data-slot="1" onclick="selectSlot(1)">P2</button>
-        <button type="button" class="slot-orb jelly" data-squish="deep" data-slot="2" onclick="selectSlot(2)">P3</button>
-        <button type="button" class="slot-orb jelly" data-squish="deep" data-slot="3" onclick="selectSlot(3)">P4</button>
-        <button type="button" class="slot-orb jelly" data-squish="deep" data-slot="4" onclick="selectSlot(4)">P5</button>
+      <div class="status-row">
+        <div class="net-pill" onclick="pollBackendStatus()">
+          <span class="status-dot" id="headerOrb"></span>
+          <span class="net-txt" id="netSummaryText">Online</span>
+        </div>
+        <div class="slot-strip" id="slotStrip">
+          <button type="button" class="slot-btn active" data-slot="0" onclick="selectSlot(0)">P1</button>
+          <button type="button" class="slot-btn" data-slot="1" onclick="selectSlot(1)">P2</button>
+          <button type="button" class="slot-btn" data-slot="2" onclick="selectSlot(2)">P3</button>
+          <button type="button" class="slot-btn" data-slot="3" onclick="selectSlot(3)">P4</button>
+          <button type="button" class="slot-btn" data-slot="4" onclick="selectSlot(4)">P5</button>
+        </div>
       </div>
     </header>
 
-    <!-- Main Animated Viewport -->
+    <!-- Main Viewport (Zero Animations / Instant Response) -->
     <main class="viewport">
-      <!-- TAB 0: HUB -->
+      <!-- TAB 0: HOME (CONNECT + PROXY SERVER/PORT/USER/PASS + ROUTING IN ONE SCREEN) -->
       <section class="tab-view active" id="tab-0">
-        <!-- Center 3D Liquid Power Sphere -->
-        <div class="orb-stage">
-          <button type="button" class="orb-touch-wrap jelly" data-squish="deep" id="orbTouchWrap" onclick="toggleTunnel()">
-            <span class="orbit-ring ring-1"></span>
-            <span class="orbit-ring ring-2"></span>
-            <div class="clay-sphere" id="coreBtn">
-              <div class="sphere-shine"></div>
-              <div class="sphere-icon" id="coreIcon">⏻</div>
-              <div class="sphere-state" id="coreStateText">OFF</div>
-              <div class="sphere-timer" id="coreTimerText">00:00:00</div>
+        <!-- 1. Connection Control & Status Card -->
+        <div class="card">
+          <div class="connect-row">
+            <div class="connect-info">
+              <div class="state-badge" id="coreStateText">DISCONNECTED</div>
+              <div class="exit-line">
+                <span id="exitFlag">🌐</span>
+                <span id="exitIpText">Offline</span>
+                <span class="muted" id="exitLocText">(Exit IP)</span>
+              </div>
+              <div class="timer-line">
+                <span>Uptime: <strong id="coreTimerText">00:00:00</strong></span>
+                <span>•</span>
+                <span class="link-txt" onclick="pingCurrentNode()">Ping: <strong id="hubPingLabel">Tap</strong></span>
+              </div>
             </div>
-          </button>
-        </div>
-
-        <!-- Active Server Bar on Hub (1-Tap to Enter/Edit Proxy Server & Port) -->
-        <div class="hub-server-bar jelly" data-squish="mid" onclick="switchTab(2)">
-          <div class="hsb-left">
-            <span class="hsb-badge" id="hubProtoBadge">SOCKS5</span>
-            <div class="hsb-info">
-              <div class="hsb-host" id="hubNodeLabel">Tap to Enter Proxy Server &amp; Port</div>
-              <div class="hsb-sub" id="hubAdbStatus">Saves in /data/adb/nameless_proxy</div>
-            </div>
-          </div>
-          <span class="hsb-edit-btn">✎ Set Proxy</span>
-        </div>
-
-        <!-- 2 Side-by-Side 3D Jelly Pods: Exit IP & Ping -->
-        <div class="pod-row">
-          <button type="button" class="clay-pod jelly" data-squish="mid" onclick="switchTab(1)">
-            <div class="pod-icon" id="exitFlag">🌐</div>
-            <div class="pod-body">
-              <div class="pod-val" id="exitIpText">Offline</div>
-              <div class="pod-lbl" id="exitLocText">Exit IP</div>
-            </div>
-          </button>
-
-          <button type="button" class="clay-pod jelly" data-squish="mid" onclick="pingCurrentNode()">
-            <div class="pod-icon cyan">⚡</div>
-            <div class="pod-body">
-              <div class="pod-val cyan" id="hubPingLabel">Ping</div>
-              <div class="pod-lbl" id="hubSlotShort">Slot P1</div>
-            </div>
-          </button>
-        </div>
-
-        <!-- Live Speed Capsules -->
-        <div class="pod-row">
-          <div class="clay-pod speed-pod jelly" data-squish="soft">
-            <div class="pod-icon cyan">▼</div>
-            <div class="pod-body">
-              <div class="pod-val" id="rxSpeedText">0 B/s</div>
-              <div class="pod-lbl" id="rxTotalText">0 B</div>
-            </div>
+            <button type="button" class="connect-btn" id="coreBtn" onclick="toggleTunnel()">
+              <span id="coreIcon">CONNECT</span>
+            </button>
           </div>
 
-          <div class="clay-pod speed-pod jelly" data-squish="soft">
-            <div class="pod-icon violet">▲</div>
-            <div class="pod-body">
-              <div class="pod-val" id="txSpeedText">0 B/s</div>
-              <div class="pod-lbl" id="txTotalText">0 B</div>
+          <div class="speed-bar">
+            <div class="speed-item">
+              <span class="lbl">▼ DOWN:</span>
+              <strong id="rxSpeedText">0 B/s</strong>
+              <span class="muted" id="rxTotalText">(0 B)</span>
+            </div>
+            <div class="speed-item">
+              <span class="lbl">▲ UP:</span>
+              <strong id="txSpeedText">0 B/s</strong>
+              <span class="muted" id="txTotalText">(0 B)</span>
             </div>
           </div>
         </div>
 
-        <!-- 3 Quick Control Jelly Pills: Hotspot | Apps | WebRTC -->
-        <div class="quick-pills">
-          <button type="button" class="q-pill jelly on" data-squish="deep" id="pillHotspot" onclick="toggleHotspotSetting()">
-            <span class="q-ico">📡</span>
-            <span class="q-name">Hotspot</span>
-            <span class="q-state" id="lblHotspotState">ON</span>
-          </button>
+        <!-- 2. Proxy Configuration Card (Right on the Home Screen!) -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title" id="editingSlotTitle">SLOT P1 • SOCKS5</span>
+            <div class="btn-row">
+              <button type="button" class="sm-btn" onclick="pasteUriFromClipboard()">Paste URI</button>
+              <button type="button" class="sm-btn danger" onclick="clearCurrentSlot()">Clear</button>
+            </div>
+          </div>
 
-          <button type="button" class="q-pill jelly on" data-squish="deep" id="pillApps" onclick="switchTab(3)">
-            <span class="q-ico">⊞</span>
-            <span class="q-name">Apps</span>
-            <span class="q-state" id="lblAppsState">ALL</span>
-          </button>
+          <!-- Protocol Selector -->
+          <div class="field-label">PROTOCOL</div>
+          <div class="proto-grid" id="protoGrid">
+            <button type="button" class="proto-btn active" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
+            <button type="button" class="proto-btn" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
+            <button type="button" class="proto-btn" data-proto="SOCKS4" onclick="setProtocol('SOCKS4')">SOCKS4</button>
+            <button type="button" class="proto-btn" data-proto="SHADOWSOCKS" onclick="setProtocol('SHADOWSOCKS')">SS</button>
+            <button type="button" class="proto-btn" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
+            <button type="button" class="proto-btn" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
+            <button type="button" class="proto-btn" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
+            <button type="button" class="proto-btn" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
+          </div>
 
-          <button type="button" class="q-pill jelly on" data-squish="deep" id="pillWebrtc" onclick="toggleWebrtcMode()">
-            <span class="q-ico">🛡</span>
-            <span class="q-name">WebRTC</span>
-            <span class="q-state" id="lblWebrtcState">IP</span>
+          <!-- Server Host / IP & Port (Always Visible & Clearly Labeled) -->
+          <div class="row-2col">
+            <div class="field-box host-col">
+              <label class="field-label" for="inpHost" id="lblHost">SERVER HOST / IP</label>
+              <input type="text" id="inpHost" class="inp" placeholder="e.g. 45.132.x.x or host:port:user:pass" autocomplete="off" spellcheck="false" oninput="onHostInput()" />
+            </div>
+            <div class="field-box port-col">
+              <label class="field-label" for="inpPort" id="lblPort">PORT</label>
+              <input type="number" id="inpPort" class="inp" placeholder="1080" autocomplete="off" oninput="onFormEdited()" />
+            </div>
+          </div>
+
+          <!-- Username / UUID Field (Dynamic) -->
+          <div class="field-box" id="groupUser">
+            <label class="field-label" for="inpUser" id="lblUser">SOCKS5 USERNAME</label>
+            <input type="text" id="inpUser" class="inp" placeholder="Username (optional)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+          </div>
+
+          <!-- Shadowsocks Cipher Field (Shown for SS) -->
+          <div class="field-box hidden" id="groupCipher">
+            <label class="field-label" for="inpCipher">SHADOWSOCKS CIPHER METHOD</label>
+            <div class="cipher-row">
+              <button type="button" class="sm-btn" onclick="pickSsCipher('chacha20-ietf-poly1305')">ChaCha20</button>
+              <button type="button" class="sm-btn" onclick="pickSsCipher('2022-blake3-aes-128-gcm')">2022-AES128</button>
+              <button type="button" class="sm-btn" onclick="pickSsCipher('aes-256-gcm')">AES-256-GCM</button>
+              <button type="button" class="sm-btn" onclick="pickSsCipher('aes-128-gcm')">AES-128-GCM</button>
+            </div>
+            <input type="text" id="inpCipher" class="inp" placeholder="chacha20-ietf-poly1305" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+          </div>
+
+          <!-- Password Field (Dynamic) -->
+          <div class="field-box" id="groupPass">
+            <label class="field-label" for="inpPass" id="lblPass">SOCKS5 PASSWORD</label>
+            <div class="pass-row">
+              <input type="password" id="inpPass" class="inp" placeholder="Password (optional)" autocomplete="off" oninput="onFormEdited()" />
+              <button type="button" class="show-pass-btn" id="btnTogglePass" onclick="togglePasswordVisibility()">Show</button>
+            </div>
+          </div>
+
+          <!-- TLS SNI Field (Shown for HTTP, VLESS, VMESS, TROJAN, HY2) -->
+          <div class="field-box hidden" id="groupSni">
+            <label class="field-label" for="inpSni" id="lblSni">TLS SNI / SERVER NAME</label>
+            <input type="text" id="inpSni" class="inp" placeholder="e.g. cloudflare.com (optional)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+          </div>
+
+          <!-- VLESS Reality Fields (Shown for VLESS) -->
+          <div class="row-2col hidden" id="groupReality">
+            <div class="field-box host-col">
+              <label class="field-label" for="inpExtra">REALITY PUBLIC KEY (pbk)</label>
+              <input type="text" id="inpExtra" class="inp" placeholder="Public Key" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            </div>
+            <div class="field-box port-col">
+              <label class="field-label" for="inpShortId">SHORT ID (sid)</label>
+              <input type="text" id="inpShortId" class="inp" placeholder="sid" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            </div>
+          </div>
+
+          <button type="button" class="save-btn" onclick="saveSlotToAdbNow()">
+            Save Config to /data/adb/nameless_proxy
           </button>
+          <div class="save-status" id="adbSaveStatusText">
+            Files saved in /data/adb/nameless_proxy/config.json &amp; backup_u0_s0.json
+          </div>
+        </div>
+
+        <!-- 3. Routing Toggles & Backup Card -->
+        <div class="card">
+          <div class="toggle-grid">
+            <button type="button" class="toggle-btn on" id="pillHotspot" onclick="toggleHotspotSetting()">
+              <span>Hotspot Share</span>
+              <strong id="lblHotspotState">ON</strong>
+            </button>
+            <button type="button" class="toggle-btn on" id="pillApps" onclick="switchTab(2)">
+              <span>App Routing</span>
+              <strong id="lblAppsState">ALL</strong>
+            </button>
+            <button type="button" class="toggle-btn on" id="pillWebrtc" onclick="toggleWebrtcMode()">
+              <span>WebRTC Shield</span>
+              <strong id="lblWebrtcState">ON</strong>
+            </button>
+          </div>
+
+          <div class="backup-row">
+            <button type="button" class="sec-btn" onclick="exportAllSlots()">Export Backup</button>
+            <button type="button" class="sec-btn" onclick="importAllSlots()">Import Backup</button>
+          </div>
         </div>
       </section>
 
-      <!-- TAB 1: IPFIGHTER / WEBRTC / DNS AUTO-CHECKER -->
+      <!-- TAB 1: CHECK (AUTO-RUNNING IPFIGHTER / WEBRTC / DNS) -->
       <section class="tab-view no-scroll" id="tab-1">
-        <div class="clay-card checker-bar" id="checkerToolbar">
+        <div class="card checker-bar" id="checkerToolbar">
           <div class="preset-row">
-            <button type="button" class="preset-orb jelly active" data-squish="deep" id="presetIpFighter" onclick="loadCheckerPreset('https://ipfighter.com', 'presetIpFighter')">IPFighter</button>
-            <button type="button" class="preset-orb jelly" data-squish="deep" id="presetWebRtc" onclick="loadCheckerPreset('https://browserleaks.com/webrtc', 'presetWebRtc')">WebRTC</button>
-            <button type="button" class="preset-orb jelly" data-squish="deep" id="presetDns" onclick="loadCheckerPreset('https://browserleaks.com/dns', 'presetDns')">DNS</button>
-            <button type="button" class="icon-orb jelly" data-squish="deep" onclick="reloadCheckerView(false)">↻</button>
-            <button type="button" class="icon-orb jelly danger" data-squish="deep" onclick="reloadCheckerView(true)">🧹</button>
+            <button type="button" class="preset-btn active" id="presetIpFighter" onclick="loadCheckerPreset('https://ipfighter.com', 'presetIpFighter')">IPFighter</button>
+            <button type="button" class="preset-btn" id="presetWebRtc" onclick="loadCheckerPreset('https://browserleaks.com/webrtc', 'presetWebRtc')">WebRTC</button>
+            <button type="button" class="preset-btn" id="presetDns" onclick="loadCheckerPreset('https://browserleaks.com/dns', 'presetDns')">DNS</button>
+            <button type="button" class="sm-btn" onclick="reloadCheckerView(false)">Reload</button>
+            <button type="button" class="sm-btn danger" onclick="reloadCheckerView(true)">Clear</button>
           </div>
         </div>
         <div class="checker-slot" id="checkerPlaceholder"></div>
       </section>
 
-      <!-- TAB 2: DYNAMIC PER-PROTOCOL PROXY CONFIGURATOR -->
-      <section class="tab-view" id="tab-2">
-        <div class="clay-card">
-          <div class="row-between">
-            <span class="sec-title" id="editingSlotTitle">SLOT P1 • SOCKS5</span>
-            <div class="btn-cluster">
-              <button type="button" class="pill-btn jelly" data-squish="deep" onclick="pasteUriFromClipboard()">📋 Paste URI</button>
-              <button type="button" class="pill-btn jelly danger" data-squish="deep" onclick="clearCurrentSlot()">Reset</button>
+      <!-- TAB 2: APPS ROUTING -->
+      <section class="tab-view no-scroll" id="tab-2">
+        <div class="card apps-card">
+          <div class="card-header">
+            <div class="btn-row">
+              <button type="button" class="sm-btn active" id="btnAllApps" onclick="setAppRouteMode(true)">All Apps</button>
+              <button type="button" class="sm-btn" id="btnSelApps" onclick="setAppRouteMode(false)">Selected Only</button>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="sm-btn" onclick="selectAllApps()">Select All</button>
+              <button type="button" class="sm-btn danger" onclick="clearSelectedApps()">None</button>
             </div>
           </div>
 
-          <!-- 8 Protocol Bubbles (Each Reconfigures the Form Below!) -->
-          <div class="field-lbl">1. SELECT PROXY PROTOCOL</div>
-          <div class="proto-bubbles" id="protoGrid">
-            <button type="button" class="proto-orb jelly active" data-squish="deep" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="SOCKS4" onclick="setProtocol('SOCKS4')">SOCKS4</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="SHADOWSOCKS" onclick="setProtocol('SHADOWSOCKS')">SS</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
-            <button type="button" class="proto-orb jelly" data-squish="deep" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
-          </div>
-
-          <!-- Always-Visible Server Host / IP & Server Port -->
-          <div class="form-grid">
-            <div class="two-col-fields">
-              <div class="field-group host-col">
-                <label class="field-lbl" for="inpHost" id="lblHost">🌐 SERVER HOST / IP</label>
-                <input type="text" id="inpHost" class="clay-input" placeholder="e.g. 45.132.x.x or host:port:user:pass" autocomplete="off" spellcheck="false" oninput="onHostInput()" />
-              </div>
-              <div class="field-group port-col">
-                <label class="field-lbl" for="inpPort" id="lblPort">🔌 PORT</label>
-                <input type="number" id="inpPort" class="clay-input" placeholder="1080" autocomplete="off" oninput="onFormEdited()" />
-              </div>
-            </div>
-
-            <!-- Dynamic Row A: Username / UUID (Shown for SOCKS5, HTTP, SOCKS4, VLESS, VMESS) -->
-            <div class="field-group" id="groupUser">
-              <label class="field-lbl" for="inpUser" id="lblUser">👤 SOCKS5 USERNAME</label>
-              <input type="text" id="inpUser" class="clay-input" placeholder="Enter username (optional)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-            </div>
-
-            <!-- Dynamic Row B: Shadowsocks Cipher Selector (Shown ONLY for SHADOWSOCKS) -->
-            <div class="field-group hidden" id="groupCipher">
-              <label class="field-lbl" for="inpCipher">🛡️ SHADOWSOCKS CIPHER METHOD</label>
-              <div class="cipher-chips">
-                <button type="button" class="cipher-pill jelly" data-squish="deep" onclick="pickSsCipher('chacha20-ietf-poly1305')">ChaCha20</button>
-                <button type="button" class="cipher-pill jelly" data-squish="deep" onclick="pickSsCipher('2022-blake3-aes-128-gcm')">2022-AES128</button>
-                <button type="button" class="cipher-pill jelly" data-squish="deep" onclick="pickSsCipher('aes-256-gcm')">AES-256-GCM</button>
-                <button type="button" class="cipher-pill jelly" data-squish="deep" onclick="pickSsCipher('aes-128-gcm')">AES-128-GCM</button>
-              </div>
-              <input type="text" id="inpCipher" class="clay-input" placeholder="chacha20-ietf-poly1305" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-            </div>
-
-            <!-- Dynamic Row C: Password / PSK (Shown for SOCKS5, HTTP, SS, TROJAN, HY2) -->
-            <div class="field-group" id="groupPass">
-              <label class="field-lbl" for="inpPass" id="lblPass">🔑 SOCKS5 PASSWORD</label>
-              <div class="pass-wrap">
-                <input type="password" id="inpPass" class="clay-input" placeholder="Enter password (optional)" autocomplete="off" oninput="onFormEdited()" />
-                <button type="button" class="eye-btn jelly" data-squish="deep" id="btnTogglePass" onclick="togglePasswordVisibility()">👁</button>
-              </div>
-            </div>
-
-            <!-- Dynamic Row D: TLS SNI (Shown for HTTP, VLESS, VMESS, TROJAN, HY2) -->
-            <div class="field-group hidden" id="groupSni">
-              <label class="field-lbl" for="inpSni" id="lblSni">🔒 TLS SNI / SERVER NAME</label>
-              <input type="text" id="inpSni" class="clay-input" placeholder="e.g. cloudflare.com (optional)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-            </div>
-
-            <!-- Dynamic Row E: VLESS REALITY Public Key & Short ID (Shown ONLY for VLESS) -->
-            <div class="two-col-fields hidden" id="groupReality">
-              <div class="field-group host-col">
-                <label class="field-lbl" for="inpExtra">🛡️ REALITY PUBLIC KEY (pbk)</label>
-                <input type="text" id="inpExtra" class="clay-input" placeholder="Optional Reality pbk" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-              </div>
-              <div class="field-group port-col">
-                <label class="field-lbl" for="inpShortId">⚡ SHORT ID (sid)</label>
-                <input type="text" id="inpShortId" class="clay-input" placeholder="sid" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-              </div>
-            </div>
-          </div>
-
-          <!-- Save & Write to /data/adb/nameless_proxy Button -->
-          <button type="button" class="save-adb-btn jelly" data-squish="mid" onclick="saveSlotToAdbNow()">
-            💾 Save Proxy to /data/adb/nameless_proxy
-          </button>
-          <div class="adb-path-hint" id="adbSaveStatusText">
-            Auto-saves config.json &amp; backup_u0_s0.json in /data/adb/nameless_proxy
-          </div>
-        </div>
-
-        <div class="pod-row">
-          <button type="button" class="clay-btn jelly" data-squish="mid" onclick="exportAllSlots()">⬇ Export Backup</button>
-          <button type="button" class="clay-btn jelly" data-squish="mid" onclick="importAllSlots()">⬆ Import Backup</button>
-        </div>
-      </section>
-
-      <!-- TAB 3: APP ROUTING PICKER (ALL APPS vs SELECTED APPS) -->
-      <section class="tab-view no-scroll" id="tab-3">
-        <div class="clay-card apps-card">
-          <div class="row-between">
-            <div class="mode-switch">
-              <button type="button" class="pill-btn jelly active" data-squish="deep" id="btnAllApps" onclick="setAppRouteMode(true)">All Apps</button>
-              <button type="button" class="pill-btn jelly" data-squish="deep" id="btnSelApps" onclick="setAppRouteMode(false)">Selected</button>
-            </div>
-            <div class="btn-cluster">
-              <button type="button" class="pill-btn jelly" data-squish="deep" onclick="selectAllApps()">All</button>
-              <button type="button" class="pill-btn jelly danger" data-squish="deep" onclick="clearSelectedApps()">None</button>
-            </div>
-          </div>
-
-          <input type="text" id="appSearchInput" class="clay-input" placeholder="Search installed apps..." autocomplete="off" oninput="renderAppsList()" />
-
+          <input type="text" id="appSearchInput" class="inp" placeholder="Search installed apps..." autocomplete="off" oninput="renderAppsList()" />
           <div class="apps-list" id="appsListContainer"></div>
         </div>
       </section>
 
-      <!-- TAB 4: LOGS & AUDIT -->
-      <section class="tab-view no-scroll" id="tab-4">
-        <div class="clay-card log-wrap">
-          <div class="row-between">
-            <div class="btn-cluster">
-              <button type="button" class="pill-btn jelly active" data-squish="deep" id="btnModeLogs" onclick="setLogMode(false)">Logs</button>
-              <button type="button" class="pill-btn jelly" data-squish="deep" id="btnModeAudit" onclick="setLogMode(true)">Audit</button>
+      <!-- TAB 3: LOGS & AUDIT -->
+      <section class="tab-view no-scroll" id="tab-3">
+        <div class="card log-card">
+          <div class="card-header">
+            <div class="btn-row">
+              <button type="button" class="sm-btn active" id="btnModeLogs" onclick="setLogMode(false)">sing-box Logs</button>
+              <button type="button" class="sm-btn" id="btnModeAudit" onclick="setLogMode(true)">iptables Audit</button>
             </div>
-            <div class="btn-cluster">
-              <button type="button" class="pill-btn jelly" data-squish="deep" onclick="refreshLogsNow()">↻</button>
-              <button type="button" class="pill-btn jelly danger" data-squish="deep" onclick="clearLogsNow()">Clear</button>
+            <div class="btn-row">
+              <button type="button" class="sm-btn" onclick="refreshLogsNow()">Refresh</button>
+              <button type="button" class="sm-btn danger" onclick="clearLogsNow()">Clear</button>
             </div>
           </div>
           <pre class="log-box" id="logConsole"></pre>
@@ -273,28 +227,12 @@
       </section>
     </main>
 
-    <!-- Bottom 3D Liquid Bubble Dock -->
-    <nav class="bubble-dock" id="bottomDock">
-      <button type="button" class="dock-orb jelly active" data-squish="deep" data-tab="0" onclick="switchTab(0)">
-        <span class="d-ico">◎</span>
-        <span class="d-txt">Hub</span>
-      </button>
-      <button type="button" class="dock-orb jelly" data-squish="deep" data-tab="1" onclick="switchTab(1)">
-        <span class="d-ico">🛡</span>
-        <span class="d-txt">Check</span>
-      </button>
-      <button type="button" class="dock-orb jelly" data-squish="deep" data-tab="2" onclick="switchTab(2)">
-        <span class="d-ico">⚡</span>
-        <span class="d-txt">Proxy</span>
-      </button>
-      <button type="button" class="dock-orb jelly" data-squish="deep" data-tab="3" onclick="switchTab(3)">
-        <span class="d-ico">⊞</span>
-        <span class="d-txt">Apps</span>
-      </button>
-      <button type="button" class="dock-orb jelly" data-squish="deep" data-tab="4" onclick="switchTab(4)">
-        <span class="d-ico">⌘</span>
-        <span class="d-txt">Logs</span>
-      </button>
+    <!-- Simple 4-Tab Bottom Bar -->
+    <nav class="bottom-nav" id="bottomDock">
+      <button type="button" class="nav-btn active" data-tab="0" onclick="switchTab(0)">Home &amp; Proxy</button>
+      <button type="button" class="nav-btn" data-tab="1" onclick="switchTab(1)">Check IP</button>
+      <button type="button" class="nav-btn" data-tab="2" onclick="switchTab(2)">Apps</button>
+      <button type="button" class="nav-btn" data-tab="3" onclick="switchTab(3)">Logs</button>
     </nav>
   </div>
 

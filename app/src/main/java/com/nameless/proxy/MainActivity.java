@@ -11,10 +11,8 @@ import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
-import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -44,7 +42,9 @@ public class MainActivity extends Activity {
     private WebView uiWebView;
     private WebView checkerWebView;
     private FrameLayout checkerContainer;
-    private final ExecutorService ioPool = Executors.newCachedThreadPool();
+    // Single-threaded engine executor so saveSlots and startTunnel NEVER race or overwrite config.json simultaneously
+    private final ExecutorService engineSerialPool = Executors.newSingleThreadExecutor();
+    private final ExecutorService pingPool = Executors.newCachedThreadPool();
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @Override
@@ -54,36 +54,16 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-        window.setStatusBarColor(Color.parseColor("#06070C"));
-        window.setNavigationBarColor(Color.parseColor("#06070C"));
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                Display display = getDisplay();
-                if (display != null) {
-                    Display.Mode[] modes = display.getSupportedModes();
-                    Display.Mode best = null;
-                    for (Display.Mode m : modes) {
-                        if (best == null || m.getRefreshRate() > best.getRefreshRate()) {
-                            best = m;
-                        }
-                    }
-                    if (best != null) {
-                        WindowManager.LayoutParams lp = window.getAttributes();
-                        lp.preferredDisplayModeId = best.getModeId();
-                        window.setAttributes(lp);
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
+        window.setStatusBarColor(Color.parseColor("#0D1117"));
+        window.setNavigationBarColor(Color.parseColor("#0D1117"));
 
         RootBridge.startBackgroundPoller();
 
         rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#06070C"));
+        rootLayout.setBackgroundColor(Color.parseColor("#0D1117"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#06070C"));
+        uiWebView.setBackgroundColor(Color.parseColor("#0D1117"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         uiWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         WebSettings ws = uiWebView.getSettings();
@@ -98,7 +78,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#0B0E18"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#0D1117"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -112,7 +92,7 @@ public class MainActivity extends Activity {
         setContentView(rootLayout);
         uiWebView.loadUrl("file:///android_asset/ui/index.html");
 
-        ioPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
+        engineSerialPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -121,9 +101,9 @@ public class MainActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         if (totalH <= 0) totalH = dm.heightPixels;
 
-        int topPx = Math.max(Math.round(118 * dm.density), Math.round(topRatio * totalH));
-        int bottomPx = Math.max(Math.round(74 * dm.density), Math.round(bottomRatio * totalH));
-        int sidePx = Math.round(12 * dm.density);
+        int topPx = Math.max(Math.round(108 * dm.density), Math.round(topRatio * totalH));
+        int bottomPx = Math.max(Math.round(62 * dm.density), Math.round(bottomRatio * totalH));
+        int sidePx = Math.round(8 * dm.density);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -138,7 +118,7 @@ public class MainActivity extends Activity {
         if (checkerWebView == null) {
             firstCreate = true;
             checkerWebView = new WebView(this);
-            checkerWebView.setBackgroundColor(Color.parseColor("#0B0E18"));
+            checkerWebView.setBackgroundColor(Color.parseColor("#0D1117"));
             checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             WebSettings s = checkerWebView.getSettings();
             s.setJavaScriptEnabled(true);
@@ -205,8 +185,8 @@ public class MainActivity extends Activity {
             LinkProperties lp = cm.getLinkProperties(net);
             String iface = (lp != null && lp.getInterfaceName() != null) ? lp.getInterfaceName() : "auto";
             if (caps != null) {
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi • " + iface;
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "LTE • " + iface;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi (" + iface + ")";
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "Mobile (" + iface + ")";
             }
             return iface;
         } catch (Exception e) {
@@ -249,17 +229,24 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void saveSlots(String jsonStr) {
-            RootBridge.scheduleSaveSlots(getApplicationContext(), jsonStr);
+            final Context appCtx = getApplicationContext();
+            appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE)
+                .edit().putString("slots_json", jsonStr).apply();
+            engineSerialPool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
         }
 
         @JavascriptInterface
         public boolean saveSlotsNow(String jsonStr) {
-            return RootBridge.saveAllSlotsToDisk(getApplicationContext(), jsonStr);
+            final Context appCtx = getApplicationContext();
+            appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE)
+                .edit().putString("slots_json", jsonStr).apply();
+            engineSerialPool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
+            return true;
         }
 
         @JavascriptInterface
         public void startTunnelAsync(String configJsonStr) {
-            ioPool.execute(() -> {
+            engineSerialPool.execute(() -> {
                 try {
                     JSONObject cfg = new JSONObject(configJsonStr);
                     JSONObject r = RootBridge.startTunnel(getApplicationContext(), cfg);
@@ -284,7 +271,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void stopTunnelAsync() {
-            ioPool.execute(() -> {
+            engineSerialPool.execute(() -> {
                 RootBridge.stopTunnel(getApplicationContext());
                 runOnUiThread(() -> uiWebView.evaluateJavascript(
                     "window.onTunnelActionComplete && window.onTunnelActionComplete('{\"ok\":true,\"stopped\":true}');",
@@ -295,7 +282,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void pingServerAsync(String host, int port) {
-            ioPool.execute(() -> {
+            pingPool.execute(() -> {
                 int ms = RootBridge.pingServer(host, port);
                 runOnUiThread(() -> uiWebView.evaluateJavascript(
                     "window.onPingResult && window.onPingResult(" + ms + ");",
@@ -328,7 +315,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void showCheckerView(String url, int topCssPx, int bottomCssPx) {
-            runOnUiThread(() -> mountAndLoadChecker(url, 0.165f, 0.105f, false));
+            runOnUiThread(() -> mountAndLoadChecker(url, 0.14f, 0.09f, false));
         }
 
         @JavascriptInterface
@@ -342,7 +329,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void navigateChecker(String url) {
-            runOnUiThread(() -> mountAndLoadChecker(url, 0.165f, 0.105f, true));
+            runOnUiThread(() -> mountAndLoadChecker(url, 0.14f, 0.09f, true));
         }
 
         @JavascriptInterface
@@ -370,7 +357,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void clearKernelLogs() {
-            ioPool.execute(RootBridge::clearLogs);
+            engineSerialPool.execute(RootBridge::clearLogs);
         }
 
         @JavascriptInterface
