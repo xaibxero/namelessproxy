@@ -33,6 +33,7 @@ type GeoResponse struct {
 }
 
 var currentIPv4 uint32
+var probeTrigger = make(chan struct{}, 1)
 
 func parseIPv4U32(ipStr string) (uint32, bool) {
 	ip := net.ParseIP(strings.TrimSpace(ipStr))
@@ -86,22 +87,33 @@ func probeTunnelExitIP(mixedPort int) {
 	}
 	client := &http.Client{
 		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
+			Proxy:               http.ProxyURL(proxyURL),
+			DisableKeepAlives:   true,
+			TLSHandshakeTimeout: 2000 * time.Millisecond,
 		},
-		Timeout: 3500 * time.Millisecond,
+		Timeout: 2500 * time.Millisecond,
 	}
 
 	endpoints := []string{
 		"http://ip-api.com/json/?fields=status,query,country,countryCode,regionName,city,isp,org",
+		"http://checkip.amazonaws.com",
+		"http://icanhazip.com",
 		"https://api4.ipify.org",
-		"https://icanhazip.com",
 		"https://ipinfo.io/ip",
 	}
+
+	// Wait briefly for tunnel.sh iptables + conntrack setup to finish
+	time.Sleep(350 * time.Millisecond)
 
 	verified := false
 	for {
 		for _, ep := range endpoints {
-			resp, err := client.Get(ep)
+			req, err := http.NewRequest("GET", ep, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "curl/8.5.0")
+			resp, err := client.Do(req)
 			if err != nil {
 				continue
 			}
@@ -128,9 +140,12 @@ func probeTunnelExitIP(mixedPort int) {
 			}
 		}
 		if verified {
-			time.Sleep(25 * time.Second)
+			select {
+			case <-probeTrigger:
+			case <-time.After(20 * time.Second):
+			}
 		} else {
-			time.Sleep(600 * time.Millisecond)
+			time.Sleep(400 * time.Millisecond)
 		}
 	}
 }
@@ -159,24 +174,31 @@ func serveSTUN(bindAddr string) {
 		if n < 20 {
 			continue
 		}
+		// Verify STUN Binding Request (0x0001)
 		msgType := (uint16(buf[0]) << 8) | uint16(buf[1])
 		if msgType != 0x0001 {
 			continue
 		}
 		ipU32 := atomic.LoadUint32(&currentIPv4)
 		if ipU32 == 0 {
+			select {
+			case probeTrigger <- struct{}{}:
+			default:
+			}
 			continue
 		}
 		var ipBytes [4]byte
 		binary.BigEndian.PutUint32(ipBytes[:], ipU32)
 		clientPort := uint16(clientAddr.Port)
 
+		// STUN Binding Success Response (0x0101), body length 32 bytes (0x0020)
 		resp[0] = 0x01
 		resp[1] = 0x01
 		resp[2] = 0x00
 		resp[3] = 0x20
 		copy(resp[4:20], buf[4:20])
 
+		// Attribute 1: XOR-MAPPED-ADDRESS (0x0020)
 		resp[20] = 0x00
 		resp[21] = 0x20
 		resp[22] = 0x00
@@ -190,6 +212,7 @@ func serveSTUN(bindAddr string) {
 		resp[30] = ipBytes[2] ^ buf[6]
 		resp[31] = ipBytes[3] ^ buf[7]
 
+		// Attribute 2: MAPPED-ADDRESS (0x0001)
 		resp[32] = 0x00
 		resp[33] = 0x01
 		resp[34] = 0x00
@@ -203,6 +226,7 @@ func serveSTUN(bindAddr string) {
 		resp[42] = ipBytes[2]
 		resp[43] = ipBytes[3]
 
+		// Attribute 3: FINGERPRINT (0x8028) per RFC 5389 Section 15.5
 		fp := crc32.ChecksumIEEE(resp[:44]) ^ 0x5354554e
 		resp[44] = 0x80
 		resp[45] = 0x28

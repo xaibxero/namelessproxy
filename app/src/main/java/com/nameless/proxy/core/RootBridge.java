@@ -54,7 +54,7 @@ public class RootBridge {
     public static synchronized void startBackgroundPoller() {
         if (pollerStarted) return;
         pollerStarted = true;
-        statusPoller.scheduleWithFixedDelay(RootBridge::refreshStatusFromRootNow, 0, 2200, TimeUnit.MILLISECONDS);
+        statusPoller.scheduleWithFixedDelay(RootBridge::refreshStatusFromRootNow, 0, 2000, TimeUnit.MILLISECONDS);
     }
 
     public static void refreshStatusFromRootNow() {
@@ -152,13 +152,14 @@ public class RootBridge {
     }
 
     public static boolean ensureBinariesExtracted(Context context) {
+        // Always update tunnel.sh and stun-responder so new APK updates take effect immediately
         extractAssetToAdb(context, "tunnel.sh", TUNNEL_SH, "755");
+        extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
         String check = execSu(
-            "if [ -x " + SINGBOX_BIN + " ] && [ -x " + STUN_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
+            "if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
         );
         if (!check.contains("sing-box version")) {
             extractAssetToAdb(context, "sing-box", SINGBOX_BIN, "755");
-            extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
             String recheck = execSu("if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; fi");
             return recheck.contains("sing-box version");
         }
@@ -590,6 +591,18 @@ public class RootBridge {
                 out.put("password", v.optString("id", ""));
                 out.put("sni", v.optString("sni", v.optString("host", "")));
                 return out;
+            }
+            // Also support raw host:port:user:pass format
+            if (!uriStr.contains("://") && uriStr.contains(":")) {
+                String[] parts = uriStr.split(":");
+                if (parts.length >= 2) {
+                    out.put("type", "SOCKS5");
+                    out.put("host", parts[0].trim());
+                    out.put("port", Integer.parseInt(parts[1].trim()));
+                    if (parts.length >= 3) out.put("username", parts[2].trim());
+                    if (parts.length >= 4) out.put("password", parts[3].trim());
+                    return out;
+                }
             }
             URI u = new URI(uriStr);
             String scheme = u.getScheme() == null ? "socks5" : u.getScheme().toLowerCase();

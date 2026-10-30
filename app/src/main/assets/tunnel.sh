@@ -49,7 +49,7 @@ clean_rules() {
         echo 0 > "$f" 2>/dev/null || true
     done
 
-    for p in 7900 7901 7902 7903 7904 7905 8000 8001 8500 8501 8502 8503 8504 8505 8800 8801 8802 8805 8806 31000 31001 31002 31003; do
+    for p in 7900 7901 7902 7903 7904 7905 8000 8001 8500 8501 8502 8503 8504 8505 8800 8801 8802 8805 8806 8807 31000 31001 31002 31003; do
         while ip rule del pref "$p" 2>/dev/null; do :; done
     done
     ip route flush table 2088 2>/dev/null || true
@@ -169,7 +169,7 @@ start_tunnel() {
         echo "$ST_PID" > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true
     fi
 
-    # 3. Kernel sysctl + Disable Hardware/BPF Tether Offload so Hotspot traffic ALWAYS hits iptables PREROUTING!
+    # 3. Kernel sysctl + Disable Hardware/BPF Tether Offload so Hotspot traffic ALWAYS hits iptables PREROUTING
     settings put global tether_offload_disabled 1 2>/dev/null || true
     ndc tether offload disable 2>/dev/null || true
     echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true
@@ -219,14 +219,21 @@ start_tunnel() {
     fi
 
     # 6. TCP-Only Loopback Source-Binding Engine (Table 2088: default dev lo src 127.0.0.1)
-    # Scoping uidrange to `ipproto tcp` keeps all outside-app TCP 100% stable on lo while allowing
-    # Chrome & WebView WebRTC UDP sockets to see the active interface and send STUN requests to stun-responder!
+    # CRITICAL FIX: Scope ALL Table 2088 rules (including 198.18.0.0/15 FakeIP!) strictly to `ipproto tcp`,
+    # and route `ipproto udp` to WAN_TABLE so Chromium/WebView WebRTC `getsockname()` ALWAYS sees the
+    # real Wi-Fi/LTE interface IP (never 127.0.0.1 loopback) and sends STUN UDP packets to stun-responder!
     ip route replace default dev lo src 127.0.0.1 table 2088 2>/dev/null || true
     for rng in $UID_LIST; do
         ip rule add ipproto tcp uidrange "$rng" lookup 2088 pref 8800 2>/dev/null || true
+        if [ -n "$WAN_TABLE" ]; then
+            ip rule add ipproto udp uidrange "$rng" lookup "$WAN_TABLE" pref 8801 2>/dev/null || true
+        fi
     done
-    ip rule add from 127.0.0.0/8 lookup 2088 pref 8805 2>/dev/null || true
-    ip rule add to 198.18.0.0/15 lookup 2088 pref 8806 2>/dev/null || true
+    ip rule add ipproto tcp from 127.0.0.0/8 lookup 2088 pref 8805 2>/dev/null || true
+    ip rule add ipproto tcp to 198.18.0.0/15 lookup 2088 pref 8806 2>/dev/null || true
+    if [ -n "$WAN_TABLE" ]; then
+        ip rule add ipproto udp to 198.18.0.0/15 lookup "$WAN_TABLE" pref 8807 2>/dev/null || true
+    fi
 
     # 7. App-UID Scoped IPv6 Unreachable Route (Keeps clatd UID 1029 100% alive on Jazz LTE!)
     ip -6 route replace unreachable default table 2288 2>/dev/null || ip -6 route replace unreachable ::/0 table 2288 2>/dev/null || true
@@ -245,13 +252,7 @@ start_tunnel() {
     done
     iptables -w -I INPUT 1 -j "$CHAIN_HS_IN" 2>/dev/null || true
 
-    # 9. Loopback POSTROUTING SNAT so sockets explicitly bound to Wi-Fi/Cellular IPs (e.g. WebRTC STUN sockets!)
-    # have their source rewritten to 127.0.0.1 when redirected to lo, preventing martian drops on STUN replies!
-    iptables -w -t nat -N "$CHAIN_POST_V4" 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_POST_V4" -o lo -j SNAT --to-source 127.0.0.1 2>/dev/null || true
-    iptables -w -t nat -I POSTROUTING 1 -j "$CHAIN_POST_V4" 2>/dev/null || true
-
-    # 10. PHONE NAT OUTPUT
+    # 9. PHONE NAT OUTPUT (No POSTROUTING SNAT to 127.0.0.1 so STUN replies to local Wi-Fi/LTE socket IPs are never dropped!)
     iptables -w -t nat -N "$CHAIN_NAT_V4" 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_NAT_V4" -d 127.0.0.0/8 -j RETURN 2>/dev/null || true
     for p in "$INBOUND_PORT" "$SOCKS_PORT" "$HS_INBOUND_PORT" "$DNS_PORT" "$HS_DNS_PORT" "$STUN_PORT" "$HS_STUN_PORT"; do
@@ -273,7 +274,7 @@ start_tunnel() {
     iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 53 -j REDIRECT --to-ports "$DNS_PORT" 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 53 -j REDIRECT --to-ports "$DNS_PORT" 2>/dev/null || true
 
-    # WebRTC STUN Handling BEFORE UDP 80/443 rejection so STUN on port 443 or any port returns Proxy IP!
+    # WebRTC STUN Interception BEFORE UDP 80/443 rejection
     if [ "$WEBRTC_MODE" = "SPOOF" ]; then
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
@@ -311,10 +312,14 @@ start_tunnel() {
 
     for rng in $UID_LIST; do
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp -m owner --uid-owner "$rng" -j REDIRECT --to-ports "$INBOUND_PORT" 2>/dev/null || true
+        if [ "$WEBRTC_MODE" = "SPOOF" ]; then
+            # Redirect any remaining non-LAN app UDP (such as STUN on custom ports) to stun-responder!
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 1024:65535 -m owner --uid-owner "$rng" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+        fi
     done
     iptables -w -t nat -I OUTPUT 1 -j "$CHAIN_NAT_V4" 2>/dev/null || true
 
-    # 11. IPv6 NAT OUTPUT
+    # 10. IPv6 NAT OUTPUT
     ip6tables -w -t nat -N "$CHAIN_NAT_V6" 2>/dev/null || true
     ip6tables -w -t nat -A "$CHAIN_NAT_V6" -s ::1/128 -j RETURN 2>/dev/null || true
     ip6tables -w -t nat -A "$CHAIN_NAT_V6" -d ::1/128 -j RETURN 2>/dev/null || true
@@ -326,7 +331,7 @@ start_tunnel() {
     ip6tables -w -t nat -A "$CHAIN_NAT_V6" -p tcp --dport 53 -j REDIRECT --to-ports "$DNS_V6_PORT" 2>/dev/null || true
     ip6tables -w -t nat -I OUTPUT 1 -j "$CHAIN_NAT_V6" 2>/dev/null || true
 
-    # 12. PHONE IPv4 FILTER SHIELD
+    # 11. PHONE IPv4 FILTER SHIELD
     iptables -w -N "$CHAIN_FILTER_V4" 2>/dev/null || true
     iptables -w -A "$CHAIN_FILTER_V4" -o lo -j RETURN 2>/dev/null || true
     iptables -w -A "$CHAIN_FILTER_V4" -d 127.0.0.0/8 -j RETURN 2>/dev/null || true
@@ -362,7 +367,7 @@ start_tunnel() {
     done
     iptables -w -I OUTPUT 1 -j "$CHAIN_FILTER_V4" 2>/dev/null || true
 
-    # 13. IPv6 FILTER SHIELD
+    # 12. IPv6 FILTER SHIELD
     ip6tables -w -N "$CHAIN_FILTER_V6" 2>/dev/null || true
     ip6tables -w -A "$CHAIN_FILTER_V6" -o lo -j RETURN 2>/dev/null || true
     ip6tables -w -A "$CHAIN_FILTER_V6" -d ::1/128 -j RETURN 2>/dev/null || true
@@ -387,7 +392,7 @@ start_tunnel() {
     done
     ip6tables -w -I OUTPUT 1 -j "$CHAIN_FILTER_V6" 2>/dev/null || true
 
-    # 14. HOTSPOT ROUTING (Matches BOTH Tether Interface Names AND 192.168.0.0/16 & 172.16.0.0/12 Hotspot Client Subnets!)
+    # 13. HOTSPOT ROUTING (Matches BOTH Tether Interface Names AND 192.168.0.0/16 & 172.16.0.0/12 Hotspot Client Subnets)
     if [ "$ROUTE_HOTSPOT" = "1" ]; then
         ip6tables -w -N "$CHAIN_HS_V6" 2>/dev/null || true
         for iface in $TETHER_IFACES; do
@@ -402,7 +407,6 @@ start_tunnel() {
         iptables -w -t nat -A "$CHAIN_HS_NAT" -i v4-rmnet+ -j RETURN 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -i ccmni+ -j RETURN 2>/dev/null || true
         if [ -n "$WAN_IFACE" ] && [ "$WAN_IFACE" = "wlan0" ]; then
-            # If upstream WAN is wlan0, only exempt packets arriving from the upstream router IP, not hotspot clients!
             WAN_GW=$(ip route show table "${WAN_TABLE:-main}" 2>/dev/null | awk '/^default via/ {print $3; exit}')
             if [ -n "$WAN_GW" ]; then
                 iptables -w -t nat -A "$CHAIN_HS_NAT" -s "$WAN_GW" -j RETURN 2>/dev/null || true
@@ -421,7 +425,7 @@ start_tunnel() {
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 53 -j REDIRECT --to-ports "$HS_DNS_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p tcp --dport 53 -j REDIRECT --to-ports "$HS_DNS_PORT" 2>/dev/null || true
 
-        # Hotspot WebRTC STUN interception (Magic Cookie + STUN ports) BEFORE UDP 80/443 return
+        # Hotspot WebRTC STUN interception
         if [ "$WEBRTC_MODE" = "SPOOF" ]; then
             iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
             iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
@@ -441,15 +445,20 @@ start_tunnel() {
             iptables -w -t nat -A "$CHAIN_HS_NAT" -d "$r" -j RETURN 2>/dev/null || true
         done
 
-        # Match Hotspot clients by BOTH subnet (192.168.0.0/16, 172.16.0.0/12) AND interface wildcards!
         iptables -w -t nat -A "$CHAIN_HS_NAT" -s 192.168.0.0/16 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -s 172.16.0.0/12 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
+        if [ "$WEBRTC_MODE" = "SPOOF" ]; then
+            iptables -w -t nat -A "$CHAIN_HS_NAT" -s 192.168.0.0/16 -p udp --dport 1024:65535 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_HS_NAT" -s 172.16.0.0/12 -p udp --dport 1024:65535 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
+        fi
         for iface in $TETHER_IFACES; do
             iptables -w -t nat -A "$CHAIN_HS_NAT" -i "$iface" -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
+            if [ "$WEBRTC_MODE" = "SPOOF" ]; then
+                iptables -w -t nat -A "$CHAIN_HS_NAT" -i "$iface" -p udp --dport 1024:65535 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
+            fi
         done
         iptables -w -t nat -I PREROUTING 1 -j "$CHAIN_HS_NAT" 2>/dev/null || true
 
-        # Strict FORWARD Kill-Switch for Hotspot so zero packets can ever bypass PREROUTING directly to WAN!
         iptables -w -N "$CHAIN_HS_FWD" 2>/dev/null || true
         iptables -w -A "$CHAIN_HS_FWD" -i rmnet+ -j RETURN 2>/dev/null || true
         iptables -w -A "$CHAIN_HS_FWD" -i v4-rmnet+ -j RETURN 2>/dev/null || true
@@ -470,7 +479,6 @@ start_tunnel() {
         iptables -w -I FORWARD 1 -j "$CHAIN_HS_FWD" 2>/dev/null || true
     fi
 
-    # Flush conntrack AFTER rules are active so any existing Hotspot/Phone direct connections are immediately reset into the tunnel!
     conntrack -F 2>/dev/null || true
     echo "${USER_ID}:${SLOT_ID}" > "$STATE_FILE"
     cmd connectivity flush-dns 2>/dev/null || true
@@ -524,7 +532,7 @@ case "$1" in
         ;;
     audit)
         echo "=== IP RULES ==="
-        ip rule show | grep -E "7900|7901|8000|8001|8800|8805|8806|22000" || true
+        ip rule show | grep -E "7900|7901|8000|8001|8800|8801|8805|8806|8807|22000" || true
         echo ""
         echo "=== NAT (${CHAIN_NAT_V4}) ==="
         iptables -w -t nat -S "$CHAIN_NAT_V4" 2>&1 || true

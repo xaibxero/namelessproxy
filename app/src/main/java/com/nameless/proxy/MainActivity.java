@@ -46,31 +46,6 @@ public class MainActivity extends Activity {
     private FrameLayout checkerContainer;
     private final ExecutorService ioPool = Executors.newCachedThreadPool();
 
-    private static final String WEBRTC_HARDENED_JS =
-        "(function(){" +
-        "try{" +
-        "const orig = window.RTCPeerConnection || window.webkitRTCPeerConnection;" +
-        "if(!orig || orig.__namelessPatched) return;" +
-        "function isHostCand(c){" +
-        "if(!c) return false;" +
-        "return /typ host/i.test(c);" +
-        "}" +
-        "const Wrapped = function(cfg, constraints){" +
-        "const pc = new orig(cfg, constraints);" +
-        "pc.addEventListener('icecandidate', function(e){" +
-        "if(e && e.candidate && e.candidate.candidate && isHostCand(e.candidate.candidate)){" +
-        "e.stopImmediatePropagation();" +
-        "}" +
-        "}, true);" +
-        "return pc;" +
-        "};" +
-        "Wrapped.prototype = orig.prototype;" +
-        "Wrapped.__namelessPatched = true;" +
-        "window.RTCPeerConnection = Wrapped;" +
-        "window.webkitRTCPeerConnection = Wrapped;" +
-        "}catch(e){}" +
-        "})();";
-
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,8 +54,8 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-        window.setStatusBarColor(Color.parseColor("#07080D"));
-        window.setNavigationBarColor(Color.parseColor("#07080D"));
+        window.setStatusBarColor(Color.parseColor("#06070C"));
+        window.setNavigationBarColor(Color.parseColor("#06070C"));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
@@ -105,11 +80,12 @@ public class MainActivity extends Activity {
         RootBridge.startBackgroundPoller();
 
         rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#07080D"));
+        rootLayout.setBackgroundColor(Color.parseColor("#06070C"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#07080D"));
+        uiWebView.setBackgroundColor(Color.parseColor("#06070C"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        uiWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         WebSettings ws = uiWebView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
@@ -122,7 +98,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#0A0C14"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#0B0E18"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -140,12 +116,12 @@ public class MainActivity extends Activity {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private void ensureCheckerWebView(String url, float topRatio, float bottomRatio) {
+    private void mountAndLoadChecker(String url, float topRatio, float bottomRatio, boolean forceReload) {
         int totalH = rootLayout.getHeight();
         DisplayMetrics dm = getResources().getDisplayMetrics();
         if (totalH <= 0) totalH = dm.heightPixels;
 
-        int topPx = Math.max(Math.round(130 * dm.density), Math.round(topRatio * totalH));
+        int topPx = Math.max(Math.round(118 * dm.density), Math.round(topRatio * totalH));
         int bottomPx = Math.max(Math.round(74 * dm.density), Math.round(bottomRatio * totalH));
         int sidePx = Math.round(12 * dm.density);
 
@@ -162,7 +138,7 @@ public class MainActivity extends Activity {
         if (checkerWebView == null) {
             firstCreate = true;
             checkerWebView = new WebView(this);
-            checkerWebView.setBackgroundColor(Color.parseColor("#0A0C14"));
+            checkerWebView.setBackgroundColor(Color.parseColor("#0B0E18"));
             checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             WebSettings s = checkerWebView.getSettings();
             s.setJavaScriptEnabled(true);
@@ -179,14 +155,12 @@ public class MainActivity extends Activity {
                 @Override
                 public void onPageStarted(WebView view, String pageUrl, Bitmap favicon) {
                     super.onPageStarted(view, pageUrl, favicon);
-                    view.evaluateJavascript(WEBRTC_HARDENED_JS, null);
                     notifyUiCheckerUrl(pageUrl, true);
                 }
 
                 @Override
                 public void onPageFinished(WebView view, String pageUrl) {
                     super.onPageFinished(view, pageUrl);
-                    view.evaluateJavascript(WEBRTC_HARDENED_JS, null);
                     notifyUiCheckerUrl(pageUrl, false);
                 }
 
@@ -203,7 +177,7 @@ public class MainActivity extends Activity {
 
         if (url != null && !url.isEmpty()) {
             String current = checkerWebView.getUrl();
-            if (firstCreate || current == null || !current.equals(url)) {
+            if (firstCreate || forceReload || current == null || !current.startsWith(url)) {
                 checkerWebView.loadUrl(url);
             }
         }
@@ -344,7 +318,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void showCheckerRatio(String url, float topRatio, float bottomRatio) {
-            runOnUiThread(() -> ensureCheckerWebView(url, topRatio, bottomRatio));
+            runOnUiThread(() -> mountAndLoadChecker(url, topRatio, bottomRatio, false));
+        }
+
+        @JavascriptInterface
+        public void showCheckerView(String url, int topCssPx, int bottomCssPx) {
+            runOnUiThread(() -> mountAndLoadChecker(url, 0.165f, 0.105f, false));
         }
 
         @JavascriptInterface
@@ -358,13 +337,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void navigateChecker(String url) {
-            runOnUiThread(() -> {
-                if (checkerWebView != null && url != null && !url.isEmpty()) {
-                    checkerWebView.loadUrl(url);
-                } else if (url != null && !url.isEmpty()) {
-                    ensureCheckerWebView(url, 0.18f, 0.10f);
-                }
-            });
+            runOnUiThread(() -> mountAndLoadChecker(url, 0.165f, 0.105f, true));
         }
 
         @JavascriptInterface
