@@ -28,6 +28,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +41,7 @@ public class RootBridge {
     public static final String TUNNEL_SH = ADB_DIR + "/tunnel.sh";
     public static final String CONFIG_PATH = ADB_DIR + "/config.json";
     public static final String EXIT_JSON_PATH = ADB_DIR + "/exit_info.json";
+    public static final String ROOT_AUTO_BACKUP = ADB_DIR + "/nameless_auto_backup.json";
     public static final String PUBLIC_BACKUP = "/sdcard/Download/nameless_proxy_backup.json";
 
     private static volatile boolean cachedRunning = false;
@@ -49,12 +51,24 @@ public class RootBridge {
     private static volatile JSONObject cachedGeo = null;
     private static volatile String cachedAppsJson = null;
     private static boolean pollerStarted = false;
+
     private static final ScheduledExecutorService statusPoller = Executors.newSingleThreadScheduledExecutor();
+    // Single-threaded serialized root writer so rapid edits never collide or corrupt files in /data/adb/nameless_proxy
+    private static final ExecutorService diskSaveExecutor = Executors.newSingleThreadExecutor();
 
     public static synchronized void startBackgroundPoller() {
         if (pollerStarted) return;
         pollerStarted = true;
         statusPoller.scheduleWithFixedDelay(RootBridge::refreshStatusFromRootNow, 0, 2000, TimeUnit.MILLISECONDS);
+    }
+
+    public static void scheduleSaveSlots(Context context, String jsonStr) {
+        final Context appCtx = context.getApplicationContext();
+        // Save immediately to app SharedPreferences on caller thread so UI state is never lost
+        SharedPreferences sp = appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
+        sp.edit().putString("slots_json", jsonStr).apply();
+        // Queue serialized root write to /data/adb/nameless_proxy/
+        diskSaveExecutor.execute(() -> saveAllSlotsToDisk(appCtx, jsonStr));
     }
 
     public static void refreshStatusFromRootNow() {
@@ -152,7 +166,6 @@ public class RootBridge {
     }
 
     public static boolean ensureBinariesExtracted(Context context) {
-        // Always update tunnel.sh and stun-responder so new APK updates take effect immediately
         extractAssetToAdb(context, "tunnel.sh", TUNNEL_SH, "755");
         extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
         String check = execSu(
@@ -363,6 +376,7 @@ public class RootBridge {
         switch (type) {
             case "SOCKS4":
                 proxyOut.put("type", "socks").put("server", serverHost).put("server_port", port).put("version", "4");
+                if (!username.isEmpty()) proxyOut.put("username", username);
                 break;
             case "HTTP":
                 proxyOut.put("type", "http").put("server", serverHost).put("server_port", port);
@@ -460,11 +474,12 @@ public class RootBridge {
             }
             String resolvedIp = resolveServerIp(rawHost);
             String sbJson = generateSingBoxConfig(cfg, resolvedIp);
-            if (!writeTextToAdb(sbJson, CONFIG_PATH)) {
-                return res.put("ok", false).put("error", "Failed to write config");
-            }
             int userId = getAndroidUserId();
             int slot = cfg.optInt("slot", 0);
+
+            writeTextToAdb(sbJson, CONFIG_PATH);
+            writeTextToAdb(sbJson, ADB_DIR + "/config_u" + userId + "_s" + slot + ".json");
+
             int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
             String webrtcMode = cfg.optString("webrtcMode", "SPOOF");
             String targetUids = cfg.optString("targetUids", "ALL");
@@ -592,7 +607,6 @@ public class RootBridge {
                 out.put("sni", v.optString("sni", v.optString("host", "")));
                 return out;
             }
-            // Also support raw host:port:user:pass format
             if (!uriStr.contains("://") && uriStr.contains(":")) {
                 String[] parts = uriStr.split(":");
                 if (parts.length >= 2) {
@@ -648,35 +662,154 @@ public class RootBridge {
         return out;
     }
 
-    public static void saveAllSlotsToDisk(Context context, String jsonStr) {
-        SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
-        sp.edit().putString("slots_json", jsonStr).apply();
-        writeTextToAdb(jsonStr, ADB_DIR + "/slots_u" + getAndroidUserId() + ".json");
+    /**
+     * Immediately creates and saves all configuration & backup files inside /data/adb/nameless_proxy/:
+     * 1. /data/adb/nameless_proxy/slots_u{userId}.json
+     * 2. /data/adb/nameless_proxy/nameless_auto_backup.json
+     * 3. /data/adb/nameless_proxy/backup_u{userId}_s{slot}.json (for every configured slot)
+     * 4. /data/adb/nameless_proxy/config_u{userId}_s{slot}.json (sing-box config for every configured slot)
+     * 5. /data/adb/nameless_proxy/config.json (active slot sing-box config)
+     */
+    public static boolean saveAllSlotsToDisk(Context context, String jsonStr) {
+        try {
+            SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
+            sp.edit().putString("slots_json", jsonStr).apply();
+
+            int userId = getAndroidUserId();
+            JSONObject parsed = new JSONObject(jsonStr);
+            int activeSlot = parsed.optInt("activeSlot", 0);
+            boolean routeHotspot = parsed.optBoolean("routeHotspot", true);
+            boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
+            JSONArray slotsArr = parsed.optJSONArray("slots");
+
+            // Write main slots file
+            writeTextToAdb( parsed.toString(2), ADB_DIR + "/slots_u" + userId + ".json");
+
+            // Also build v18-compatible nameless_auto_backup.json and per-slot backup_u0_sX.json + config_u0_sX.json
+            JSONObject autoBackup = new JSONObject();
+            autoBackup.put("version", 3);
+            autoBackup.put("boot_slot", activeSlot);
+            autoBackup.put("route_hotspot", routeHotspot);
+            JSONArray compatSlots = new JSONArray();
+
+            if (slotsArr != null) {
+                for (int i = 0; i < slotsArr.length(); i++) {
+                    JSONObject s = slotsArr.optJSONObject(i);
+                    if (s == null) continue;
+                    String host = cleanHost(s.optString("host", ""));
+                    int port = s.optInt("port", 1080);
+                    String type = s.optString("type", "SOCKS5");
+                    String user = s.optString("username", "");
+                    String pass = s.optString("password", "");
+                    String sni = s.optString("sni", "");
+                    String ssMethod = s.optString("ssMethod", "chacha20-ietf-poly1305");
+                    String rpk = s.optString("realityPublicKey", "");
+                    String rsid = s.optString("realityShortId", "");
+
+                    JSONObject compatSlot = new JSONObject();
+                    compatSlot.put("slot", i);
+                    compatSlot.put("proxy_type", type);
+                    compatSlot.put("host", host);
+                    compatSlot.put("port", String.valueOf(port));
+                    compatSlot.put("username", user);
+                    compatSlot.put("password", pass);
+                    compatSlot.put("sni", sni);
+                    compatSlot.put("ss_method", ssMethod);
+                    compatSlot.put("reality_pk", rpk);
+                    compatSlot.put("reality_sid", rsid);
+                    compatSlot.put("route_hotspot", routeHotspot);
+                    compatSlot.put("route_whole_profile", routeAllApps);
+                    compatSlots.put(compatSlot);
+
+                    // Save per-slot backup file and pre-generated sing-box config file whenever host is entered
+                    if (!host.isEmpty()) {
+                        writeTextToAdb(compatSlot.toString(2), ADB_DIR + "/backup_u" + userId + "_s" + i + ".json");
+                        String sbCfg = generateSingBoxConfig(s, host);
+                        writeTextToAdb(sbCfg, ADB_DIR + "/config_u" + userId + "_s" + i + ".json");
+                        if (i == activeSlot) {
+                            writeTextToAdb(sbCfg, CONFIG_PATH);
+                        }
+                    }
+                }
+            }
+            autoBackup.put("slots", compatSlots);
+            writeTextToAdb(autoBackup.toString(2), ROOT_AUTO_BACKUP);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static String loadAllSlotsFromDisk(Context context) {
         SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
         String saved = sp.getString("slots_json", "");
-        if (saved != null && !saved.isEmpty()) return saved;
-        String fromAdb = execSu("if [ -f " + ADB_DIR + "/slots_u" + getAndroidUserId() + ".json ]; then cat " + ADB_DIR + "/slots_u" + getAndroidUserId() + ".json; fi");
+        if (saved != null && !saved.isEmpty() && saved.contains("\"host\"")) {
+            return saved;
+        }
+        int userId = getAndroidUserId();
+        String fromAdb = execSu("if [ -f " + ADB_DIR + "/slots_u" + userId + ".json ]; then cat " + ADB_DIR + "/slots_u" + userId + ".json; fi");
         if (!fromAdb.isEmpty() && fromAdb.startsWith("{")) {
             sp.edit().putString("slots_json", fromAdb).apply();
             return fromAdb;
         }
-        return "";
+        // Fallback: Check if nameless_auto_backup.json from v18 or earlier exists in /data/adb/nameless_proxy/
+        String fromAuto = execSu("if [ -f " + ROOT_AUTO_BACKUP + " ]; then cat " + ROOT_AUTO_BACKUP + "; fi");
+        if (!fromAuto.isEmpty() && fromAuto.contains("{")) {
+            try {
+                int idx = fromAuto.indexOf('{');
+                JSONObject legacy = new JSONObject(fromAuto.substring(idx));
+                JSONArray legacySlots = legacy.optJSONArray("slots");
+                if (legacySlots != null && legacySlots.length() > 0) {
+                    JSONObject converted = new JSONObject();
+                    converted.put("activeSlot", legacy.optInt("boot_slot", 0));
+                    converted.put("routeHotspot", legacy.optBoolean("route_hotspot", true));
+                    converted.put("routeAllApps", true);
+                    JSONArray newSlots = new JSONArray();
+                    for (int i = 0; i < 5; i++) {
+                        JSONObject ls = i < legacySlots.length() ? legacySlots.optJSONObject(i) : null;
+                        JSONObject ns = new JSONObject();
+                        if (ls != null) {
+                            ns.put("type", ls.optString("proxy_type", "SOCKS5"));
+                            ns.put("host", ls.optString("host", ""));
+                            ns.put("port", Integer.parseInt(ls.optString("port", "1080")));
+                            ns.put("username", ls.optString("username", ""));
+                            ns.put("password", ls.optString("password", ""));
+                            ns.put("sni", ls.optString("sni", ""));
+                            ns.put("ssMethod", ls.optString("ss_method", "chacha20-ietf-poly1305"));
+                            ns.put("realityPublicKey", ls.optString("reality_pk", ""));
+                            ns.put("realityShortId", ls.optString("reality_sid", ""));
+                        } else {
+                            ns.put("type", "SOCKS5").put("host", "").put("port", 1080);
+                        }
+                        newSlots.put(ns);
+                    }
+                    converted.put("slots", newSlots);
+                    String outStr = converted.toString();
+                    sp.edit().putString("slots_json", outStr).apply();
+                    return outStr;
+                }
+            } catch (Exception ignored) {}
+        }
+        return saved != null ? saved : "";
     }
 
     public static boolean exportBackup(Context context) {
         String data = loadAllSlotsFromDisk(context);
         if (data.isEmpty()) return false;
+        saveAllSlotsToDisk(context, data);
         return writeTextToAdb(data, PUBLIC_BACKUP);
     }
 
     public static String importBackup(Context context) {
-        String data = execSu("if [ -f " + PUBLIC_BACKUP + " ]; then cat " + PUBLIC_BACKUP + "; fi");
-        if (!data.isEmpty() && data.startsWith("{")) {
-            saveAllSlotsToDisk(context, data);
-            return data;
+        String data = execSu(
+            "if [ -f " + PUBLIC_BACKUP + " ]; then cat " + PUBLIC_BACKUP + "; " +
+            "elif [ -f /sdcard/Download/nameless_backup.json ]; then cat /sdcard/Download/nameless_backup.json; fi"
+        );
+        if (!data.isEmpty() && data.contains("{")) {
+            int idx = data.indexOf('{');
+            String clean = data.substring(idx);
+            saveAllSlotsToDisk(context, clean);
+            return loadAllSlotsFromDisk(context);
         }
         return "";
     }

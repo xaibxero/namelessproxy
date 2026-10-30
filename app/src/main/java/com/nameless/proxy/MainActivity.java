@@ -249,7 +249,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void saveSlots(String jsonStr) {
-            ioPool.execute(() -> RootBridge.saveAllSlotsToDisk(getApplicationContext(), jsonStr));
+            RootBridge.scheduleSaveSlots(getApplicationContext(), jsonStr);
+        }
+
+        @JavascriptInterface
+        public boolean saveSlotsNow(String jsonStr) {
+            return RootBridge.saveAllSlotsToDisk(getApplicationContext(), jsonStr);
         }
 
         @JavascriptInterface

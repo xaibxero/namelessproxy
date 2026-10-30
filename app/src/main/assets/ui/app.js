@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • 100% GPU-Accelerated Jelly UI & Verified Bridge Controller
+// Nameless Proxy • 100% GPU-Accelerated Jelly UI & Dynamic Protocol Controller
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -33,32 +33,37 @@ let state = {
   startRx: 0,
   startTx: 0,
   prevTime: Date.now(),
-  auditMode: false
+  auditMode: false,
+  showPassword: false
 };
 
+let saveDebounceTimer = null;
+
 // ============================================================================
-// 100% GPU-Composited Touch-to-Bubble Squish & Multi-Bounce Rebound
-// (Zero JS requestAnimationFrame loop -> Zero Main-Thread CPU/UI Lag!)
+// Uninterruptible GPU Touch-to-Bubble Squish + Expanding Water-Droplet Ripple
+// Triggered immediately on pointerdown so even a 20ms tap plays the full bounce!
 // ============================================================================
 function bindGpuJellyTouch() {
+  const rippleStage = document.getElementById("rippleStage");
+
   document.addEventListener("pointerdown", (e) => {
+    // 1. Spawn GPU expanding liquid droplet ring at exact touch point
+    if (rippleStage && typeof e.clientX === "number") {
+      const drop = document.createElement("div");
+      drop.className = "touch-droplet";
+      drop.style.left = `${e.clientX}px`;
+      drop.style.top = `${e.clientY}px`;
+      rippleStage.appendChild(drop);
+      setTimeout(() => drop.remove(), 390);
+    }
+
+    // 2. Trigger full uninterruptible 3D squish + elastic rebound on .jelly element
     const el = e.target.closest(".jelly");
     if (!el) return;
-    el.classList.remove("is-bouncing");
-    el.classList.add("is-pressed");
+    el.classList.remove("is-squishing");
+    void el.offsetWidth;
+    el.classList.add("is-squishing");
   }, { passive: true });
-
-  const releaseAll = () => {
-    const pressed = document.querySelectorAll(".jelly.is-pressed");
-    pressed.forEach((el) => {
-      el.classList.remove("is-pressed");
-      void el.offsetWidth;
-      el.classList.add("is-bouncing");
-    });
-  };
-
-  document.addEventListener("pointerup", releaseAll, { passive: true });
-  document.addEventListener("pointercancel", releaseAll, { passive: true });
 }
 
 function pulseVisibleTabBubbles(tabIdx) {
@@ -68,10 +73,10 @@ function pulseVisibleTabBubbles(tabIdx) {
   items.forEach((el, i) => {
     if (i > 10) return;
     setTimeout(() => {
-      el.classList.remove("is-bouncing");
+      el.classList.remove("is-squishing");
       void el.offsetWidth;
-      el.classList.add("is-bouncing");
-    }, i * 18);
+      el.classList.add("is-squishing");
+    }, i * 16);
   });
 }
 
@@ -145,8 +150,8 @@ function initApp() {
   setInterval(pollBackendStatus, 1200);
 }
 
-function persistAllSlots() {
-  const payload = JSON.stringify({
+function buildSlotsPayload() {
+  return JSON.stringify({
     activeSlot: state.activeSlot,
     routeHotspot: state.routeHotspot,
     routeAllApps: state.routeAllApps,
@@ -154,8 +159,39 @@ function persistAllSlots() {
     webrtcMode: state.webrtcMode,
     slots: state.slots
   });
+}
+
+function persistAllSlots() {
+  if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(() => {
+    const payload = buildSlotsPayload();
+    if (window.NamelessBridge) {
+      window.NamelessBridge.saveSlots(payload);
+    }
+    const cur = state.slots[state.activeSlot] || defaultSlot();
+    const statusEl = document.getElementById("adbSaveStatusText");
+    if (statusEl && cur.host) {
+      statusEl.textContent = `✓ Saved to /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
+    }
+  }, 280);
+}
+
+function saveSlotToAdbNow() {
+  saveFormIntoSlot(state.activeSlot);
+  renderSlotCapsules();
+  const payload = buildSlotsPayload();
+  let ok = false;
   if (window.NamelessBridge) {
-    window.NamelessBridge.saveSlots(payload);
+    ok = window.NamelessBridge.saveSlotsNow(payload);
+    window.NamelessBridge.showToast(
+      ok
+        ? `Saved P${state.activeSlot + 1} in /data/adb/nameless_proxy`
+        : "Saved to local storage"
+    );
+  }
+  const statusEl = document.getElementById("adbSaveStatusText");
+  if (statusEl) {
+    statusEl.textContent = `✓ Saved /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
   }
 }
 
@@ -169,18 +205,134 @@ function selectSlot(idx) {
 
 function renderSlotCapsules() {
   document.querySelectorAll(".slot-orb").forEach((btn, idx) => {
+    const slotCfg = state.slots[idx] || defaultSlot();
+    const hasHost = !!(slotCfg.host && slotCfg.host.trim() !== "");
     btn.classList.toggle("active", idx === state.activeSlot);
     btn.classList.toggle("running", state.isRunning && idx === state.runningSlot);
+    btn.classList.toggle("configured", hasHost);
   });
 
   const cur = state.slots[state.activeSlot] || defaultSlot();
+  const protoBadge = document.getElementById("hubProtoBadge");
   const nodeLabel = document.getElementById("hubNodeLabel");
+  const hubAdbStatus = document.getElementById("hubAdbStatus");
+  const hubSlotShort = document.getElementById("hubSlotShort");
+
+  if (protoBadge) protoBadge.textContent = cur.type || "SOCKS5";
+  if (hubSlotShort) hubSlotShort.textContent = `Slot P${state.activeSlot + 1}`;
+
   if (cur.host && cur.host.trim() !== "") {
-    nodeLabel.textContent = `${cur.host}:${cur.port}`;
+    const authTag = (cur.username || cur.password) ? " • Auth ✓" : "";
+    nodeLabel.textContent = `${cur.host}:${cur.port || 1080}${authTag}`;
+    if (hubAdbStatus) {
+      hubAdbStatus.textContent = `Saved in /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json`;
+    }
   } else {
-    nodeLabel.textContent = `P${state.activeSlot + 1} (${cur.type})`;
+    nodeLabel.textContent = `Tap to Enter P${state.activeSlot + 1} Server & Port`;
+    if (hubAdbStatus) {
+      hubAdbStatus.textContent = `Protocol: ${cur.type || "SOCKS5"} • Tap to configure`;
+    }
   }
-  document.getElementById("editingSlotTitle").textContent = `P${state.activeSlot + 1} • ${cur.type}`;
+  document.getElementById("editingSlotTitle").textContent = `SLOT P${state.activeSlot + 1} • ${cur.type || "SOCKS5"}`;
+}
+
+// ============================================================================
+// Dynamic Protocol-Specific Form Configurator
+// Adapts fields, labels, and placeholders for SOCKS5, HTTP, SOCKS4, SS, VLESS, VMESS, TROJAN, HY2
+// ============================================================================
+function updateProtocolFieldsUI(proto) {
+  const p = (proto || "SOCKS5").toUpperCase();
+
+  const groupUser = document.getElementById("groupUser");
+  const groupCipher = document.getElementById("groupCipher");
+  const groupPass = document.getElementById("groupPass");
+  const groupSni = document.getElementById("groupSni");
+  const groupReality = document.getElementById("groupReality");
+
+  const lblUser = document.getElementById("lblUser");
+  const inpUser = document.getElementById("inpUser");
+  const lblPass = document.getElementById("lblPass");
+  const inpPass = document.getElementById("inpPass");
+  const lblSni = document.getElementById("lblSni");
+
+  // Reset visibility
+  groupUser.classList.add("hidden");
+  groupCipher.classList.add("hidden");
+  groupPass.classList.add("hidden");
+  groupSni.classList.add("hidden");
+  groupReality.classList.add("hidden");
+
+  if (p === "SOCKS5") {
+    groupUser.classList.remove("hidden");
+    groupPass.classList.remove("hidden");
+    lblUser.textContent = "👤 SOCKS5 USERNAME (OPTIONAL)";
+    inpUser.placeholder = "Enter SOCKS5 username";
+    lblPass.textContent = "🔑 SOCKS5 PASSWORD (OPTIONAL)";
+    inpPass.placeholder = "Enter SOCKS5 password";
+  } else if (p === "HTTP") {
+    groupUser.classList.remove("hidden");
+    groupPass.classList.remove("hidden");
+    groupSni.classList.remove("hidden");
+    lblUser.textContent = "👤 HTTP PROXY USERNAME (OPTIONAL)";
+    inpUser.placeholder = "Enter HTTP username";
+    lblPass.textContent = "🔑 HTTP PROXY PASSWORD (OPTIONAL)";
+    inpPass.placeholder = "Enter HTTP password";
+    lblSni.textContent = "🔒 TLS SNI (OPTIONAL FOR HTTPS PROXY)";
+  } else if (p === "SOCKS4") {
+    groupUser.classList.remove("hidden");
+    lblUser.textContent = "👤 SOCKS4 USER ID (OPTIONAL)";
+    inpUser.placeholder = "Optional SOCKS4 User ID";
+  } else if (p === "SHADOWSOCKS") {
+    groupCipher.classList.remove("hidden");
+    groupPass.classList.remove("hidden");
+    lblPass.textContent = "🔑 SHADOWSOCKS PASSWORD / PSK";
+    inpPass.placeholder = "Enter Shadowsocks password";
+  } else if (p === "VLESS") {
+    groupUser.classList.remove("hidden");
+    groupSni.classList.remove("hidden");
+    groupReality.classList.remove("hidden");
+    lblUser.textContent = "🆔 VLESS UUID";
+    inpUser.placeholder = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    lblSni.textContent = "🔒 TLS / REALITY SNI (SERVER NAME)";
+  } else if (p === "VMESS") {
+    groupUser.classList.remove("hidden");
+    groupSni.classList.remove("hidden");
+    lblUser.textContent = "🆔 VMESS UUID";
+    inpUser.placeholder = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    lblSni.textContent = "🔒 TLS SNI / WS HOST";
+  } else if (p === "TROJAN") {
+    groupPass.classList.remove("hidden");
+    groupSni.classList.remove("hidden");
+    lblPass.textContent = "🔑 TROJAN PASSWORD";
+    inpPass.placeholder = "Enter Trojan password";
+    lblSni.textContent = "🔒 TLS SNI (SERVER NAME)";
+  } else if (p === "HYSTERIA2") {
+    groupPass.classList.remove("hidden");
+    groupSni.classList.remove("hidden");
+    lblPass.textContent = "🔑 HYSTERIA2 AUTH PASSWORD";
+    inpPass.placeholder = "Enter Hysteria2 password";
+    lblSni.textContent = "🔒 TLS SNI (SERVER NAME)";
+  }
+}
+
+function togglePasswordVisibility() {
+  state.showPassword = !state.showPassword;
+  const inpPass = document.getElementById("inpPass");
+  const btn = document.getElementById("btnTogglePass");
+  if (inpPass) {
+    inpPass.type = state.showPassword ? "text" : "password";
+  }
+  if (btn) {
+    btn.textContent = state.showPassword ? "🙈" : "👁";
+  }
+}
+
+function pickSsCipher(cipher) {
+  const inp = document.getElementById("inpCipher");
+  if (inp) {
+    inp.value = cipher;
+    onFormEdited();
+  }
 }
 
 function renderQuickPills() {
@@ -277,29 +429,39 @@ function renderAppsList() {
 
 function loadSlotIntoForm(idx) {
   const s = state.slots[idx] || defaultSlot();
+  const proto = (s.type || "SOCKS5").toUpperCase();
+
   document.getElementById("inpHost").value = s.host || "";
   document.getElementById("inpPort").value = s.port || 1080;
   document.getElementById("inpUser").value = s.username || "";
   document.getElementById("inpPass").value = s.password || "";
   document.getElementById("inpSni").value = s.sni || "";
-  document.getElementById("inpExtra").value = s.realityPublicKey || s.ssMethod || "";
+  document.getElementById("inpCipher").value = s.ssMethod || "chacha20-ietf-poly1305";
+  document.getElementById("inpExtra").value = s.realityPublicKey || "";
+  document.getElementById("inpShortId").value = s.realityShortId || "";
+
   document.querySelectorAll(".proto-orb").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-proto") === (s.type || "SOCKS5"));
+    btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
   });
+
+  updateProtocolFieldsUI(proto);
 }
 
 function saveFormIntoSlot(idx) {
   const s = state.slots[idx] || defaultSlot();
+  const proto = (s.type || "SOCKS5").toUpperCase();
+
   s.host = (document.getElementById("inpHost").value || "").trim();
   s.port = parseInt(document.getElementById("inpPort").value || "1080", 10) || 1080;
   s.username = (document.getElementById("inpUser").value || "").trim();
   s.password = (document.getElementById("inpPass").value || "").trim();
   s.sni = (document.getElementById("inpSni").value || "").trim();
-  const extra = (document.getElementById("inpExtra").value || "").trim();
-  if (s.type === "SHADOWSOCKS") {
-    s.ssMethod = extra || "chacha20-ietf-poly1305";
-  } else {
-    s.realityPublicKey = extra;
+  s.ssMethod = (document.getElementById("inpCipher").value || "chacha20-ietf-poly1305").trim();
+  s.realityPublicKey = (document.getElementById("inpExtra").value || "").trim();
+  s.realityShortId = (document.getElementById("inpShortId").value || "").trim();
+
+  if ((proto === "VLESS" || proto === "VMESS") && s.username && !s.password) {
+    s.password = s.username;
   }
   state.slots[idx] = s;
 }
@@ -327,10 +489,12 @@ function onFormEdited() {
 }
 
 function setProtocol(proto) {
+  saveFormIntoSlot(state.activeSlot);
   state.slots[state.activeSlot].type = proto;
   document.querySelectorAll(".proto-orb").forEach(btn => {
     btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
   });
+  updateProtocolFieldsUI(proto);
   renderSlotCapsules();
   persistAllSlots();
 }
@@ -358,8 +522,7 @@ function pasteUriFromClipboard() {
       s.realityShortId = parsed.realityShortId || "";
       loadSlotIntoForm(state.activeSlot);
       renderSlotCapsules();
-      persistAllSlots();
-      window.NamelessBridge.showToast("Imported into P" + (state.activeSlot + 1));
+      saveSlotToAdbNow();
     } else {
       window.NamelessBridge.showToast("Clipboard has no valid proxy URI");
     }
@@ -369,7 +532,10 @@ function pasteUriFromClipboard() {
 function toggleTunnel() {
   if (state.isTransitioning) return;
   saveFormIntoSlot(state.activeSlot);
-  persistAllSlots();
+  const payload = buildSlotsPayload();
+  if (window.NamelessBridge) {
+    window.NamelessBridge.saveSlots(payload);
+  }
 
   if (state.isRunning && state.runningSlot === state.activeSlot) {
     state.isTransitioning = true;
@@ -389,7 +555,7 @@ function toggleTunnel() {
     });
     if (!cfg.host || cfg.host.trim() === "") {
       switchTab(2);
-      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Proxy Host & Port");
+      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port first");
       return;
     }
     state.isTransitioning = true;
@@ -597,8 +763,9 @@ function clearLogsNow() {
 
 function exportAllSlots() {
   saveFormIntoSlot(state.activeSlot);
-  persistAllSlots();
+  const payload = buildSlotsPayload();
   if (window.NamelessBridge) {
+    window.NamelessBridge.saveSlotsNow(payload);
     const ok = window.NamelessBridge.exportAllSlots();
     window.NamelessBridge.showToast(ok ? "Exported to Download/nameless_proxy_backup.json" : "Export failed");
   }
@@ -614,7 +781,7 @@ function importAllSlots() {
         state.slots = parsed.slots;
         loadSlotIntoForm(state.activeSlot);
         renderSlotCapsules();
-        window.NamelessBridge.showToast("Imported 5 slots");
+        window.NamelessBridge.showToast("Imported 5 slots into /data/adb/nameless_proxy");
         return;
       }
     } catch (e) {}
