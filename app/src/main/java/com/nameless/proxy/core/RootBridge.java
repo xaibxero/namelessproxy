@@ -157,12 +157,12 @@ public class RootBridge {
     public static synchronized boolean ensureBinariesExtracted(Context context) {
         if (binariesReady) return true;
         extractAssetToAdb(context, "tunnel.sh", TUNNEL_SH, "755");
+        extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
         String check = execSu(
-            "if [ -x " + SINGBOX_BIN + " ] && [ -x " + STUN_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
+            "if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; else echo 'MISSING'; fi"
         );
         if (!check.contains("sing-box version")) {
             extractAssetToAdb(context, "sing-box", SINGBOX_BIN, "755");
-            extractAssetToAdb(context, "stun-responder", STUN_BIN, "755");
             String recheck = execSu("if [ -x " + SINGBOX_BIN + " ]; then " + SINGBOX_BIN + " version 2>&1; fi");
             binariesReady = recheck.contains("sing-box version");
             return binariesReady;
@@ -204,7 +204,6 @@ public class RootBridge {
         try {
             InetAddress addr = InetAddress.getByName(cleaned);
             String ip = addr.getHostAddress();
-            // Never return a FakeIP (198.18.0.0/15) or loopback if Android DNS cache is holding a FakeIP!
             if (ip != null && !ip.startsWith("198.18.") && !ip.startsWith("198.19.") && !ip.startsWith("127.")) {
                 return ip;
             }
@@ -610,9 +609,15 @@ public class RootBridge {
                 if (parts.length >= 2) {
                     out.put("type", "SOCKS5");
                     out.put("host", parts[0].trim());
-                    out.put("port", Integer.parseInt(parts[1].trim()));
+                    int p = 1080;
+                    try { p = Integer.parseInt(parts[1].trim()); } catch (Exception ignored) {}
+                    out.put("port", p);
                     if (parts.length >= 3) out.put("username", parts[2].trim());
-                    if (parts.length >= 4) out.put("password", parts[3].trim());
+                    if (parts.length >= 4) {
+                        StringBuilder passSb = new StringBuilder(parts[3]);
+                        for (int i = 4; i < parts.length; i++) passSb.append(":").append(parts[i]);
+                        out.put("password", passSb.toString().trim());
+                    }
                     return out;
                 }
             }
@@ -660,10 +665,6 @@ public class RootBridge {
         return out;
     }
 
-    /**
-     * Atomically writes all configuration & backup files to /data/adb/nameless_proxy/
-     * in a SINGLE `su` call (using Base64) so it completes in <40ms without blocking!
-     */
     public static boolean saveAllSlotsToDisk(Context context, String jsonStr) {
         try {
             SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
@@ -770,9 +771,11 @@ public class RootBridge {
                         JSONObject ls = i < legacySlots.length() ? legacySlots.optJSONObject(i) : null;
                         JSONObject ns = new JSONObject();
                         if (ls != null) {
+                            int parsedPort = 1080;
+                            try { parsedPort = Integer.parseInt(ls.optString("port", "1080").trim()); } catch (Exception ignored) {}
                             ns.put("type", ls.optString("proxy_type", "SOCKS5"));
                             ns.put("host", ls.optString("host", ""));
-                            ns.put("port", Integer.parseInt(ls.optString("port", "1080")));
+                            ns.put("port", parsedPort);
                             ns.put("username", ls.optString("username", ""));
                             ns.put("password", ls.optString("password", ""));
                             ns.put("sni", ls.optString("sni", ""));

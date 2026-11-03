@@ -12,6 +12,8 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
@@ -21,6 +23,7 @@ import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebStorage;
@@ -42,7 +45,7 @@ public class MainActivity extends Activity {
     private WebView uiWebView;
     private WebView checkerWebView;
     private FrameLayout checkerContainer;
-    // Separate single-thread executors for tunnel actions vs disk saves so Connect/Disconnect is ALWAYS instant!
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService tunnelPool = Executors.newSingleThreadExecutor();
     private final ExecutorService savePool = Executors.newSingleThreadExecutor();
     private final ExecutorService pingPool = Executors.newCachedThreadPool();
@@ -55,31 +58,40 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-        window.setStatusBarColor(Color.parseColor("#000000"));
-        window.setNavigationBarColor(Color.parseColor("#090A0F"));
+        window.setStatusBarColor(Color.parseColor("#090A0D"));
+        window.setNavigationBarColor(Color.parseColor("#0D0F14"));
 
         RootBridge.startBackgroundPoller();
 
         rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#000000"));
+        rootLayout.setBackgroundColor(Color.parseColor("#090A0D"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#000000"));
+        uiWebView.setBackgroundColor(Color.parseColor("#090A0D"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         uiWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        uiWebView.setVerticalScrollBarEnabled(false);
+        uiWebView.setHorizontalScrollBarEnabled(false);
+
         WebSettings ws = uiWebView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
         ws.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        // Lock textZoom to 100% so phone font-size or custom DPI scaling never distorts UI layout or icon alignment
+        ws.setTextZoom(100);
+        ws.setSupportZoom(false);
+        ws.setBuiltInZoomControls(false);
+        ws.setDisplayZoomControls(false);
+
         uiWebView.addJavascriptInterface(new BridgeImpl(), "NamelessBridge");
         uiWebView.setWebChromeClient(new WebChromeClient());
         uiWebView.setWebViewClient(new WebViewClient());
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#000000"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#090A0D"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -96,15 +108,44 @@ public class MainActivity extends Activity {
         tunnelPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    private void mountAndLoadChecker(String url, float topRatio, float bottomRatio, boolean forceReload) {
-        int totalH = rootLayout.getHeight();
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        if (totalH <= 0) totalH = dm.heightPixels;
+    /**
+     * Completely closes and destroys the checker WebView when switching away to any other tab.
+     */
+    private void closeAndDestroyCheckerWebView() {
+        mainHandler.removeCallbacksAndMessages(null);
+        if (checkerContainer != null) {
+            checkerContainer.setVisibility(View.GONE);
+            checkerContainer.removeAllViews();
+        }
+        if (checkerWebView != null) {
+            try {
+                checkerWebView.stopLoading();
+                checkerWebView.loadUrl("about:blank");
+                checkerWebView.clearHistory();
+                checkerWebView.clearCache(true);
+                checkerWebView.destroy();
+            } catch (Exception ignored) {}
+            checkerWebView = null;
+        }
+    }
 
-        int topPx = Math.max(Math.round(112 * dm.density), Math.round(topRatio * totalH));
-        int bottomPx = Math.max(Math.round(64 * dm.density), Math.round(bottomRatio * totalH));
-        int sidePx = Math.round(10 * dm.density);
+    /**
+     * Aligns checkerContainer using exact dimensionless viewport ratios from #checkerPlaceholder
+     * so it never conflicts with phone DPI, and immediately runs a fresh test.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private void openAndAutoRunChecker(final String url, float topRatio, float bottomRatio, float sideRatio) {
+        if (url == null || url.isEmpty()) return;
+
+        closeAndDestroyCheckerWebView();
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int totalW = uiWebView != null && uiWebView.getWidth() > 0 ? uiWebView.getWidth() : dm.widthPixels;
+        int totalH = uiWebView != null && uiWebView.getHeight() > 0 ? uiWebView.getHeight() : dm.heightPixels;
+
+        int topPx = Math.max(0, Math.round(topRatio * totalH));
+        int bottomPx = Math.max(0, Math.round(bottomRatio * totalH));
+        int sidePx = Math.max(0, Math.round(sideRatio * totalW));
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -115,53 +156,66 @@ public class MainActivity extends Activity {
         checkerContainer.setLayoutParams(lp);
         checkerContainer.setVisibility(View.VISIBLE);
 
-        boolean firstCreate = false;
-        if (checkerWebView == null) {
-            firstCreate = true;
-            checkerWebView = new WebView(this);
-            checkerWebView.setBackgroundColor(Color.parseColor("#000000"));
-            checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            WebSettings s = checkerWebView.getSettings();
-            s.setJavaScriptEnabled(true);
-            s.setDomStorageEnabled(true);
-            s.setDatabaseEnabled(true);
-            s.setCacheMode(WebSettings.LOAD_DEFAULT);
-            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-            s.setMediaPlaybackRequiresUserGesture(false);
-            s.setUserAgentString(
-                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-            );
-            checkerWebView.setWebChromeClient(new WebChromeClient());
-            checkerWebView.setWebViewClient(new WebViewClient() {
-                @Override
-                public void onPageStarted(WebView view, String pageUrl, Bitmap favicon) {
-                    super.onPageStarted(view, pageUrl, favicon);
-                    notifyUiCheckerUrl(pageUrl, true);
-                }
+        try {
+            CookieManager.getInstance().removeAllCookies(null);
+            CookieManager.getInstance().flush();
+            WebStorage.getInstance().deleteAllData();
+        } catch (Exception ignored) {}
 
-                @Override
-                public void onPageFinished(WebView view, String pageUrl) {
-                    super.onPageFinished(view, pageUrl);
-                    notifyUiCheckerUrl(pageUrl, false);
-                }
+        checkerWebView = new WebView(this);
+        checkerWebView.setBackgroundColor(Color.parseColor("#090A0D"));
+        checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        WebSettings s = checkerWebView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setUserAgentString(
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+        );
+        checkerWebView.setWebChromeClient(new WebChromeClient());
+        checkerWebView.setWebViewClient(new WebViewClient() {
+            private boolean retriedOnce = false;
 
-                @Override
-                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                    return false;
-                }
-            });
-            checkerContainer.addView(checkerWebView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ));
-        }
-
-        if (url != null && !url.isEmpty()) {
-            String current = checkerWebView.getUrl();
-            if (firstCreate || forceReload || current == null || !current.startsWith(url)) {
-                checkerWebView.loadUrl(url);
+            @Override
+            public void onPageStarted(WebView view, String pageUrl, Bitmap favicon) {
+                super.onPageStarted(view, pageUrl, favicon);
+                notifyUiCheckerUrl(pageUrl, true);
             }
-        }
+
+            @Override
+            public void onPageFinished(WebView view, String pageUrl) {
+                super.onPageFinished(view, pageUrl);
+                notifyUiCheckerUrl(pageUrl, false);
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request != null && request.isForMainFrame() && !retriedOnce) {
+                    retriedOnce = true;
+                    mainHandler.postDelayed(() -> {
+                        if (checkerWebView != null && checkerContainer.getVisibility() == View.VISIBLE) {
+                            checkerWebView.loadUrl(url);
+                        }
+                    }, 600);
+                }
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return false;
+            }
+        });
+
+        checkerContainer.addView(checkerWebView, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
+        checkerWebView.loadUrl(url);
     }
 
     private void notifyUiCheckerUrl(String url, boolean loading) {
@@ -237,30 +291,16 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public boolean saveSlotsNow(String jsonStr) {
-            final Context appCtx = getApplicationContext();
-            appCtx.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE)
-                .edit().putString("slots_json", jsonStr).apply();
-            savePool.execute(() -> RootBridge.saveAllSlotsToDisk(appCtx, jsonStr));
-            return true;
-        }
-
-        @JavascriptInterface
         public void startTunnelAsync(String configJsonStr) {
             tunnelPool.execute(() -> {
                 try {
                     JSONObject cfg = new JSONObject(configJsonStr);
                     JSONObject r = RootBridge.startTunnel(getApplicationContext(), cfg);
                     final String payload = r.toString().replace("\\", "\\\\").replace("'", "\\'");
-                    runOnUiThread(() -> {
-                        if (checkerWebView != null && checkerContainer.getVisibility() == View.VISIBLE) {
-                            checkerWebView.reload();
-                        }
-                        uiWebView.evaluateJavascript(
-                            "window.onTunnelActionComplete && window.onTunnelActionComplete('" + payload + "');",
-                            null
-                        );
-                    });
+                    runOnUiThread(() -> uiWebView.evaluateJavascript(
+                        "window.onTunnelActionComplete && window.onTunnelActionComplete('" + payload + "');",
+                        null
+                    ));
                 } catch (Exception e) {
                     runOnUiThread(() -> uiWebView.evaluateJavascript(
                         "window.onTunnelActionComplete && window.onTunnelActionComplete('{\"ok\":false,\"error\":\"Invalid config\"}');",
@@ -311,44 +351,22 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void showCheckerRatio(String url, float topRatio, float bottomRatio) {
-            runOnUiThread(() -> mountAndLoadChecker(url, topRatio, bottomRatio, false));
+            runOnUiThread(() -> openAndAutoRunChecker(url, topRatio, bottomRatio, 0.025f));
         }
 
         @JavascriptInterface
-        public void showCheckerView(String url, int topCssPx, int bottomCssPx) {
-            runOnUiThread(() -> mountAndLoadChecker(url, 0.14f, 0.09f, false));
+        public void showCheckerBounds(String url, float topRatio, float bottomRatio, float sideRatio) {
+            runOnUiThread(() -> openAndAutoRunChecker(url, topRatio, bottomRatio, sideRatio));
         }
 
         @JavascriptInterface
         public void hideCheckerView() {
-            runOnUiThread(() -> {
-                if (checkerContainer != null) {
-                    checkerContainer.setVisibility(View.GONE);
-                }
-            });
+            runOnUiThread(MainActivity.this::closeAndDestroyCheckerWebView);
         }
 
         @JavascriptInterface
         public void navigateChecker(String url) {
-            runOnUiThread(() -> mountAndLoadChecker(url, 0.14f, 0.09f, true));
-        }
-
-        @JavascriptInterface
-        public void reloadChecker(boolean wipeData) {
-            runOnUiThread(() -> {
-                if (checkerWebView != null) {
-                    if (wipeData) {
-                        try {
-                            CookieManager.getInstance().removeAllCookies(null);
-                            CookieManager.getInstance().flush();
-                            WebStorage.getInstance().deleteAllData();
-                            checkerWebView.clearCache(true);
-                            checkerWebView.clearHistory();
-                        } catch (Exception ignored) {}
-                    }
-                    checkerWebView.reload();
-                }
-            });
+            runOnUiThread(() -> openAndAutoRunChecker(url, 0.135f, 0.085f, 0.025f));
         }
 
         @JavascriptInterface
@@ -378,10 +396,22 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        closeAndDestroyCheckerWebView();
+        super.onDestroy();
+    }
+
+    @Override
     public void onBackPressed() {
-        if (checkerContainer != null && checkerContainer.getVisibility() == View.VISIBLE && checkerWebView != null && checkerWebView.canGoBack()) {
-            checkerWebView.goBack();
-            return;
+        if (checkerContainer != null && checkerContainer.getVisibility() == View.VISIBLE) {
+            if (checkerWebView != null && checkerWebView.canGoBack()) {
+                checkerWebView.goBack();
+                return;
+            }
+            if (uiWebView != null) {
+                uiWebView.evaluateJavascript("switchTab(0);", null);
+                return;
+            }
         }
         super.onBackPressed();
     }

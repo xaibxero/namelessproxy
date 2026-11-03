@@ -2,230 +2,227 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Nameless Proxy</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="disconnected">
   <div class="app-shell">
-    <!-- Top App Bar -->
+    <!-- Precision Top Bar -->
     <header class="top-bar">
-      <div class="brand-group" onclick="pollBackendStatus()">
+      <button type="button" class="net-chip" onclick="pollBackendStatus()">
         <span class="status-dot" id="headerOrb"></span>
-        <div class="brand-meta">
-          <span class="brand-name">NAMELESS</span>
-          <span class="net-txt" id="netSummaryText">Online</span>
-        </div>
-      </div>
+        <span class="net-label" id="netSummaryText">Online</span>
+      </button>
 
-      <div class="slot-strip" id="slotStrip">
-        <button type="button" class="slot-btn active" data-slot="0" onclick="selectSlot(0)">P1</button>
-        <button type="button" class="slot-btn" data-slot="1" onclick="selectSlot(1)">P2</button>
-        <button type="button" class="slot-btn" data-slot="2" onclick="selectSlot(2)">P3</button>
-        <button type="button" class="slot-btn" data-slot="3" onclick="selectSlot(3)">P4</button>
-        <button type="button" class="slot-btn" data-slot="4" onclick="selectSlot(4)">P5</button>
+      <div class="slot-bar" id="slotStrip">
+        <button type="button" class="slot-pill active" data-slot="0" onclick="selectSlot(0)">P1</button>
+        <button type="button" class="slot-pill" data-slot="1" onclick="selectSlot(1)">P2</button>
+        <button type="button" class="slot-pill" data-slot="2" onclick="selectSlot(2)">P3</button>
+        <button type="button" class="slot-pill" data-slot="3" onclick="selectSlot(3)">P4</button>
+        <button type="button" class="slot-pill" data-slot="4" onclick="selectSlot(4)">P5</button>
       </div>
     </header>
 
     <!-- Main Viewport -->
     <main class="viewport">
-      <!-- TAB 0: DASHBOARD & PROXY CONFIG -->
+      <!-- TAB 0: DASHBOARD & PROXY (DPI-INDEPENDENT, FITS SCREEN) -->
       <section class="tab-view active" id="tab-0">
-        <!-- Hero Connection Card -->
-        <div class="card hero-card">
-          <div class="hero-top">
-            <div class="hero-info">
-              <div class="state-pill" id="coreStateText">STANDBY</div>
+        <!-- 1. Tactical Telemetry & Power Card -->
+        <div class="card telemetry-card">
+          <div class="tel-top">
+            <div class="tel-info">
+              <div class="tel-badges">
+                <span class="state-tag" id="coreStateText">OFFLINE</span>
+                <span class="timer-tag" id="coreTimerText">00:00:00</span>
+                <button type="button" class="ping-tag" onclick="pingCurrentNode()">
+                  <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span id="hubPingLabel">Ping</span>
+                </button>
+              </div>
+
               <div class="exit-row" onclick="switchTab(1)">
-                <span class="flag-ico" id="exitFlag">🌐</span>
-                <span class="exit-ip" id="exitIpText">Tunnel Offline</span>
+                <span class="exit-flag" id="exitFlag">🌐</span>
+                <span class="exit-ip" id="exitIpText">Not Connected</span>
+                <span class="exit-country" id="exitLocText"></span>
               </div>
-              <div class="sub-row">
-                <span id="exitLocText">Tap Connect to start root tunnel</span>
-              </div>
-              <div class="meta-strip">
-                <span class="meta-item">⏱ <strong id="coreTimerText">00:00:00</strong></span>
-                <span class="meta-item link-pill" onclick="pingCurrentNode()">⚡ Ping: <strong id="hubPingLabel">Test</strong></span>
+
+              <div class="speed-row">
+                <div class="spd-item down">
+                  <svg class="svg-ico xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+                  <strong id="rxSpeedText">0 B/s</strong>
+                  <small id="rxTotalText">0 B</small>
+                </div>
+                <div class="spd-item up">
+                  <svg class="svg-ico xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+                  <strong id="txSpeedText">0 B/s</strong>
+                  <small id="txTotalText">0 B</small>
+                </div>
               </div>
             </div>
 
-            <button type="button" class="power-btn" id="coreBtn" onclick="toggleTunnel()">
-              <span class="power-glyph">⏻</span>
-              <span class="power-lbl" id="coreIcon">CONNECT</span>
+            <button type="button" class="power-module" id="coreBtn" onclick="toggleTunnel()">
+              <svg class="svg-ico lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v10"/>
+                <path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>
+              </svg>
+              <span class="pwr-label" id="coreIcon">CONNECT</span>
             </button>
           </div>
-
-          <div class="traffic-grid">
-            <div class="traffic-box">
-              <span class="t-dir down">↓ DOWNLOAD</span>
-              <div class="t-vals">
-                <strong id="rxSpeedText">0 B/s</strong>
-                <span id="rxTotalText">0 B</span>
-              </div>
-            </div>
-            <div class="traffic-box">
-              <span class="t-dir up">↑ UPLOAD</span>
-              <div class="t-vals">
-                <strong id="txSpeedText">0 B/s</strong>
-                <span id="txTotalText">0 B</span>
-              </div>
-            </div>
-          </div>
         </div>
 
-        <!-- Quick Routing Switches -->
-        <div class="switch-grid">
-          <button type="button" class="switch-tile on" id="pillHotspot" onclick="toggleHotspotSetting()">
-            <span class="sw-title">Hotspot</span>
-            <span class="sw-badge" id="lblHotspotState">ON</span>
+        <!-- 2. Precision 3-Module Switch Strip -->
+        <div class="module-strip">
+          <button type="button" class="mod-tile on" id="pillHotspot" onclick="toggleHotspotSetting()">
+            <div class="mod-head">
+              <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+              <span class="mod-state" id="lblHotspotState">ON</span>
+            </div>
+            <span class="mod-name">Hotspot</span>
           </button>
-          <button type="button" class="switch-tile on" id="pillApps" onclick="switchTab(2)">
-            <span class="sw-title">App Filter</span>
-            <span class="sw-badge" id="lblAppsState">ALL</span>
+
+          <button type="button" class="mod-tile on" id="pillApps" onclick="switchTab(2)">
+            <div class="mod-head">
+              <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+              <span class="mod-state" id="lblAppsState">ALL</span>
+            </div>
+            <span class="mod-name">App Filter</span>
           </button>
-          <button type="button" class="switch-tile on" id="pillWebrtc" onclick="toggleWebrtcMode()">
-            <span class="sw-title">WebRTC</span>
-            <span class="sw-badge" id="lblWebrtcState">SPOOF</span>
+
+          <button type="button" class="mod-tile on" id="pillWebrtc" onclick="toggleWebrtcMode()">
+            <div class="mod-head">
+              <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span class="mod-state" id="lblWebrtcState">ON</span>
+            </div>
+            <span class="mod-name">WebRTC</span>
           </button>
         </div>
 
-        <!-- Proxy Node Configuration Card -->
-        <div class="card">
-          <div class="card-head">
-            <span class="card-title" id="editingSlotTitle">SLOT P1 • SOCKS5</span>
-            <div class="head-actions">
-              <button type="button" class="chip-action" onclick="pasteUriFromClipboard()">📋 Paste URI</button>
-              <button type="button" class="chip-action danger" onclick="clearCurrentSlot()">Reset</button>
+        <!-- 3. Endpoint Configuration Card (Auto-Persisted Silently) -->
+        <div class="card endpoint-card">
+          <div class="card-bar">
+            <span class="card-heading" id="editingSlotTitle">SLOT P1 • SOCKS5</span>
+            <div class="bar-actions">
+              <button type="button" class="tool-btn" onclick="pasteUriFromClipboard()">
+                <svg class="svg-ico xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Paste</span>
+              </button>
+              <button type="button" class="tool-btn danger" onclick="clearCurrentSlot()">
+                <svg class="svg-ico xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                <span>Reset</span>
+              </button>
             </div>
           </div>
 
-          <!-- 8 Protocol Selector Pills -->
-          <div class="proto-grid" id="protoGrid">
-            <button type="button" class="proto-btn active" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
-            <button type="button" class="proto-btn" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
-            <button type="button" class="proto-btn" data-proto="SOCKS4" onclick="setProtocol('SOCKS4')">SOCKS4</button>
-            <button type="button" class="proto-btn" data-proto="SHADOWSOCKS" onclick="setProtocol('SHADOWSOCKS')">SS</button>
-            <button type="button" class="proto-btn" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
-            <button type="button" class="proto-btn" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
-            <button type="button" class="proto-btn" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
-            <button type="button" class="proto-btn" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
+          <!-- 8 Protocol Buttons -->
+          <div class="proto-matrix" id="protoGrid">
+            <button type="button" class="proto-chip active" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
+            <button type="button" class="proto-chip" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
+            <button type="button" class="proto-chip" data-proto="SOCKS4" onclick="setProtocol('SOCKS4')">SOCKS4</button>
+            <button type="button" class="proto-chip" data-proto="SHADOWSOCKS" onclick="setProtocol('SHADOWSOCKS')">SS</button>
+            <button type="button" class="proto-chip" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
+            <button type="button" class="proto-chip" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
+            <button type="button" class="proto-chip" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
+            <button type="button" class="proto-chip" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
           </div>
 
-          <!-- Server Host / IP & Port -->
+          <!-- Server Host / IP + Port -->
           <div class="row-host-port">
-            <div class="field-box">
-              <label class="field-label" for="inpHost" id="lblHost">SERVER HOST / IP</label>
-              <input type="text" id="inpHost" class="inp" placeholder="45.132.x.x or host:port:user:pass" autocomplete="off" spellcheck="false" oninput="onHostInput()" />
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpHost" id="lblHost">SERVER HOST / IP</label>
+              <input type="text" id="inpHost" class="field-inp" placeholder="45.132.x.x or host:port:user:pass" autocomplete="off" spellcheck="false" oninput="onHostInput()" />
             </div>
-            <div class="field-box">
-              <label class="field-label" for="inpPort" id="lblPort">PORT</label>
-              <input type="number" id="inpPort" class="inp" placeholder="1080" autocomplete="off" oninput="onFormEdited()" />
-            </div>
-          </div>
-
-          <!-- Dynamic Username / UUID Field -->
-          <div class="field-box" id="groupUser">
-            <label class="field-label" for="inpUser" id="lblUser">SOCKS5 USERNAME (OPTIONAL)</label>
-            <input type="text" id="inpUser" class="inp" placeholder="Enter username" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-          </div>
-
-          <!-- Dynamic Shadowsocks Cipher Field -->
-          <div class="field-box hidden" id="groupCipher">
-            <label class="field-label" for="inpCipher">SHADOWSOCKS CIPHER</label>
-            <div class="cipher-row">
-              <button type="button" class="chip-action" onclick="pickSsCipher('chacha20-ietf-poly1305')">ChaCha20</button>
-              <button type="button" class="chip-action" onclick="pickSsCipher('2022-blake3-aes-128-gcm')">2022-AES128</button>
-              <button type="button" class="chip-action" onclick="pickSsCipher('aes-256-gcm')">AES-256</button>
-              <button type="button" class="chip-action" onclick="pickSsCipher('aes-128-gcm')">AES-128</button>
-            </div>
-            <input type="text" id="inpCipher" class="inp" placeholder="chacha20-ietf-poly1305" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
-          </div>
-
-          <!-- Dynamic Password Field -->
-          <div class="field-box" id="groupPass">
-            <label class="field-label" for="inpPass" id="lblPass">SOCKS5 PASSWORD (OPTIONAL)</label>
-            <div class="pass-row">
-              <input type="password" id="inpPass" class="inp" placeholder="Enter password" autocomplete="off" oninput="onFormEdited()" />
-              <button type="button" class="show-pass-btn" id="btnTogglePass" onclick="togglePasswordVisibility()">Show</button>
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpPort" id="lblPort">PORT</label>
+              <input type="number" id="inpPort" class="field-inp" placeholder="1080" autocomplete="off" oninput="onFormEdited()" />
             </div>
           </div>
 
-          <!-- Dynamic TLS SNI Field -->
-          <div class="field-box hidden" id="groupSni">
-            <label class="field-label" for="inpSni" id="lblSni">TLS SNI / SERVER NAME</label>
-            <input type="text" id="inpSni" class="inp" placeholder="e.g. cloudflare.com" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+          <!-- Dynamic Credentials Grid -->
+          <div class="creds-grid" id="credsGrid">
+            <div class="inp-group" id="groupUser">
+              <label class="inp-lbl" for="inpUser" id="lblUser">USERNAME</label>
+              <input type="text" id="inpUser" class="field-inp" placeholder="Optional" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            </div>
+
+            <div class="inp-group hidden" id="groupCipher">
+              <label class="inp-lbl" for="inpCipher">CIPHER</label>
+              <input type="text" id="inpCipher" class="field-inp" placeholder="chacha20-ietf-poly1305" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            </div>
+
+            <div class="inp-group" id="groupPass">
+              <label class="inp-lbl" for="inpPass" id="lblPass">PASSWORD</label>
+              <div class="pass-box">
+                <input type="password" id="inpPass" class="field-inp" placeholder="Optional" autocomplete="off" oninput="onFormEdited()" />
+                <button type="button" class="eye-toggle" id="btnTogglePass" onclick="togglePasswordVisibility()" aria-label="Toggle Password">
+                  <svg class="svg-ico sm" id="eyeIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
           </div>
 
-          <!-- Dynamic VLESS Reality Fields -->
+          <!-- Dynamic TLS SNI -->
+          <div class="inp-group hidden" id="groupSni">
+            <label class="inp-lbl" for="inpSni" id="lblSni">TLS SNI</label>
+            <input type="text" id="inpSni" class="field-inp" placeholder="Server Name (SNI)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+          </div>
+
+          <!-- Dynamic VLESS Reality -->
           <div class="row-host-port hidden" id="groupReality">
-            <div class="field-box">
-              <label class="field-label" for="inpExtra">REALITY PUBLIC KEY (pbk)</label>
-              <input type="text" id="inpExtra" class="inp" placeholder="Public Key" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpExtra">REALITY PUBLIC KEY</label>
+              <input type="text" id="inpExtra" class="field-inp" placeholder="pbk" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
             </div>
-            <div class="field-box">
-              <label class="field-label" for="inpShortId">SHORT ID (sid)</label>
-              <input type="text" id="inpShortId" class="inp" placeholder="sid" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpShortId">SHORT ID</label>
+              <input type="text" id="inpShortId" class="field-inp" placeholder="sid" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
             </div>
-          </div>
-
-          <button type="button" class="primary-save-btn" onclick="saveSlotToAdbNow()">
-            💾 Save Config to /data/adb/nameless_proxy
-          </button>
-          <div class="adb-hint" id="adbSaveStatusText">
-            Auto-saves config_u0_s0.json &amp; backup_u0_s0.json in /data/adb/nameless_proxy
-          </div>
-
-          <div class="backup-grid">
-            <button type="button" class="secondary-btn" onclick="exportAllSlots()">⬇ Export All Slots</button>
-            <button type="button" class="secondary-btn" onclick="importAllSlots()">⬆ Import Backup</button>
           </div>
         </div>
       </section>
 
-      <!-- TAB 1: CHECK IP / WEBRTC / DNS -->
+      <!-- TAB 1: AUTO-RUN CHECKER (CLOSES AUTOMATICALLY ON TAB SWITCH) -->
       <section class="tab-view no-scroll" id="tab-1">
-        <div class="card checker-bar" id="checkerToolbar">
-          <div class="preset-row">
-            <button type="button" class="preset-btn active" id="presetIpFighter" onclick="loadCheckerPreset('https://ipfighter.com', 'presetIpFighter')">IPFighter</button>
-            <button type="button" class="preset-btn" id="presetWebRtc" onclick="loadCheckerPreset('https://browserleaks.com/webrtc', 'presetWebRtc')">WebRTC</button>
-            <button type="button" class="preset-btn" id="presetDns" onclick="loadCheckerPreset('https://browserleaks.com/dns', 'presetDns')">DNS</button>
-            <button type="button" class="chip-action" onclick="reloadCheckerView(false)">↻</button>
-            <button type="button" class="chip-action danger" onclick="reloadCheckerView(true)">Clear</button>
-          </div>
+        <div class="checker-header" id="checkerToolbar">
+          <button type="button" class="chk-tab active" id="presetIpFighter" onclick="loadCheckerPreset('https://ipfighter.com', 'presetIpFighter')">IPFighter</button>
+          <button type="button" class="chk-tab" id="presetWebRtc" onclick="loadCheckerPreset('https://browserleaks.com/webrtc', 'presetWebRtc')">WebRTC</button>
+          <button type="button" class="chk-tab" id="presetDns" onclick="loadCheckerPreset('https://browserleaks.com/dns', 'presetDns')">DNS</button>
         </div>
         <div class="checker-slot" id="checkerPlaceholder"></div>
       </section>
 
-      <!-- TAB 2: PER-APP ROUTING -->
+      <!-- TAB 2: PER-APP SPLIT TUNNEL -->
       <section class="tab-view no-scroll" id="tab-2">
-        <div class="card full-card">
-          <div class="card-head">
-            <div class="head-actions">
-              <button type="button" class="chip-action active" id="btnAllApps" onclick="setAppRouteMode(true)">All Apps</button>
-              <button type="button" class="chip-action" id="btnSelApps" onclick="setAppRouteMode(false)">Selected Only</button>
+        <div class="card flex-card">
+          <div class="card-bar">
+            <div class="bar-actions">
+              <button type="button" class="tool-btn active" id="btnAllApps" onclick="setAppRouteMode(true)">All Apps</button>
+              <button type="button" class="tool-btn" id="btnSelApps" onclick="setAppRouteMode(false)">Selected</button>
             </div>
-            <div class="head-actions">
-              <button type="button" class="chip-action" onclick="selectAllApps()">All</button>
-              <button type="button" class="chip-action danger" onclick="clearSelectedApps()">None</button>
+            <div class="bar-actions">
+              <button type="button" class="tool-btn" onclick="selectAllApps()">All</button>
+              <button type="button" class="tool-btn danger" onclick="clearSelectedApps()">None</button>
             </div>
           </div>
 
-          <input type="text" id="appSearchInput" class="inp" placeholder="Search apps by name or package..." autocomplete="off" oninput="renderAppsList()" />
+          <input type="text" id="appSearchInput" class="field-inp" placeholder="Search apps by name or package..." autocomplete="off" oninput="renderAppsList()" />
           <div class="apps-list" id="appsListContainer"></div>
         </div>
       </section>
 
-      <!-- TAB 3: KERNEL LOGS & AUDIT -->
+      <!-- TAB 3: KERNEL LOGS, AUDIT & BACKUP -->
       <section class="tab-view no-scroll" id="tab-3">
-        <div class="card full-card">
-          <div class="card-head">
-            <div class="head-actions">
-              <button type="button" class="chip-action active" id="btnModeLogs" onclick="setLogMode(false)">Daemon Logs</button>
-              <button type="button" class="chip-action" id="btnModeAudit" onclick="setLogMode(true)">Netfilter Audit</button>
+        <div class="card flex-card">
+          <div class="card-bar">
+            <div class="bar-actions">
+              <button type="button" class="tool-btn active" id="btnModeLogs" onclick="setLogMode(false)">Logs</button>
+              <button type="button" class="tool-btn" id="btnModeAudit" onclick="setLogMode(true)">Audit</button>
+              <button type="button" class="tool-btn" onclick="refreshLogsNow()">Refresh</button>
+              <button type="button" class="tool-btn danger" onclick="clearLogsNow()">Clear</button>
             </div>
-            <div class="head-actions">
-              <button type="button" class="chip-action" onclick="refreshLogsNow()">Refresh</button>
-              <button type="button" class="chip-action danger" onclick="clearLogsNow()">Clear</button>
+            <div class="bar-actions">
+              <button type="button" class="tool-btn" onclick="exportAllSlots()">Export</button>
+              <button type="button" class="tool-btn" onclick="importAllSlots()">Import</button>
             </div>
           </div>
           <pre class="log-box" id="logConsole"></pre>
@@ -233,23 +230,26 @@
       </section>
     </main>
 
-    <!-- Settled Bottom Navigation Bar -->
-    <nav class="bottom-nav" id="bottomDock">
-      <button type="button" class="nav-btn active" data-tab="0" onclick="switchTab(0)">
-        <span class="nav-ico">⚡</span>
-        <span class="nav-lbl">Proxy</span>
+    <!-- Precision SVG Bottom Navigation Dock -->
+    <nav class="bottom-dock" id="bottomDock">
+      <button type="button" class="dock-btn active" data-tab="0" onclick="switchTab(0)">
+        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="dock-lbl">Tunnel</span>
       </button>
-      <button type="button" class="nav-btn" data-tab="1" onclick="switchTab(1)">
-        <span class="nav-ico">🛡</span>
-        <span class="nav-lbl">Check IP</span>
+
+      <button type="button" class="dock-btn" data-tab="1" onclick="switchTab(1)">
+        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span class="dock-lbl">Check</span>
       </button>
-      <button type="button" class="nav-btn" data-tab="2" onclick="switchTab(2)">
-        <span class="nav-ico">⊞</span>
-        <span class="nav-lbl">Apps</span>
+
+      <button type="button" class="dock-btn" data-tab="2" onclick="switchTab(2)">
+        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span class="dock-lbl">Apps</span>
       </button>
-      <button type="button" class="nav-btn" data-tab="3" onclick="switchTab(3)">
-        <span class="nav-ico">⌘</span>
-        <span class="nav-lbl">Logs</span>
+
+      <button type="button" class="dock-btn" data-tab="3" onclick="switchTab(3)">
+        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <span class="dock-lbl">Logs</span>
       </button>
     </nav>
   </div>

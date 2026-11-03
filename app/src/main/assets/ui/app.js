@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • Settled AMOLED UI & Non-Blocking Root Controller
+// Nameless Proxy • Tactical Titanium Controller (DPI-Proof & Auto-Saving)
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -118,34 +118,14 @@ function buildSlotsPayload() {
   });
 }
 
+// Silently and automatically saves to SharedPreferences and /data/adb/nameless_proxy/
 function persistAllSlots() {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveDebounceTimer = setTimeout(() => {
-    const payload = buildSlotsPayload();
     if (window.NamelessBridge) {
-      window.NamelessBridge.saveSlots(payload);
+      window.NamelessBridge.saveSlots(buildSlotsPayload());
     }
-    const cur = state.slots[state.activeSlot] || defaultSlot();
-    const statusEl = document.getElementById("adbSaveStatusText");
-    if (statusEl && cur.host) {
-      statusEl.textContent = `✓ Saved /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
-    }
-  }, 450);
-}
-
-function saveSlotToAdbNow() {
-  if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
-  saveFormIntoSlot(state.activeSlot);
-  renderSlotCapsules();
-  const payload = buildSlotsPayload();
-  if (window.NamelessBridge) {
-    window.NamelessBridge.saveSlotsNow(payload);
-    window.NamelessBridge.showToast(`Saved Slot P${state.activeSlot + 1} in /data/adb/nameless_proxy`);
-  }
-  const statusEl = document.getElementById("adbSaveStatusText");
-  if (statusEl) {
-    statusEl.textContent = `✓ Saved /data/adb/nameless_proxy/config_u0_s${state.activeSlot}.json & backup_u0_s${state.activeSlot}.json`;
-  }
+  }, 300);
 }
 
 function selectSlot(idx) {
@@ -157,7 +137,7 @@ function selectSlot(idx) {
 }
 
 function renderSlotCapsules() {
-  document.querySelectorAll(".slot-btn").forEach((btn, idx) => {
+  document.querySelectorAll(".slot-pill").forEach((btn, idx) => {
     const slotCfg = state.slots[idx] || defaultSlot();
     const hasHost = !!(slotCfg.host && slotCfg.host.trim() !== "");
     btn.classList.toggle("active", idx === state.activeSlot);
@@ -167,11 +147,26 @@ function renderSlotCapsules() {
 
   const cur = state.slots[state.activeSlot] || defaultSlot();
   document.getElementById("editingSlotTitle").textContent = `SLOT P${state.activeSlot + 1} • ${cur.type || "SOCKS5"}`;
+
+  const coreBtn = document.getElementById("coreBtn");
+  const coreIcon = document.getElementById("coreIcon");
+  const isCurrentSlotRunning = state.isRunning && state.runningSlot === state.activeSlot;
+  coreBtn.classList.toggle("online", isCurrentSlotRunning);
+  if (!state.isTransitioning) {
+    if (isCurrentSlotRunning) {
+      coreIcon.textContent = "STOP";
+    } else if (state.isRunning) {
+      coreIcon.textContent = "SWITCH";
+    } else {
+      coreIcon.textContent = "CONNECT";
+    }
+  }
 }
 
 function updateProtocolFieldsUI(proto) {
   const p = (proto || "SOCKS5").toUpperCase();
 
+  const credsGrid = document.getElementById("credsGrid");
   const groupUser = document.getElementById("groupUser");
   const groupCipher = document.getElementById("groupCipher");
   const groupPass = document.getElementById("groupPass");
@@ -189,56 +184,62 @@ function updateProtocolFieldsUI(proto) {
   groupPass.classList.add("hidden");
   groupSni.classList.add("hidden");
   groupReality.classList.add("hidden");
+  credsGrid.classList.remove("single-col");
 
   if (p === "SOCKS5") {
     groupUser.classList.remove("hidden");
     groupPass.classList.remove("hidden");
-    lblUser.textContent = "SOCKS5 USERNAME (OPTIONAL)";
-    inpUser.placeholder = "Enter username";
-    lblPass.textContent = "SOCKS5 PASSWORD (OPTIONAL)";
-    inpPass.placeholder = "Enter password";
+    lblUser.textContent = "USERNAME";
+    inpUser.placeholder = "Optional";
+    lblPass.textContent = "PASSWORD";
+    inpPass.placeholder = "Optional";
   } else if (p === "HTTP") {
     groupUser.classList.remove("hidden");
     groupPass.classList.remove("hidden");
     groupSni.classList.remove("hidden");
-    lblUser.textContent = "HTTP USERNAME (OPTIONAL)";
-    inpUser.placeholder = "Enter username";
-    lblPass.textContent = "HTTP PASSWORD (OPTIONAL)";
-    inpPass.placeholder = "Enter password";
+    lblUser.textContent = "USERNAME";
+    inpUser.placeholder = "Optional";
+    lblPass.textContent = "PASSWORD";
+    inpPass.placeholder = "Optional";
     lblSni.textContent = "TLS SNI (OPTIONAL)";
   } else if (p === "SOCKS4") {
     groupUser.classList.remove("hidden");
-    lblUser.textContent = "SOCKS4 USER ID (OPTIONAL)";
-    inpUser.placeholder = "Enter User ID";
+    credsGrid.classList.add("single-col");
+    lblUser.textContent = "USER ID (OPTIONAL)";
+    inpUser.placeholder = "Optional";
   } else if (p === "SHADOWSOCKS") {
     groupCipher.classList.remove("hidden");
     groupPass.classList.remove("hidden");
-    lblPass.textContent = "SHADOWSOCKS PASSWORD / PSK";
-    inpPass.placeholder = "Enter password";
+    lblPass.textContent = "PASSWORD / PSK";
+    inpPass.placeholder = "Required";
   } else if (p === "VLESS") {
     groupUser.classList.remove("hidden");
+    credsGrid.classList.add("single-col");
     groupSni.classList.remove("hidden");
     groupReality.classList.remove("hidden");
     lblUser.textContent = "VLESS UUID";
-    inpUser.placeholder = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    inpUser.placeholder = "UUID";
     lblSni.textContent = "TLS / REALITY SNI";
   } else if (p === "VMESS") {
     groupUser.classList.remove("hidden");
+    credsGrid.classList.add("single-col");
     groupSni.classList.remove("hidden");
     lblUser.textContent = "VMESS UUID";
-    inpUser.placeholder = "e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    inpUser.placeholder = "UUID";
     lblSni.textContent = "TLS SNI / HOST";
   } else if (p === "TROJAN") {
     groupPass.classList.remove("hidden");
+    credsGrid.classList.add("single-col");
     groupSni.classList.remove("hidden");
     lblPass.textContent = "TROJAN PASSWORD";
-    inpPass.placeholder = "Enter Trojan password";
+    inpPass.placeholder = "Required";
     lblSni.textContent = "TLS SNI";
   } else if (p === "HYSTERIA2") {
     groupPass.classList.remove("hidden");
+    credsGrid.classList.add("single-col");
     groupSni.classList.remove("hidden");
-    lblPass.textContent = "HYSTERIA2 AUTH PASSWORD";
-    inpPass.placeholder = "Enter Hysteria2 password";
+    lblPass.textContent = "HYSTERIA2 PASSWORD";
+    inpPass.placeholder = "Required";
     lblSni.textContent = "TLS SNI";
   }
 }
@@ -246,16 +247,10 @@ function updateProtocolFieldsUI(proto) {
 function togglePasswordVisibility() {
   state.showPassword = !state.showPassword;
   const inpPass = document.getElementById("inpPass");
-  const btn = document.getElementById("btnTogglePass");
+  const svg = document.getElementById("eyeIconSvg");
   if (inpPass) inpPass.type = state.showPassword ? "text" : "password";
-  if (btn) btn.textContent = state.showPassword ? "Hide" : "Show";
-}
-
-function pickSsCipher(cipher) {
-  const inp = document.getElementById("inpCipher");
-  if (inp) {
-    inp.value = cipher;
-    onFormEdited();
+  if (svg) {
+    svg.style.color = state.showPassword ? "#F59E0B" : "";
   }
 }
 
@@ -268,12 +263,12 @@ function renderQuickPills() {
   appsPill.classList.toggle("on", true);
   document.getElementById("lblAppsState").textContent = state.routeAllApps
     ? "ALL"
-    : `${state.selectedUids.length} APPS`;
+    : `${state.selectedUids.length}`;
 
   const rtcPill = document.getElementById("pillWebrtc");
   const isSpoof = state.webrtcMode !== "DISABLE";
   rtcPill.classList.toggle("on", isSpoof);
-  document.getElementById("lblWebrtcState").textContent = isSpoof ? "SPOOF" : "OFF";
+  document.getElementById("lblWebrtcState").textContent = isSpoof ? "ON" : "OFF";
 
   document.getElementById("btnAllApps").classList.toggle("active", state.routeAllApps);
   document.getElementById("btnSelApps").classList.toggle("active", !state.routeAllApps);
@@ -363,7 +358,7 @@ function loadSlotIntoForm(idx) {
   document.getElementById("inpExtra").value = s.realityPublicKey || "";
   document.getElementById("inpShortId").value = s.realityShortId || "";
 
-  document.querySelectorAll(".proto-btn").forEach(btn => {
+  document.querySelectorAll(".proto-chip").forEach(btn => {
     btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
   });
 
@@ -413,7 +408,7 @@ function onFormEdited() {
 function setProtocol(proto) {
   saveFormIntoSlot(state.activeSlot);
   state.slots[state.activeSlot].type = proto;
-  document.querySelectorAll(".proto-btn").forEach(btn => {
+  document.querySelectorAll(".proto-chip").forEach(btn => {
     btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
   });
   updateProtocolFieldsUI(proto);
@@ -444,9 +439,10 @@ function pasteUriFromClipboard() {
       s.realityShortId = parsed.realityShortId || "";
       loadSlotIntoForm(state.activeSlot);
       renderSlotCapsules();
-      saveSlotToAdbNow();
+      persistAllSlots();
+      window.NamelessBridge.showToast("Pasted into P" + (state.activeSlot + 1));
     } else {
-      window.NamelessBridge.showToast("Clipboard has no valid proxy URI");
+      window.NamelessBridge.showToast("Invalid clipboard URI");
     }
   } catch (e) {}
 }
@@ -458,7 +454,7 @@ function toggleTunnel() {
 
   if (state.isRunning && state.runningSlot === state.activeSlot) {
     state.isTransitioning = true;
-    document.getElementById("coreStateText").textContent = "STOPPING...";
+    document.getElementById("coreStateText").textContent = "STOPPING";
     document.getElementById("coreIcon").textContent = "WAIT";
     if (window.NamelessBridge) {
       window.NamelessBridge.stopTunnelAsync();
@@ -475,11 +471,11 @@ function toggleTunnel() {
     });
     if (!cfg.host || cfg.host.trim() === "") {
       document.getElementById("inpHost").focus();
-      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port below");
+      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port");
       return;
     }
     state.isTransitioning = true;
-    document.getElementById("coreStateText").textContent = "STARTING...";
+    document.getElementById("coreStateText").textContent = "STARTING";
     document.getElementById("coreIcon").textContent = "WAIT";
     if (window.NamelessBridge) {
       window.NamelessBridge.saveSlots(buildSlotsPayload());
@@ -529,13 +525,10 @@ function applyPolledStatus(st, firstInit) {
   }
 
   const orb = document.getElementById("headerOrb");
-  const coreBtn = document.getElementById("coreBtn");
-  const coreIcon = document.getElementById("coreIcon");
   const coreStateText = document.getElementById("coreStateText");
   const coreTimerText = document.getElementById("coreTimerText");
 
   orb.classList.toggle("online", state.isRunning);
-  coreBtn.classList.toggle("online", state.isRunning);
 
   if (state.isRunning) {
     if (!wasRunning || state.sessionStartMs === 0) {
@@ -547,8 +540,7 @@ function applyPolledStatus(st, firstInit) {
       state.prevTime = Date.now();
     }
     if (!state.isTransitioning) {
-      coreStateText.textContent = `ACTIVE • SLOT P${(state.runningSlot || 0) + 1}`;
-      coreIcon.textContent = "STOP";
+      coreStateText.textContent = `ACTIVE • P${(state.runningSlot || 0) + 1}`;
     }
     coreTimerText.textContent = formatDuration(Date.now() - state.sessionStartMs);
 
@@ -572,23 +564,24 @@ function applyPolledStatus(st, firstInit) {
     document.getElementById("exitIpText").textContent = ip;
     if (g && g.country) {
       document.getElementById("exitFlag").textContent = flagEmojiFromCode(g.countryCode);
-      document.getElementById("exitLocText").textContent = g.countryCode ? `${g.country} (${g.countryCode}) • Protected` : g.country;
+      document.getElementById("exitLocText").textContent = g.countryCode || g.country;
     } else {
       document.getElementById("exitFlag").textContent = "🛡️";
-      document.getElementById("exitLocText").textContent = "Root Kernel Tunnel Active";
+      document.getElementById("exitLocText").textContent = "";
     }
   } else {
     state.sessionStartMs = 0;
     if (!state.isTransitioning) {
-      coreStateText.textContent = "STANDBY";
-      coreIcon.textContent = "CONNECT";
+      coreStateText.textContent = "OFFLINE";
     }
     coreTimerText.textContent = "00:00:00";
     document.getElementById("rxSpeedText").textContent = "0 B/s";
     document.getElementById("txSpeedText").textContent = "0 B/s";
+    document.getElementById("rxTotalText").textContent = "0 B";
+    document.getElementById("txTotalText").textContent = "0 B";
     document.getElementById("exitFlag").textContent = "🌐";
-    document.getElementById("exitIpText").textContent = "Tunnel Offline";
-    document.getElementById("exitLocText").textContent = "Tap Connect to start root tunnel";
+    document.getElementById("exitIpText").textContent = "Not Connected";
+    document.getElementById("exitLocText").textContent = "";
   }
 
   renderSlotCapsules();
@@ -605,20 +598,23 @@ function pollBackendStatus() {
   } catch (e) {}
 }
 
-function mountEmbeddedChecker(url, forceReload) {
+function mountEmbeddedChecker(url) {
   if (url) state.checkerUrl = url;
   if (!window.NamelessBridge || state.activeTab !== 1) return;
 
-  const slot = document.getElementById("checkerPlaceholder");
-  const vh = window.innerHeight || 800;
-  const rect = slot ? slot.getBoundingClientRect() : { top: 112, bottom: vh - 60 };
-  const topRatio = Math.max(0.12, Math.min(0.25, rect.top / vh));
-  const bottomRatio = Math.max(0.07, Math.min(0.18, (vh - rect.bottom) / vh));
-  if (forceReload) {
-    window.NamelessBridge.navigateChecker(state.checkerUrl);
-  } else {
-    window.NamelessBridge.showCheckerRatio(state.checkerUrl, topRatio, bottomRatio);
-  }
+  requestAnimationFrame(() => {
+    if (state.activeTab !== 1) return;
+    const slot = document.getElementById("checkerPlaceholder");
+    const vw = document.documentElement.clientWidth || window.innerWidth || 360;
+    const vh = document.documentElement.clientHeight || window.innerHeight || 800;
+    const rect = slot && slot.getBoundingClientRect().height > 10
+      ? slot.getBoundingClientRect()
+      : { left: 12, top: 100, right: vw - 12, bottom: vh - 58 };
+    const topRatio = Math.max(0.08, Math.min(0.30, rect.top / vh));
+    const bottomRatio = Math.max(0.05, Math.min(0.22, (vh - rect.bottom) / vh));
+    const sideRatio = Math.max(0.01, Math.min(0.08, rect.left / vw));
+    window.NamelessBridge.showCheckerBounds(state.checkerUrl, topRatio, bottomRatio, sideRatio);
+  });
 }
 
 function switchTab(idx) {
@@ -626,13 +622,13 @@ function switchTab(idx) {
   document.querySelectorAll(".tab-view").forEach((pane, i) => {
     pane.classList.toggle("active", i === idx);
   });
-  document.querySelectorAll(".nav-btn").forEach((btn, i) => {
+  document.querySelectorAll(".dock-btn").forEach((btn, i) => {
     btn.classList.toggle("active", i === idx);
   });
 
   if (window.NamelessBridge) {
     if (idx === 1) {
-      mountEmbeddedChecker(state.checkerUrl, false);
+      mountEmbeddedChecker(state.checkerUrl);
     } else {
       window.NamelessBridge.hideCheckerView();
     }
@@ -644,17 +640,11 @@ function switchTab(idx) {
 }
 
 function loadCheckerPreset(url, btnId) {
-  document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".chk-tab").forEach(b => b.classList.remove("active"));
   const btn = document.getElementById(btnId);
   if (btn) btn.classList.add("active");
   state.checkerUrl = url;
-  mountEmbeddedChecker(url, true);
-}
-
-function reloadCheckerView(wipe) {
-  if (window.NamelessBridge) {
-    window.NamelessBridge.reloadChecker(!!wipe);
-  }
+  mountEmbeddedChecker(url);
 }
 
 window.onCheckerState = function(url, loading) {
@@ -686,9 +676,9 @@ function exportAllSlots() {
   saveFormIntoSlot(state.activeSlot);
   const payload = buildSlotsPayload();
   if (window.NamelessBridge) {
-    window.NamelessBridge.saveSlotsNow(payload);
+    window.NamelessBridge.saveSlots(payload);
     const ok = window.NamelessBridge.exportAllSlots();
-    window.NamelessBridge.showToast(ok ? "Exported to Download/nameless_proxy_backup.json" : "Export failed");
+    window.NamelessBridge.showToast(ok ? "Exported to Download" : "Export failed");
   }
 }
 
@@ -702,7 +692,7 @@ function importAllSlots() {
         state.slots = parsed.slots;
         loadSlotIntoForm(state.activeSlot);
         renderSlotCapsules();
-        window.NamelessBridge.showToast("Imported 5 slots into /data/adb/nameless_proxy");
+        window.NamelessBridge.showToast("Imported 5 slots");
         return;
       }
     } catch (e) {}
