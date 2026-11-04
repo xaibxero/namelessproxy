@@ -52,6 +52,7 @@ public class RootBridge {
     private static volatile int cachedUser = -1;
     private static volatile int cachedSlot = 0;
     private static volatile String cachedExitIp = "";
+    private static volatile String cachedServerIp = "";
     private static volatile String cachedWebrtcMode = "SPOOF";
     private static volatile JSONObject cachedGeo = null;
     private static volatile String cachedAppsJson = null;
@@ -70,11 +71,13 @@ public class RootBridge {
             int myUserId = getAndroidUserId();
             String out = execSu(
                 "/system/bin/sh " + TUNNEL_SH + " status",
+                "echo 'FGU:'$(cmd activity get-current-user 2>/dev/null || am get-current-user 2>/dev/null)",
                 "if [ -f " + EXIT_JSON_PATH + " ]; then echo 'GEO:'$(cat " + EXIT_JSON_PATH + "); fi"
             );
             boolean running = false;
             String pid = "";
             int runningUser = myUserId;
+            int fgUser = -1;
             int slot = 0;
             String exitIp = "";
             JSONObject geo = null;
@@ -95,6 +98,11 @@ public class RootBridge {
                         }
                     }
                     if (parts.length > 3) exitIp = parts[3].trim();
+                } else if (line.startsWith("FGU:")) {
+                    String rawFg = line.substring(4).replaceAll("[^0-9]", "");
+                    if (!rawFg.isEmpty()) {
+                        try { fgUser = Integer.parseInt(rawFg); } catch (Exception ignored) {}
+                    }
                 } else if (line.startsWith("GEO:")) {
                     try {
                         geo = new JSONObject(line.substring(4).trim());
@@ -102,7 +110,16 @@ public class RootBridge {
                 }
             }
 
-            // If tunnel was started by a DIFFERENT Android user profile, stop it and kill that profile's app immediately
+            // 1. If this profile started the tunnel, and the user just switched the phone to ANOTHER Android User Profile:
+            // Stop the tunnel and terminate this background profile's app immediately!
+            if (running && runningUser == myUserId && fgUser != -1 && fgUser != myUserId) {
+                execSu("/system/bin/sh " + TUNNEL_SH + " stop");
+                cachedRunning = false;
+                Process.killProcess(Process.myPid());
+                return;
+            }
+
+            // 2. If tunnel was started by a DIFFERENT Android user profile, stop it and kill that profile's app immediately
             if (running && runningUser != myUserId) {
                 execSu(
                     "/system/bin/sh " + TUNNEL_SH + " stop",
@@ -116,6 +133,9 @@ public class RootBridge {
 
             if (geo != null && exitIp.isEmpty()) {
                 exitIp = geo.optString("query", "");
+            }
+            if (running && exitIp.isEmpty() && !cachedServerIp.isEmpty()) {
+                exitIp = cachedServerIp;
             }
 
             cachedRunning = running;
@@ -139,7 +159,10 @@ public class RootBridge {
         if (cachedGeo != null && !cachedGeo.optString("query", "").isEmpty()) {
             return cachedGeo.optString("query", "");
         }
-        return cachedExitIp != null ? cachedExitIp : "";
+        if (cachedExitIp != null && !cachedExitIp.isEmpty()) {
+            return cachedExitIp;
+        }
+        return cachedServerIp != null ? cachedServerIp : "";
     }
 
     public static String getCachedExitTimezone() {
@@ -150,7 +173,7 @@ public class RootBridge {
     }
 
     public static String getCachedWebrtcMode() {
-        return cachedWebrtcMode != null ? cachedWebrtcMode : "SPOOF";
+        return "SPOOF";
     }
 
     /**
@@ -343,10 +366,6 @@ public class RootBridge {
         }
     }
 
-    /**
-     * Generates a complete sing-box configuration supporting all 7 non-UDP proxy protocols:
-     * SOCKS5, HTTP, SOCKS4, SHADOWSOCKS (AEAD & 2022), VLESS (Vision & REALITY), VMESS, and TROJAN.
-     */
     public static String generateSingBoxConfig(JSONObject cfg, String resolvedHost) throws Exception {
         String type = cfg.optString("type", "SOCKS5").toUpperCase();
         String rawHost = cleanHost(cfg.optString("host", ""));
@@ -569,6 +588,9 @@ public class RootBridge {
                 return res.put("ok", false).put("error", "Proxy host is empty");
             }
             String resolvedIp = resolveServerIp(rawHost);
+            if (resolvedIp.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
+                cachedServerIp = resolvedIp;
+            }
             String sbJson = generateSingBoxConfig(cfg, resolvedIp);
             int userId = getAndroidUserId();
             int slot = cfg.optInt("slot", 0);
@@ -578,15 +600,13 @@ public class RootBridge {
             }
 
             int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
-            String webrtcMode = cfg.optString("webrtcMode", "SPOOF");
-            cachedWebrtcMode = webrtcMode;
+            cachedWebrtcMode = "SPOOF";
             String targetUids = cfg.optString("targetUids", "ALL");
             String appFilterMode = cfg.optString("appFilterMode", "WHITELIST");
 
             if (!targetUids.equals("ALL") && !targetUids.isEmpty()) {
                 int myUid = Process.myUid();
                 if (appFilterMode.equalsIgnoreCase("BLACKLIST")) {
-                    // Build whitelist of all installed apps EXCEPT blacklisted UIDs
                     Set<Integer> excluded = new HashSet<>();
                     for (String part : targetUids.split(",")) {
                         try { excluded.add(Integer.parseInt(part.trim())); } catch (Exception ignored) {}
@@ -617,12 +637,12 @@ public class RootBridge {
                 "echo -800 > /proc/" + appPid + "/oom_score_adj 2>/dev/null || true",
                 "echo " + appPid + " > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
                 "cmd deviceidle whitelist +com.nameless.proxy >/dev/null 2>&1 || true",
-                "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\" \"" + targetUids + "\" \"" + webrtcMode + "\""
+                "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\" \"" + targetUids + "\" \"SPOOF\""
             );
             refreshStatusFromRootNow();
             if (out.contains("OK") || cachedRunning) {
-                if (cachedExitIp.isEmpty() && resolvedIp.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
-                    cachedExitIp = resolvedIp;
+                if (cachedExitIp.isEmpty() && !cachedServerIp.isEmpty()) {
+                    cachedExitIp = cachedServerIp;
                 }
                 return res.put("ok", true).put("status", cachedPid);
             } else {
@@ -643,6 +663,7 @@ public class RootBridge {
         cachedPid = "";
         cachedUser = -1;
         cachedExitIp = "";
+        cachedServerIp = "";
         cachedGeo = null;
         return true;
     }
@@ -660,7 +681,7 @@ public class RootBridge {
             obj.put("pid", cachedPid);
             obj.put("userId", cachedUser);
             obj.put("slot", cachedSlot);
-            obj.put("exitIp", cachedExitIp);
+            obj.put("exitIp", getCachedExitIp());
             obj.put("rxBytes", bytes[0]);
             obj.put("txBytes", bytes[1]);
             if (cachedGeo != null) {
@@ -812,7 +833,7 @@ public class RootBridge {
             boolean routeHotspot = parsed.optBoolean("routeHotspot", true);
             boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
             boolean bootOnStart = parsed.optBoolean("bootOnStart", false);
-            cachedWebrtcMode = parsed.optString("webrtcMode", "SPOOF");
+            cachedWebrtcMode = "SPOOF";
             JSONArray slotsArr = parsed.optJSONArray("slots");
 
             List<String> cmds = new ArrayList<>();
@@ -880,7 +901,6 @@ public class RootBridge {
             cmds.add("echo '" + b64Auto + "' | base64 -d > " + ROOT_AUTO_BACKUP);
             cmds.add("chmod 644 " + ADB_DIR + "/*.json " + userDir + "/*.json 2>/dev/null || true");
 
-            // Manage /data/adb/service.d/nameless_proxy.sh Fast-Boot Script
             if (bootOnStart && !activeHost.isEmpty()) {
                 int routeHs = routeHotspot ? 1 : 0;
                 String bootSh = "#!/system/bin/sh\n" +
@@ -888,7 +908,7 @@ public class RootBridge {
                     "until [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 2; done\n" +
                     "sleep 3\n" +
                     "cp -f " + ADB_DIR + "/config_u" + userId + "_s" + activeSlot + ".json " + CONFIG_PATH + " 2>/dev/null || true\n" +
-                    "/system/bin/sh " + TUNNEL_SH + " start \"" + activeHost + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + activeSlot + "\" \"ALL\" \"" + cachedWebrtcMode + "\" >/dev/null 2>&1 &\n";
+                    "/system/bin/sh " + TUNNEL_SH + " start \"" + activeHost + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + activeSlot + "\" \"ALL\" \"SPOOF\" >/dev/null 2>&1 &\n";
                 String b64Boot = Base64.getEncoder().encodeToString(bootSh.getBytes(StandardCharsets.UTF_8));
                 cmds.add("echo '" + b64Boot + "' | base64 -d > " + SERVICE_D_SCRIPT + " && chmod 755 " + SERVICE_D_SCRIPT);
             } else {

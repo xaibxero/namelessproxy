@@ -83,6 +83,7 @@ let state = {
 };
 
 let saveDebounceTimer = null;
+let transitionResetTimer = null;
 
 function flagEmojiFromCode(cc) {
   if (!cc || cc.length !== 2) return "🛡️";
@@ -173,7 +174,6 @@ function buildSlotsPayload() {
   });
 }
 
-// Silently and automatically saves to SharedPreferences, /data/adb/nameless_proxy/, and /data/adb/service.d/
 function persistAllSlots() {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveDebounceTimer = setTimeout(() => {
@@ -205,13 +205,10 @@ function renderSlotCapsules() {
 
   const coreBtn = document.getElementById("coreBtn");
   const coreIcon = document.getElementById("coreIcon");
-  const isCurrentSlotRunning = state.isRunning && state.runningSlot === state.activeSlot;
-  coreBtn.classList.toggle("online", isCurrentSlotRunning);
+  coreBtn.classList.toggle("online", state.isRunning);
   if (!state.isTransitioning) {
-    if (isCurrentSlotRunning) {
+    if (state.isRunning) {
       coreIcon.textContent = "STOP";
-    } else if (state.isRunning) {
-      coreIcon.textContent = "SWITCH";
     } else {
       coreIcon.textContent = "CONNECT";
     }
@@ -501,45 +498,60 @@ function pasteUriFromClipboard() {
   } catch (e) {}
 }
 
+/**
+ * Toggles the tunnel ON or OFF.
+ * Stopping is NEVER blocked by state.isTransitioning and runs on a dedicated stopPool thread.
+ */
 function toggleTunnel() {
-  if (state.isTransitioning) return;
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveFormIntoSlot(state.activeSlot);
 
-  if (state.isRunning && state.runningSlot === state.activeSlot) {
+  if (state.isRunning) {
     state.isTransitioning = true;
+    state.isRunning = false;
+    state.runningSlot = null;
+    document.body.dataset.state = "disconnected";
     document.getElementById("coreStateText").textContent = "STOPPING";
     document.getElementById("coreIcon").textContent = "WAIT";
+    renderSlotCapsules();
+    if (transitionResetTimer) clearTimeout(transitionResetTimer);
+    transitionResetTimer = setTimeout(() => { state.isTransitioning = false; renderSlotCapsules(); }, 2500);
     if (window.NamelessBridge) {
       window.NamelessBridge.stopTunnelAsync();
     }
-  } else {
-    const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
-      ? "ALL"
-      : state.selectedUids.join(",");
-    const cfg = Object.assign({}, state.slots[state.activeSlot], {
-      slot: state.activeSlot,
-      routeHotspot: state.routeHotspot,
-      targetUids: targetUidsStr,
-      appFilterMode: state.appFilterMode,
-      webrtcMode: "SPOOF"
-    });
-    if (!cfg.host || cfg.host.trim() === "") {
-      document.getElementById("inpHost").focus();
-      if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port");
-      return;
-    }
-    state.isTransitioning = true;
-    document.getElementById("coreStateText").textContent = "STARTING";
-    document.getElementById("coreIcon").textContent = "WAIT";
-    if (window.NamelessBridge) {
-      window.NamelessBridge.saveSlots(buildSlotsPayload());
-      window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
-    }
+    return;
+  }
+
+  if (state.isTransitioning) return;
+
+  const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
+    ? "ALL"
+    : state.selectedUids.join(",");
+  const cfg = Object.assign({}, state.slots[state.activeSlot], {
+    slot: state.activeSlot,
+    routeHotspot: state.routeHotspot,
+    targetUids: targetUidsStr,
+    appFilterMode: state.appFilterMode,
+    webrtcMode: "SPOOF"
+  });
+  if (!cfg.host || cfg.host.trim() === "") {
+    document.getElementById("inpHost").focus();
+    if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port");
+    return;
+  }
+  state.isTransitioning = true;
+  document.getElementById("coreStateText").textContent = "STARTING";
+  document.getElementById("coreIcon").textContent = "WAIT";
+  if (transitionResetTimer) clearTimeout(transitionResetTimer);
+  transitionResetTimer = setTimeout(() => { state.isTransitioning = false; renderSlotCapsules(); }, 3500);
+  if (window.NamelessBridge) {
+    window.NamelessBridge.saveSlots(buildSlotsPayload());
+    window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
   }
 }
 
 window.onTunnelActionComplete = function(jsonStr) {
+  if (transitionResetTimer) clearTimeout(transitionResetTimer);
   state.isTransitioning = false;
   try {
     const res = JSON.parse(jsonStr);
@@ -571,7 +583,11 @@ window.onPingResult = function(ms) {
 function applyPolledStatus(st, firstInit) {
   const wasRunning = state.isRunning;
   const userMatches = (typeof st.userId !== "number" || st.userId === -1 || st.userId === state.myUserId);
-  state.isRunning = !!(st.running && userMatches);
+  const nowRunning = !!(st.running && userMatches);
+  if (nowRunning !== wasRunning) {
+    state.isTransitioning = false;
+  }
+  state.isRunning = nowRunning;
   state.runningSlot = state.isRunning ? (st.slot || 0) : null;
 
   document.body.dataset.state = state.isRunning ? "connected" : "disconnected";
