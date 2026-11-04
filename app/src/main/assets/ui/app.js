@@ -64,6 +64,7 @@ let state = {
   runningSlot: null,
   isRunning: false,
   isTransitioning: false,
+  transitionTarget: null,
   routeHotspot: true,
   routeAllApps: true,
   appFilterMode: "WHITELIST",
@@ -500,14 +501,16 @@ function pasteUriFromClipboard() {
 
 /**
  * Toggles the tunnel ON or OFF.
- * Stopping is NEVER blocked by state.isTransitioning and runs on a dedicated stopPool thread.
+ * Stopping is NEVER blocked by state.isTransitioning and locks transitionTarget = "STOP"
+ * so background status polls never flip the UI back to CONNECTED while tunnel.sh stop completes.
  */
 function toggleTunnel() {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveFormIntoSlot(state.activeSlot);
 
-  if (state.isRunning) {
+  if (state.isRunning || state.transitionTarget === "START") {
     state.isTransitioning = true;
+    state.transitionTarget = "STOP";
     state.isRunning = false;
     state.runningSlot = null;
     document.body.dataset.state = "disconnected";
@@ -515,7 +518,11 @@ function toggleTunnel() {
     document.getElementById("coreIcon").textContent = "WAIT";
     renderSlotCapsules();
     if (transitionResetTimer) clearTimeout(transitionResetTimer);
-    transitionResetTimer = setTimeout(() => { state.isTransitioning = false; renderSlotCapsules(); }, 2500);
+    transitionResetTimer = setTimeout(() => {
+      state.isTransitioning = false;
+      state.transitionTarget = null;
+      renderSlotCapsules();
+    }, 3000);
     if (window.NamelessBridge) {
       window.NamelessBridge.stopTunnelAsync();
     }
@@ -540,10 +547,15 @@ function toggleTunnel() {
     return;
   }
   state.isTransitioning = true;
+  state.transitionTarget = "START";
   document.getElementById("coreStateText").textContent = "STARTING";
   document.getElementById("coreIcon").textContent = "WAIT";
   if (transitionResetTimer) clearTimeout(transitionResetTimer);
-  transitionResetTimer = setTimeout(() => { state.isTransitioning = false; renderSlotCapsules(); }, 3500);
+  transitionResetTimer = setTimeout(() => {
+    state.isTransitioning = false;
+    state.transitionTarget = null;
+    renderSlotCapsules();
+  }, 4000);
   if (window.NamelessBridge) {
     window.NamelessBridge.saveSlots(buildSlotsPayload());
     window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
@@ -553,8 +565,17 @@ function toggleTunnel() {
 window.onTunnelActionComplete = function(jsonStr) {
   if (transitionResetTimer) clearTimeout(transitionResetTimer);
   state.isTransitioning = false;
+  state.transitionTarget = null;
   try {
     const res = JSON.parse(jsonStr);
+    if (res.stopped) {
+      state.isRunning = false;
+      state.runningSlot = null;
+      document.body.dataset.state = "disconnected";
+      document.getElementById("coreStateText").textContent = "OFFLINE";
+      renderSlotCapsules();
+      return;
+    }
     if (!res.ok && res.error && window.NamelessBridge) {
       window.NamelessBridge.showToast(res.error);
     }
@@ -581,20 +602,29 @@ window.onPingResult = function(ms) {
 };
 
 function applyPolledStatus(st, firstInit) {
-  const wasRunning = state.isRunning;
+  if (st.network) {
+    document.getElementById("netSummaryText").textContent = st.network;
+  }
+
   const userMatches = (typeof st.userId !== "number" || st.userId === -1 || st.userId === state.myUserId);
   const nowRunning = !!(st.running && userMatches);
-  if (nowRunning !== wasRunning) {
+
+  if (state.isTransitioning) {
+    if (state.transitionTarget === "STOP" && nowRunning) {
+      return;
+    }
+    if (state.transitionTarget === "START" && !nowRunning) {
+      return;
+    }
     state.isTransitioning = false;
+    state.transitionTarget = null;
   }
+
+  const wasRunning = state.isRunning;
   state.isRunning = nowRunning;
   state.runningSlot = state.isRunning ? (st.slot || 0) : null;
 
   document.body.dataset.state = state.isRunning ? "connected" : "disconnected";
-
-  if (st.network) {
-    document.getElementById("netSummaryText").textContent = st.network;
-  }
 
   const orb = document.getElementById("headerOrb");
   const coreStateText = document.getElementById("coreStateText");

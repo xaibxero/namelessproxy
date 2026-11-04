@@ -161,27 +161,60 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * Live bridge attached to checkerWebView so WebRTC ICE spoofing always queries the latest
+     * proxy exit IP at the exact millisecond RTCPeerConnection is instantiated.
+     */
+    public class CheckerRtcBridge {
+        @JavascriptInterface
+        public String getExitIp() {
+            return RootBridge.getBestSpoofIp(getApplicationContext());
+        }
+
+        @JavascriptInterface
+        public String getExitTz() {
+            return RootBridge.getCachedExitTimezone();
+        }
+    }
+
+    /**
      * Builds the document-start WebRTC ICE & Timezone synchronization script for checkerWebView.
-     * Suppresses premature native {candidate: null} events so IPFighter NEVER shows WebRTC: N/A,
-     * and instead delivers the genuine proxy exit IP srflx candidate first.
+     * Critically preserves the native offer SDP passed into pc.setLocalDescription() so Chromium
+     * never throws InvalidModificationError (which caused IPFighter to show WebRTC: N/A), while
+     * delivering the genuine proxy exit IP srflx candidate via onicecandidate, addEventListener,
+     * and the pc.localDescription getter.
      */
     private String buildCheckerDocumentStartScript() {
-        boolean running = RootBridge.isTunnelRunningForCurrentUser();
-        String exitIp = RootBridge.getCachedExitIp().replace("'", "");
-        String exitTz = RootBridge.getCachedExitTimezone().replace("'", "");
+        String initialIp = RootBridge.getBestSpoofIp(getApplicationContext()).replace("'", "");
+        String initialTz = RootBridge.getCachedExitTimezone().replace("'", "");
 
         return "(function(){\n" +
             "  if (window.__namelessRtcPatched) return;\n" +
             "  window.__namelessRtcPatched = true;\n" +
-            "  var TUNNEL_ON = " + (running ? "true" : "false") + ";\n" +
-            "  var SPOOF_IP = '" + exitIp + "';\n" +
-            "  var PROXY_TZ = '" + exitTz + "';\n" +
-            "  if (TUNNEL_ON && PROXY_TZ && PROXY_TZ.indexOf('/') > 0) {\n" +
+            "  function resolveSpoofIp() {\n" +
+            "    try {\n" +
+            "      if (window.__namelessRtcBridge && window.__namelessRtcBridge.getExitIp) {\n" +
+            "        var live = window.__namelessRtcBridge.getExitIp();\n" +
+            "        if (live && live.length > 3) return live;\n" +
+            "      }\n" +
+            "    } catch(e) {}\n" +
+            "    return '" + initialIp + "';\n" +
+            "  }\n" +
+            "  function resolveSpoofTz() {\n" +
+            "    try {\n" +
+            "      if (window.__namelessRtcBridge && window.__namelessRtcBridge.getExitTz) {\n" +
+            "        var liveTz = window.__namelessRtcBridge.getExitTz();\n" +
+            "        if (liveTz && liveTz.indexOf('/') > 0) return liveTz;\n" +
+            "      }\n" +
+            "    } catch(e) {}\n" +
+            "    return '" + initialTz + "';\n" +
+            "  }\n" +
+            "  var PROXY_TZ = resolveSpoofTz();\n" +
+            "  if (PROXY_TZ && PROXY_TZ.indexOf('/') > 0) {\n" +
             "    try {\n" +
             "      var origDTF = Intl.DateTimeFormat;\n" +
             "      Intl.DateTimeFormat = function(loc, opts) {\n" +
             "        opts = Object.assign({}, opts || {});\n" +
-            "        if (!opts.timeZone) opts.timeZone = PROXY_TZ;\n" +
+            "        if (!opts.timeZone) opts.timeZone = resolveSpoofTz() || PROXY_TZ;\n" +
             "        return new origDTF(loc, opts);\n" +
             "      };\n" +
             "      Intl.DateTimeFormat.prototype = origDTF.prototype;\n" +
@@ -191,7 +224,7 @@ public class MainActivity extends Activity {
             "  var OrigPC = window.RTCPeerConnection || window.webkitRTCPeerConnection;\n" +
             "  if (!OrigPC) return;\n" +
             "  function makeSrflxLine(ip) {\n" +
-            "    return 'candidate:842163049 1 udp 1677729535 ' + ip + ' 54321 typ srflx raddr ' + ip + ' rport 54321 generation 0';\n" +
+            "    return 'candidate:842163049 1 udp 1677729535 ' + ip + ' 54321 typ srflx raddr 0.0.0.0 rport 0 generation 0';\n" +
             "  }\n" +
             "  function patchSdpWithIp(sdp, ip) {\n" +
             "    if (!sdp || !ip) return sdp;\n" +
@@ -203,14 +236,17 @@ public class MainActivity extends Activity {
             "  }\n" +
             "  function WrappedPC(cfg, constraints) {\n" +
             "    var pc = new OrigPC(cfg, constraints);\n" +
-            "    if (!TUNNEL_ON || !SPOOF_IP) return pc;\n" +
             "    var userOnIce = null;\n" +
             "    var listeners = [];\n" +
             "    var scheduled = false;\n" +
             "    var origAddEL = pc.addEventListener.bind(pc);\n" +
+            "    var origSLD = pc.setLocalDescription.bind(pc);\n" +
             "    Object.defineProperty(pc, 'onicecandidate', {\n" +
             "      get: function() { return userOnIce; },\n" +
-            "      set: function(fn) { userOnIce = fn; triggerSpoofCandidates(); },\n" +
+            "      set: function(fn) {\n" +
+            "        userOnIce = fn;\n" +
+            "        if (typeof fn === 'function') triggerSpoofCandidates();\n" +
+            "      },\n" +
             "      configurable: true\n" +
             "    });\n" +
             "    pc.addEventListener = function(type, fn, opts) {\n" +
@@ -228,38 +264,58 @@ public class MainActivity extends Activity {
             "    }\n" +
             "    function triggerSpoofCandidates() {\n" +
             "      if (scheduled) return;\n" +
+            "      var ip = resolveSpoofIp();\n" +
+            "      if (!ip) return;\n" +
             "      scheduled = true;\n" +
             "      setTimeout(function() {\n" +
-            "        var line = makeSrflxLine(SPOOF_IP);\n" +
-            "        var candObj = { candidate: line, sdpMid: '0', sdpMLineIndex: 0, address: SPOOF_IP, ip: SPOOF_IP, port: 54321, protocol: 'udp', type: 'srflx', toJSON: function(){ return { candidate: line, sdpMid: '0', sdpMLineIndex: 0 }; } };\n" +
-            "        try { candObj = new RTCIceCandidate({ candidate: line, sdpMid: '0', sdpMLineIndex: 0 }); } catch(e){}\n" +
+            "        var curIp = resolveSpoofIp() || ip;\n" +
+            "        var line = makeSrflxLine(curIp);\n" +
+            "        var candObj = {\n" +
+            "          candidate: line,\n" +
+            "          sdpMid: '0',\n" +
+            "          sdpMLineIndex: 0,\n" +
+            "          address: curIp,\n" +
+            "          ip: curIp,\n" +
+            "          port: 54321,\n" +
+            "          protocol: 'udp',\n" +
+            "          type: 'srflx',\n" +
+            "          foundation: '842163049',\n" +
+            "          component: 'rtp',\n" +
+            "          priority: 1677729535,\n" +
+            "          relatedAddress: '0.0.0.0',\n" +
+            "          relatedPort: 0,\n" +
+            "          toJSON: function(){ return { candidate: line, sdpMid: '0', sdpMLineIndex: 0 }; }\n" +
+            "        };\n" +
+            "        try {\n" +
+            "          var nativeCand = new RTCIceCandidate({ candidate: line, sdpMid: '0', sdpMLineIndex: 0 });\n" +
+            "          if (nativeCand && nativeCand.candidate) candObj = nativeCand;\n" +
+            "        } catch(e){}\n" +
             "        dispatchIce(candObj);\n" +
-            "        setTimeout(function() { dispatchIce(null); }, 35);\n" +
-            "      }, 15);\n" +
+            "        setTimeout(function() { dispatchIce(null); }, 40);\n" +
+            "      }, 20);\n" +
             "    }\n" +
-            "    var origCreateOffer = pc.createOffer.bind(pc);\n" +
-            "    pc.createOffer = function(a, b, c) {\n" +
-            "      if (typeof a === 'function') {\n" +
-            "        return origCreateOffer(function(desc) {\n" +
-            "          var patched = { type: desc.type, sdp: patchSdpWithIp(desc.sdp, SPOOF_IP) };\n" +
-            "          a(patched);\n" +
-            "        }, b, c);\n" +
-            "      }\n" +
-            "      return origCreateOffer(a).then(function(desc) {\n" +
-            "        return { type: desc.type, sdp: patchSdpWithIp(desc.sdp, SPOOF_IP) };\n" +
-            "      });\n" +
-            "    };\n" +
-            "    var origSLD = pc.setLocalDescription.bind(pc);\n" +
-            "    pc.setLocalDescription = function(desc) {\n" +
+            "    pc.setLocalDescription = function(desc, okCb, errCb) {\n" +
             "      triggerSpoofCandidates();\n" +
-            "      return origSLD(desc);\n" +
+            "      try {\n" +
+            "        var p = origSLD(desc);\n" +
+            "        if (p && typeof p.then === 'function') {\n" +
+            "          return p.catch(function() {\n" +
+            "            if (typeof okCb === 'function') try { okCb(); } catch(e){}\n" +
+            "          });\n" +
+            "        }\n" +
+            "      } catch(e) {}\n" +
+            "      if (typeof okCb === 'function') setTimeout(okCb, 5);\n" +
+            "      return Promise.resolve();\n" +
             "    };\n" +
             "    try {\n" +
+            "      var origLD = Object.getOwnPropertyDescriptor(OrigPC.prototype, 'localDescription');\n" +
             "      Object.defineProperty(pc, 'localDescription', {\n" +
             "        get: function() {\n" +
-            "          var d = Object.getOwnPropertyDescriptor(OrigPC.prototype, 'localDescription');\n" +
-            "          var val = d && d.get ? d.get.call(pc) : null;\n" +
-            "          var sdp = val && val.sdp ? patchSdpWithIp(val.sdp, SPOOF_IP) : ('v=0\\r\\no=- 461173 2 IN IP4 ' + SPOOF_IP + '\\r\\ns=-\\r\\nc=IN IP4 ' + SPOOF_IP + '\\r\\na=' + makeSrflxLine(SPOOF_IP) + '\\r\\n');\n" +
+            "          var ip = resolveSpoofIp();\n" +
+            "          var val = origLD && origLD.get ? origLD.get.call(pc) : null;\n" +
+            "          if (!ip) return val;\n" +
+            "          var baseSdp = (val && val.sdp) ? val.sdp : ('v=0\\r\\no=- 461173 2 IN IP4 ' + ip + '\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 DTLS/SCTP 5000\\r\\nc=IN IP4 ' + ip + '\\r\\n');\n" +
+            "          var sdp = patchSdpWithIp(baseSdp, ip);\n" +
             "          return { type: (val && val.type) || 'offer', sdp: sdp, toJSON: function(){ return { type: 'offer', sdp: sdp }; } };\n" +
             "        },\n" +
             "        configurable: true\n" +
@@ -292,7 +348,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     private void openAndAutoRunChecker(final String url, float topRatio, float bottomRatio, float sideRatio) {
         if (url == null || url.isEmpty()) return;
 
@@ -335,6 +391,8 @@ public class MainActivity extends Activity {
             "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
         );
 
+        checkerWebView.addJavascriptInterface(new CheckerRtcBridge(), "__namelessRtcBridge");
+
         final String startScript = buildCheckerDocumentStartScript();
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
@@ -368,6 +426,9 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String pageUrl) {
                 super.onPageFinished(view, pageUrl);
+                if (view != null) {
+                    view.evaluateJavascript(startScript, null);
+                }
                 notifyUiCheckerUrl(pageUrl, false);
             }
 

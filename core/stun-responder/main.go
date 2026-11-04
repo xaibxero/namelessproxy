@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"hash/crc32"
 	"io"
 	"net"
 	"net/http"
@@ -182,7 +183,7 @@ func serveSTUN(bindAddr string) {
 	_ = conn.SetWriteBuffer(262144)
 
 	buf := make([]byte, 512)
-	resp := make([]byte, 44)
+	resp := make([]byte, 52)
 
 	for {
 		n, clientAddr, err := conn.ReadFromUDP(buf)
@@ -209,12 +210,11 @@ func serveSTUN(bindAddr string) {
 		binary.BigEndian.PutUint32(ipBytes[:], ipU32)
 		clientPort := uint16(clientAddr.Port)
 
-		// STUN Binding Success Response (0x0101), body length 24 bytes (0x0018):
-		// Attribute 1: XOR-MAPPED-ADDRESS (12 bytes) + Attribute 2: MAPPED-ADDRESS (12 bytes)
+		// STUN Binding Success Response (0x0101), body length 32 bytes (0x0020)
 		resp[0] = 0x01
 		resp[1] = 0x01
 		resp[2] = 0x00
-		resp[3] = 0x18
+		resp[3] = 0x20
 		copy(resp[4:20], buf[4:20])
 
 		// Attribute 1: XOR-MAPPED-ADDRESS (0x0020)
@@ -244,6 +244,14 @@ func serveSTUN(bindAddr string) {
 		resp[41] = ipBytes[1]
 		resp[42] = ipBytes[2]
 		resp[43] = ipBytes[3]
+
+		// Attribute 3: FINGERPRINT (0x8028) per RFC 5389 Section 15.5
+		fp := crc32.ChecksumIEEE(resp[:44]) ^ 0x5354554e
+		resp[44] = 0x80
+		resp[45] = 0x28
+		resp[46] = 0x00
+		resp[47] = 0x04
+		binary.BigEndian.PutUint32(resp[48:52], fp)
 
 		_, _ = conn.WriteToUDP(resp, clientAddr)
 	}
@@ -281,6 +289,5 @@ func main() {
 
 	go probeTunnelExitIP(mixedPort)
 	go serveSTUN("0.0.0.0:" + strconv.Itoa(hotspotPort))
-	// Bind 0.0.0.0:localPort so both 127.0.0.1 REDIRECT and WAN_IP DNAT WebRTC sockets receive replies
-	serveSTUN("0.0.0.0:" + strconv.Itoa(localPort))
+	serveSTUN("127.0.0.1:" + strconv.Itoa(localPort))
 }

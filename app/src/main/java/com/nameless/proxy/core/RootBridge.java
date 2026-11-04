@@ -48,6 +48,8 @@ public class RootBridge {
 
     private static volatile boolean binariesReady = false;
     private static volatile boolean cachedRunning = false;
+    private static volatile boolean stoppingInProgress = false;
+    private static volatile long stopCompletedAtMs = 0L;
     private static volatile String cachedPid = "";
     private static volatile int cachedUser = -1;
     private static volatile int cachedSlot = 0;
@@ -67,6 +69,10 @@ public class RootBridge {
     }
 
     public static void refreshStatusFromRootNow() {
+        if (stoppingInProgress || (System.currentTimeMillis() - stopCompletedAtMs < 2500L)) {
+            cachedRunning = false;
+            return;
+        }
         try {
             int myUserId = getAndroidUserId();
             String out = execSu(
@@ -74,6 +80,10 @@ public class RootBridge {
                 "echo 'FGU:'$(cmd activity get-current-user 2>/dev/null || am get-current-user 2>/dev/null)",
                 "if [ -f " + EXIT_JSON_PATH + " ]; then echo 'GEO:'$(cat " + EXIT_JSON_PATH + "); fi"
             );
+            if (stoppingInProgress || (System.currentTimeMillis() - stopCompletedAtMs < 2500L)) {
+                cachedRunning = false;
+                return;
+            }
             boolean running = false;
             String pid = "";
             int runningUser = myUserId;
@@ -152,7 +162,7 @@ public class RootBridge {
     }
 
     public static boolean isTunnelRunningForCurrentUser() {
-        return cachedRunning && (cachedUser == -1 || cachedUser == getAndroidUserId());
+        return cachedRunning && !stoppingInProgress && (cachedUser == -1 || cachedUser == getAndroidUserId());
     }
 
     public static String getCachedExitIp() {
@@ -163,6 +173,27 @@ public class RootBridge {
             return cachedExitIp;
         }
         return cachedServerIp != null ? cachedServerIp : "";
+    }
+
+    public static String getBestSpoofIp(Context context) {
+        String ip = getCachedExitIp();
+        if (ip != null && !ip.isEmpty()) return ip;
+        try {
+            SharedPreferences sp = context.getSharedPreferences("nameless_v2_prefs", Context.MODE_PRIVATE);
+            String saved = sp.getString("slots_json", "");
+            if (saved != null && !saved.isEmpty()) {
+                JSONObject parsed = new JSONObject(saved);
+                int active = parsed.optInt("activeSlot", 0);
+                JSONArray slots = parsed.optJSONArray("slots");
+                if (slots != null && active >= 0 && active < slots.length()) {
+                    String host = cleanHost(slots.getJSONObject(active).optString("host", ""));
+                    if (host.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
+                        return host;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return "";
     }
 
     public static String getCachedExitTimezone() {
@@ -176,23 +207,9 @@ public class RootBridge {
         return "SPOOF";
     }
 
-    /**
-     * Executes root commands in the global Mount Master namespace (su -mm) for Magisk, KernelSU, and APatch,
-     * with automatic fallback to standard su if -mm is unsupported.
-     */
     public static String execSu(String... commands) {
-        String res = execSuInternal(true, commands);
-        if (res == null) {
-            res = execSuInternal(false, commands);
-        }
-        return res != null ? res : "";
-    }
-
-    private static String execSuInternal(boolean mountMaster, String... commands) {
         try {
-            java.lang.Process p = mountMaster
-                ? new ProcessBuilder("su", "-mm").redirectErrorStream(true).start()
-                : new ProcessBuilder("su").redirectErrorStream(true).start();
+            java.lang.Process p = new ProcessBuilder("su").redirectErrorStream(true).start();
             try (DataOutputStream os = new DataOutputStream(p.getOutputStream())) {
                 for (String cmd : commands) {
                     os.write((cmd + "\n").getBytes(StandardCharsets.UTF_8));
@@ -208,14 +225,10 @@ public class RootBridge {
                     sb.append(line);
                 }
             }
-            int code = p.waitFor();
-            String out = sb.toString().trim();
-            if (mountMaster && code != 0 && (out.contains("invalid") || out.contains("Unknown option") || out.contains("unrecognized"))) {
-                return null;
-            }
-            return out;
+            p.waitFor();
+            return sb.toString().trim();
         } catch (Exception e) {
-            return mountMaster ? null : "";
+            return "";
         }
     }
 
@@ -416,7 +429,7 @@ public class RootBridge {
         dns.put("servers", servers);
 
         JSONArray dnsRules = new JSONArray();
-        JSONArray blockTypes = new JSONArray().put("HTTPS").put("SVCB").put("PTR");
+        JSONArray blockTypes = new JSONArray().put("HTTPS").put("SVCB");
         if (!isIpv6) blockTypes.put("AAAA");
         else blockTypes.put("A");
         dnsRules.put(new JSONObject()
@@ -428,6 +441,33 @@ public class RootBridge {
             .put("domain", new JSONArray().put("use-application-dns.net").put("mask.icloud.com").put("mask-h2.icloud.com"))
             .put("action", "predefined")
             .put("rcode", "NXDOMAIN")
+        );
+        // Resolve Private DNS provider hostnames (Google/Cloudflare/Quad9/AdGuard/NextDNS) to real IPs via dns-remote
+        // so Android netd/dnsresolv (:853 DoT) connects cleanly through the proxy without ever failing or changing settings!
+        dnsRules.put(new JSONObject()
+            .put("domain", new JSONArray()
+                .put("dns.google")
+                .put("dns.google.com")
+                .put("8888.google")
+                .put("one.one.one.one")
+                .put("1dot1dot1dot1.cloudflare-dns.com")
+                .put("security.cloudflare-dns.com")
+                .put("family.cloudflare-dns.com")
+                .put("dns.quad9.net")
+                .put("dns.adguard.com")
+                .put("dns.adguard-dns.com")
+                .put("dns.nextdns.io")
+                .put("doh.opendns.com"))
+            .put("domain_suffix", new JSONArray()
+                .put(".dns.google")
+                .put(".cloudflare-dns.com")
+                .put(".adguard-dns.com")
+                .put(".quad9.net")
+                .put(".nextdns.io")
+                .put(".opendns.com")
+                .put(".cleanbrowsing.org"))
+            .put("action", "route")
+            .put("server", "dns-remote")
         );
         dnsRules.put(new JSONObject()
             .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
@@ -557,7 +597,7 @@ public class RootBridge {
 
         JSONObject route = new JSONObject()
             .put("auto_detect_interface", false)
-            .put("default_domain_resolver", "dns-remote")
+            .put("default_domain_resolver", "dns-direct")
             .put("final", "proxy-out");
         JSONArray routeRules = new JSONArray();
         routeRules.put(new JSONObject()
@@ -565,7 +605,7 @@ public class RootBridge {
             .put("action", "hijack-dns")
         );
         routeRules.put(new JSONObject().put("port", new JSONArray().put(53)).put("action", "hijack-dns"));
-        routeRules.put(new JSONObject().put("action", "sniff").put("timeout", "250ms"));
+        routeRules.put(new JSONObject().put("action", "sniff").put("timeout", "200ms"));
         routeRules.put(new JSONObject()
             .put("network", "udp")
             .put("port", new JSONArray().put(80).put(443).put(853))
@@ -580,6 +620,8 @@ public class RootBridge {
     public static JSONObject startTunnel(Context context, JSONObject cfg) {
         JSONObject res = new JSONObject();
         try {
+            stoppingInProgress = false;
+            stopCompletedAtMs = 0L;
             if (!ensureBinariesExtracted(context)) {
                 return res.put("ok", false).put("error", "Failed to extract binaries");
             }
@@ -641,6 +683,9 @@ public class RootBridge {
             );
             refreshStatusFromRootNow();
             if (out.contains("OK") || cachedRunning) {
+                cachedRunning = true;
+                cachedSlot = slot;
+                cachedUser = userId;
                 if (cachedExitIp.isEmpty() && !cachedServerIp.isEmpty()) {
                     cachedExitIp = cachedServerIp;
                 }
@@ -657,14 +702,27 @@ public class RootBridge {
     }
 
     public static boolean stopTunnel(Context context) {
-        ensureBinariesExtracted(context);
-        execSu("/system/bin/sh " + TUNNEL_SH + " stop");
+        stoppingInProgress = true;
         cachedRunning = false;
         cachedPid = "";
         cachedUser = -1;
         cachedExitIp = "";
         cachedServerIp = "";
         cachedGeo = null;
+        try {
+            ensureBinariesExtracted(context);
+            execSu(
+                "rm -f " + ADB_DIR + "/tunnel.state " + ADB_DIR + "/singbox.pid " + ADB_DIR + "/stun.pid 2>/dev/null || true",
+                "killall -9 sing-box stun-responder 2>/dev/null || true",
+                "pkill -9 -f sing-box 2>/dev/null || true",
+                "pkill -9 -f stun-responder 2>/dev/null || true",
+                "/system/bin/sh " + TUNNEL_SH + " stop"
+            );
+        } finally {
+            cachedRunning = false;
+            stopCompletedAtMs = System.currentTimeMillis();
+            stoppingInProgress = false;
+        }
         return true;
     }
 
@@ -677,7 +735,7 @@ public class RootBridge {
         JSONObject obj = new JSONObject();
         try {
             long[] bytes = readPhysicalNetworkBytes();
-            obj.put("running", cachedRunning);
+            obj.put("running", cachedRunning && !stoppingInProgress);
             obj.put("pid", cachedPid);
             obj.put("userId", cachedUser);
             obj.put("slot", cachedSlot);
