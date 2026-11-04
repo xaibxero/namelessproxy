@@ -46,8 +46,10 @@ public class RootBridge {
     private static volatile boolean binariesReady = false;
     private static volatile boolean cachedRunning = false;
     private static volatile String cachedPid = "";
+    private static volatile int cachedUser = -1;
     private static volatile int cachedSlot = 0;
     private static volatile String cachedExitIp = "";
+    private static volatile String cachedWebrtcMode = "SPOOF";
     private static volatile JSONObject cachedGeo = null;
     private static volatile String cachedAppsJson = null;
     private static boolean pollerStarted = false;
@@ -62,12 +64,14 @@ public class RootBridge {
 
     public static void refreshStatusFromRootNow() {
         try {
+            int myUserId = getAndroidUserId();
             String out = execSu(
                 "/system/bin/sh " + TUNNEL_SH + " status",
                 "if [ -f " + EXIT_JSON_PATH + " ]; then echo 'GEO:'$(cat " + EXIT_JSON_PATH + "); fi"
             );
             boolean running = false;
             String pid = "";
+            int runningUser = myUserId;
             int slot = 0;
             String exitIp = "";
             JSONObject geo = null;
@@ -80,19 +84,40 @@ public class RootBridge {
                     if (parts.length > 1) pid = parts[1];
                     if (parts.length > 2 && parts[2].contains(":")) {
                         String[] us = parts[2].split(":");
+                        if (us.length > 0) {
+                            try { runningUser = Integer.parseInt(us[0].trim()); } catch (Exception ignored) {}
+                        }
                         if (us.length > 1) {
-                            try { slot = Integer.parseInt(us[1]); } catch (Exception ignored) {}
+                            try { slot = Integer.parseInt(us[1].trim()); } catch (Exception ignored) {}
                         }
                     }
-                    if (parts.length > 3) exitIp = parts[3];
+                    if (parts.length > 3) exitIp = parts[3].trim();
                 } else if (line.startsWith("GEO:")) {
                     try {
                         geo = new JSONObject(line.substring(4).trim());
                     } catch (Exception ignored) {}
                 }
             }
+
+            // If tunnel was started by a DIFFERENT Android user profile, stop it and kill that profile's app immediately
+            if (running && runningUser != myUserId) {
+                execSu(
+                    "/system/bin/sh " + TUNNEL_SH + " stop",
+                    "am force-stop --user " + runningUser + " com.nameless.proxy >/dev/null 2>&1 || true"
+                );
+                running = false;
+                pid = "";
+                exitIp = "";
+                geo = null;
+            }
+
+            if (geo != null && exitIp.isEmpty()) {
+                exitIp = geo.optString("query", "");
+            }
+
             cachedRunning = running;
             cachedPid = pid;
+            cachedUser = running ? runningUser : -1;
             cachedSlot = slot;
             cachedExitIp = exitIp;
             cachedGeo = geo;
@@ -101,6 +126,28 @@ public class RootBridge {
 
     public static int getAndroidUserId() {
         return Process.myUid() / 100000;
+    }
+
+    public static boolean isTunnelRunningForCurrentUser() {
+        return cachedRunning && (cachedUser == -1 || cachedUser == getAndroidUserId());
+    }
+
+    public static String getCachedExitIp() {
+        if (cachedGeo != null && !cachedGeo.optString("query", "").isEmpty()) {
+            return cachedGeo.optString("query", "");
+        }
+        return cachedExitIp != null ? cachedExitIp : "";
+    }
+
+    public static String getCachedExitTimezone() {
+        if (cachedGeo != null) {
+            return cachedGeo.optString("timezone", "");
+        }
+        return "";
+    }
+
+    public static String getCachedWebrtcMode() {
+        return cachedWebrtcMode != null ? cachedWebrtcMode : "SPOOF";
     }
 
     public static String execSu(String... commands) {
@@ -294,7 +341,7 @@ public class RootBridge {
         dns.put("servers", servers);
 
         JSONArray dnsRules = new JSONArray();
-        JSONArray blockTypes = new JSONArray().put("HTTPS").put("SVCB");
+        JSONArray blockTypes = new JSONArray().put("HTTPS").put("SVCB").put("PTR");
         if (!isIpv6) blockTypes.put("AAAA");
         else blockTypes.put("A");
         dnsRules.put(new JSONObject()
@@ -303,7 +350,7 @@ public class RootBridge {
             .put("rcode", "NOERROR")
         );
         dnsRules.put(new JSONObject()
-            .put("domain", new JSONArray().put("use-application-dns.net"))
+            .put("domain", new JSONArray().put("use-application-dns.net").put("mask.icloud.com").put("mask-h2.icloud.com"))
             .put("action", "predefined")
             .put("rcode", "NXDOMAIN")
         );
@@ -438,7 +485,7 @@ public class RootBridge {
 
         JSONObject route = new JSONObject()
             .put("auto_detect_interface", false)
-            .put("default_domain_resolver", "dns-direct")
+            .put("default_domain_resolver", "dns-remote")
             .put("final", "proxy-out");
         JSONArray routeRules = new JSONArray();
         routeRules.put(new JSONObject()
@@ -446,7 +493,7 @@ public class RootBridge {
             .put("action", "hijack-dns")
         );
         routeRules.put(new JSONObject().put("port", new JSONArray().put(53)).put("action", "hijack-dns"));
-        routeRules.put(new JSONObject().put("action", "sniff").put("timeout", "200ms"));
+        routeRules.put(new JSONObject().put("action", "sniff").put("timeout", "250ms"));
         routeRules.put(new JSONObject()
             .put("network", "udp")
             .put("port", new JSONArray().put(80).put(443).put(853))
@@ -479,6 +526,7 @@ public class RootBridge {
 
             int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
             String webrtcMode = cfg.optString("webrtcMode", "SPOOF");
+            cachedWebrtcMode = webrtcMode;
             String targetUids = cfg.optString("targetUids", "ALL");
             if (!targetUids.equals("ALL") && !targetUids.isEmpty()) {
                 int myUid = Process.myUid();
@@ -496,6 +544,9 @@ public class RootBridge {
             );
             refreshStatusFromRootNow();
             if (out.contains("OK") || cachedRunning) {
+                if (cachedExitIp.isEmpty() && resolvedIp.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
+                    cachedExitIp = resolvedIp;
+                }
                 return res.put("ok", true).put("status", cachedPid);
             } else {
                 return res.put("ok", false).put("error", out.isEmpty() ? "Tunnel failed to start" : out);
@@ -513,6 +564,7 @@ public class RootBridge {
         execSu("/system/bin/sh " + TUNNEL_SH + " stop");
         cachedRunning = false;
         cachedPid = "";
+        cachedUser = -1;
         cachedExitIp = "";
         cachedGeo = null;
         return true;
@@ -529,6 +581,7 @@ public class RootBridge {
             long[] bytes = readPhysicalNetworkBytes();
             obj.put("running", cachedRunning);
             obj.put("pid", cachedPid);
+            obj.put("userId", cachedUser);
             obj.put("slot", cachedSlot);
             obj.put("exitIp", cachedExitIp);
             obj.put("rxBytes", bytes[0]);
@@ -675,6 +728,7 @@ public class RootBridge {
             int activeSlot = parsed.optInt("activeSlot", 0);
             boolean routeHotspot = parsed.optBoolean("routeHotspot", true);
             boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
+            cachedWebrtcMode = parsed.optString("webrtcMode", "SPOOF");
             JSONArray slotsArr = parsed.optJSONArray("slots");
 
             List<String> cmds = new ArrayList<>();

@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
-	"hash/crc32"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,6 +18,7 @@ import (
 const (
 	adbDir       = "/data/adb/nameless_proxy"
 	exitIPFile   = "/data/adb/nameless_proxy/exit_ip"
+	exitTZFile   = "/data/adb/nameless_proxy/exit_tz"
 	exitJSONFile = "/data/adb/nameless_proxy/exit_info.json"
 )
 
@@ -30,6 +31,7 @@ type GeoResponse struct {
 	City        string `json:"city"`
 	ISP         string `json:"isp"`
 	Org         string `json:"org"`
+	Timezone    string `json:"timezone"`
 }
 
 var currentIPv4 uint32
@@ -44,6 +46,10 @@ func parseIPv4U32(ipStr string) (uint32, bool) {
 	if ip4 == nil || ip4[0] == 127 || ip4[0] == 0 {
 		return 0, false
 	}
+	// Reject FakeIP range 198.18.0.0/15
+	if ip4[0] == 198 && (ip4[1] == 18 || ip4[1] == 19) {
+		return 0, false
+	}
 	return binary.BigEndian.Uint32(ip4), true
 }
 
@@ -51,6 +57,16 @@ func formatIPv4(u uint32) string {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], u)
 	return net.IPv4(b[0], b[1], b[2], b[3]).String()
+}
+
+func applySystemTimezone(tz string) {
+	tz = strings.TrimSpace(tz)
+	if tz == "" || !strings.Contains(tz, "/") {
+		return
+	}
+	_ = os.WriteFile(exitTZFile, []byte(tz+"\n"), 0644)
+	_ = exec.Command("setprop", "persist.sys.timezone", tz).Run()
+	_ = exec.Command("service", "call", "alarm", "3", "s16", tz).Run()
 }
 
 func setExitIP(ipStr string, geo *GeoResponse) bool {
@@ -73,6 +89,9 @@ func setExitIP(ipStr string, geo *GeoResponse) bool {
 		}
 	} else {
 		geo.Query = clean
+		if geo.Timezone != "" {
+			applySystemTimezone(geo.Timezone)
+		}
 	}
 	if data, err := json.Marshal(geo); err == nil {
 		_ = os.WriteFile(exitJSONFile, data, 0644)
@@ -95,15 +114,14 @@ func probeTunnelExitIP(mixedPort int) {
 	}
 
 	endpoints := []string{
-		"http://ip-api.com/json/?fields=status,query,country,countryCode,regionName,city,isp,org",
+		"http://ip-api.com/json/?fields=status,query,country,countryCode,regionName,city,isp,org,timezone",
 		"http://checkip.amazonaws.com",
 		"http://icanhazip.com",
 		"https://api4.ipify.org",
 		"https://ipinfo.io/ip",
 	}
 
-	// Wait briefly for tunnel.sh iptables + conntrack setup to finish
-	time.Sleep(350 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 
 	verified := false
 	for {
@@ -145,7 +163,7 @@ func probeTunnelExitIP(mixedPort int) {
 			case <-time.After(20 * time.Second):
 			}
 		} else {
-			time.Sleep(400 * time.Millisecond)
+			time.Sleep(350 * time.Millisecond)
 		}
 	}
 }
@@ -164,7 +182,7 @@ func serveSTUN(bindAddr string) {
 	_ = conn.SetWriteBuffer(262144)
 
 	buf := make([]byte, 512)
-	resp := make([]byte, 52)
+	resp := make([]byte, 44)
 
 	for {
 		n, clientAddr, err := conn.ReadFromUDP(buf)
@@ -191,11 +209,12 @@ func serveSTUN(bindAddr string) {
 		binary.BigEndian.PutUint32(ipBytes[:], ipU32)
 		clientPort := uint16(clientAddr.Port)
 
-		// STUN Binding Success Response (0x0101), body length 32 bytes (0x0020)
+		// STUN Binding Success Response (0x0101), body length 24 bytes (0x0018):
+		// Attribute 1: XOR-MAPPED-ADDRESS (12 bytes) + Attribute 2: MAPPED-ADDRESS (12 bytes)
 		resp[0] = 0x01
 		resp[1] = 0x01
 		resp[2] = 0x00
-		resp[3] = 0x20
+		resp[3] = 0x18
 		copy(resp[4:20], buf[4:20])
 
 		// Attribute 1: XOR-MAPPED-ADDRESS (0x0020)
@@ -225,14 +244,6 @@ func serveSTUN(bindAddr string) {
 		resp[41] = ipBytes[1]
 		resp[42] = ipBytes[2]
 		resp[43] = ipBytes[3]
-
-		// Attribute 3: FINGERPRINT (0x8028) per RFC 5389 Section 15.5
-		fp := crc32.ChecksumIEEE(resp[:44]) ^ 0x5354554e
-		resp[44] = 0x80
-		resp[45] = 0x28
-		resp[46] = 0x00
-		resp[47] = 0x04
-		binary.BigEndian.PutUint32(resp[48:52], fp)
 
 		_, _ = conn.WriteToUDP(resp, clientAddr)
 	}
@@ -270,5 +281,6 @@ func main() {
 
 	go probeTunnelExitIP(mixedPort)
 	go serveSTUN("0.0.0.0:" + strconv.Itoa(hotspotPort))
-	serveSTUN("127.0.0.1:" + strconv.Itoa(localPort))
+	// Bind 0.0.0.0:localPort so both 127.0.0.1 REDIRECT and WAN_IP DNAT WebRTC sockets receive replies
+	serveSTUN("0.0.0.0:" + strconv.Itoa(localPort))
 }

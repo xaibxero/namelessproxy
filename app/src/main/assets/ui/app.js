@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • Tactical Titanium Controller (DPI-Proof & Auto-Saving)
+// Nameless Proxy • Obsidian-Cobalt Controller (Multi-User Safe & Auto-Saving)
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -15,6 +15,7 @@ const defaultSlot = () => ({
 });
 
 let state = {
+  myUserId: 0,
   activeTab: 0,
   activeSlot: 0,
   runningSlot: null,
@@ -70,6 +71,9 @@ function initApp() {
   if (window.NamelessBridge) {
     try {
       const raw = JSON.parse(window.NamelessBridge.getInitialState() || "{}");
+      if (typeof raw.userId === "number") {
+        state.myUserId = raw.userId;
+      }
       if (raw.network) {
         document.getElementById("netSummaryText").textContent = raw.network;
       }
@@ -250,7 +254,7 @@ function togglePasswordVisibility() {
   const svg = document.getElementById("eyeIconSvg");
   if (inpPass) inpPass.type = state.showPassword ? "text" : "password";
   if (svg) {
-    svg.style.color = state.showPassword ? "#F59E0B" : "";
+    svg.style.color = state.showPassword ? "#60A5FA" : "";
   }
 }
 
@@ -515,7 +519,8 @@ window.onPingResult = function(ms) {
 
 function applyPolledStatus(st, firstInit) {
   const wasRunning = state.isRunning;
-  state.isRunning = !!st.running;
+  const userMatches = (typeof st.userId !== "number" || st.userId === -1 || st.userId === state.myUserId);
+  state.isRunning = !!(st.running && userMatches);
   state.runningSlot = state.isRunning ? (st.slot || 0) : null;
 
   document.body.dataset.state = state.isRunning ? "connected" : "disconnected";
@@ -609,7 +614,7 @@ function mountEmbeddedChecker(url) {
     const vh = document.documentElement.clientHeight || window.innerHeight || 800;
     const rect = slot && slot.getBoundingClientRect().height > 10
       ? slot.getBoundingClientRect()
-      : { left: 12, top: 100, right: vw - 12, bottom: vh - 58 };
+      : { left: 12, top: 108, right: vw - 12, bottom: vh - 64 };
     const topRatio = Math.max(0.08, Math.min(0.30, rect.top / vh));
     const bottomRatio = Math.max(0.05, Math.min(0.22, (vh - rect.bottom) / vh));
     const sideRatio = Math.max(0.01, Math.min(0.08, rect.left / vw));

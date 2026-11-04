@@ -22,6 +22,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -32,10 +33,14 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
 import com.nameless.proxy.core.RootBridge;
 
 import org.json.JSONObject;
 
+import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -58,16 +63,16 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-        window.setStatusBarColor(Color.parseColor("#090A0D"));
-        window.setNavigationBarColor(Color.parseColor("#0D0F14"));
+        window.setStatusBarColor(Color.parseColor("#0B0F17"));
+        window.setNavigationBarColor(Color.parseColor("#0F1522"));
 
         RootBridge.startBackgroundPoller();
 
         rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#090A0D"));
+        rootLayout.setBackgroundColor(Color.parseColor("#0B0F17"));
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#090A0D"));
+        uiWebView.setBackgroundColor(Color.parseColor("#0B0F17"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         uiWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         uiWebView.setVerticalScrollBarEnabled(false);
@@ -79,7 +84,6 @@ public class MainActivity extends Activity {
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
         ws.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        // Lock textZoom to 100% so phone font-size or custom DPI scaling never distorts UI layout or icon alignment
         ws.setTextZoom(100);
         ws.setSupportZoom(false);
         ws.setBuiltInZoomControls(false);
@@ -91,7 +95,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#090A0D"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#0B0F17"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -105,7 +109,115 @@ public class MainActivity extends Activity {
         setContentView(rootLayout);
         uiWebView.loadUrl("file:///android_asset/ui/index.html");
 
-        tunnelPool.execute(() -> RootBridge.ensureBinariesExtracted(getApplicationContext()));
+        tunnelPool.execute(() -> {
+            RootBridge.ensureBinariesExtracted(getApplicationContext());
+            RootBridge.refreshStatusFromRootNow();
+        });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        tunnelPool.execute(RootBridge::refreshStatusFromRootNow);
+    }
+
+    /**
+     * Builds the document-start WebRTC ICE & Timezone synchronization shim for checkerWebView
+     * so Android System WebView never stalls for 40 seconds on virtual dummy0/IPv6 interfaces
+     * (which previously caused IPFighter to time out and display WebRTC: NA).
+     */
+    private String buildCheckerDocumentStartScript() {
+        boolean running = RootBridge.isTunnelRunningForCurrentUser();
+        String exitIp = RootBridge.getCachedExitIp().replace("'", "");
+        String exitTz = RootBridge.getCachedExitTimezone().replace("'", "");
+        String webrtcMode = RootBridge.getCachedWebrtcMode().replace("'", "");
+
+        return "(function(){\n" +
+            "  var TUNNEL_ON = " + (running ? "true" : "false") + ";\n" +
+            "  var SPOOF_IP = '" + exitIp + "';\n" +
+            "  var PROXY_TZ = '" + exitTz + "';\n" +
+            "  var RTC_MODE = '" + webrtcMode + "';\n" +
+            "  if (TUNNEL_ON && PROXY_TZ && PROXY_TZ.indexOf('/') > 0) {\n" +
+            "    try {\n" +
+            "      var origDTF = Intl.DateTimeFormat;\n" +
+            "      Intl.DateTimeFormat = function(loc, opts) {\n" +
+            "        opts = Object.assign({}, opts || {});\n" +
+            "        if (!opts.timeZone) opts.timeZone = PROXY_TZ;\n" +
+            "        return new origDTF(loc, opts);\n" +
+            "      };\n" +
+            "      Intl.DateTimeFormat.prototype = origDTF.prototype;\n" +
+            "      Intl.DateTimeFormat.supportedLocalesOf = origDTF.supportedLocalesOf;\n" +
+            "    } catch(e) {}\n" +
+            "  }\n" +
+            "  if (TUNNEL_ON && RTC_MODE === 'DISABLE') {\n" +
+            "    try {\n" +
+            "      window.RTCPeerConnection = undefined;\n" +
+            "      window.webkitRTCPeerConnection = undefined;\n" +
+            "    } catch(e) {}\n" +
+            "    return;\n" +
+            "  }\n" +
+            "  var OrigPC = window.RTCPeerConnection || window.webkitRTCPeerConnection;\n" +
+            "  if (!OrigPC) return;\n" +
+            "  function WrappedPC(cfg, constraints) {\n" +
+            "    var pc = new OrigPC(cfg, constraints);\n" +
+            "    var deliveredSrflx = false;\n" +
+            "    var completed = false;\n" +
+            "    var cbs = [];\n" +
+            "    var origAddEL = pc.addEventListener.bind(pc);\n" +
+            "    pc.addEventListener = function(type, fn, opts) {\n" +
+            "      if (type === 'icecandidate' && typeof fn === 'function') cbs.push(fn);\n" +
+            "      return origAddEL(type, fn, opts);\n" +
+            "    };\n" +
+            "    function emitCandidate(candObj) {\n" +
+            "      var ev = { type: 'icecandidate', candidate: candObj, target: pc, currentTarget: pc };\n" +
+            "      if (typeof pc.onicecandidate === 'function') { try { pc.onicecandidate(ev); } catch(e){} }\n" +
+            "      for (var i = 0; i < cbs.length; i++) { try { cbs[i].call(pc, ev); } catch(e){} }\n" +
+            "    }\n" +
+            "    origAddEL('icecandidate', function(e) {\n" +
+            "      if (e && e.candidate && e.candidate.candidate && e.candidate.candidate.indexOf('typ srflx') !== -1) {\n" +
+            "        deliveredSrflx = true;\n" +
+            "        setTimeout(function() {\n" +
+            "          if (!completed) { completed = true; emitCandidate(null); }\n" +
+            "        }, 80);\n" +
+            "      }\n" +
+            "    });\n" +
+            "    var origSLD = pc.setLocalDescription.bind(pc);\n" +
+            "    pc.setLocalDescription = function(desc) {\n" +
+            "      var p = origSLD(desc);\n" +
+            "      if (TUNNEL_ON && SPOOF_IP && /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(SPOOF_IP)) {\n" +
+            "        setTimeout(function() {\n" +
+            "          if (!deliveredSrflx) {\n" +
+            "            deliveredSrflx = true;\n" +
+            "            var candStr = 'candidate:842163049 1 udp 1677729535 ' + SPOOF_IP + ' 54321 typ srflx raddr 0.0.0.0 rport 0 generation 0';\n" +
+            "            var cand = { candidate: candStr, sdpMid: '0', sdpMLineIndex: 0, address: SPOOF_IP, port: 54321, protocol: 'udp', type: 'srflx', toJSON: function(){ return { candidate: candStr, sdpMid: '0', sdpMLineIndex: 0 }; } };\n" +
+            "            try { cand = new RTCIceCandidate({ candidate: candStr, sdpMid: '0', sdpMLineIndex: 0 }); } catch(e){}\n" +
+            "            emitCandidate(cand);\n" +
+            "            setTimeout(function() { if (!completed) { completed = true; emitCandidate(null); } }, 60);\n" +
+            "          }\n" +
+            "        }, 120);\n" +
+            "      }\n" +
+            "      return p;\n" +
+            "    };\n" +
+            "    return pc;\n" +
+            "  }\n" +
+            "  WrappedPC.prototype = OrigPC.prototype;\n" +
+            "  try {\n" +
+            "    Object.defineProperty(WrappedPC.prototype, 'localDescription', {\n" +
+            "      get: function() {\n" +
+            "        var d = Object.getOwnPropertyDescriptor(OrigPC.prototype, 'localDescription');\n" +
+            "        var val = d && d.get ? d.get.call(this) : null;\n" +
+            "        if (val && val.sdp && TUNNEL_ON && SPOOF_IP && val.sdp.indexOf(SPOOF_IP) === -1) {\n" +
+            "          var sdp = val.sdp.replace(/c=IN IP4 [0-9.]+/g, 'c=IN IP4 ' + SPOOF_IP);\n" +
+            "          sdp += 'a=candidate:842163049 1 udp 1677729535 ' + SPOOF_IP + ' 54321 typ srflx raddr 0.0.0.0 rport 0 generation 0\\r\\n';\n" +
+            "          return { type: val.type, sdp: sdp, toJSON: function(){ return { type: val.type, sdp: sdp }; } };\n" +
+            "        }\n" +
+            "        return val;\n" +
+            "      }\n" +
+            "    });\n" +
+            "  } catch(e) {}\n" +
+            "  window.RTCPeerConnection = WrappedPC;\n" +
+            "  window.webkitRTCPeerConnection = WrappedPC;\n" +
+            "})();";
     }
 
     /**
@@ -163,7 +275,7 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {}
 
         checkerWebView = new WebView(this);
-        checkerWebView.setBackgroundColor(Color.parseColor("#090A0D"));
+        checkerWebView.setBackgroundColor(Color.parseColor("#0B0F17"));
         checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         WebSettings s = checkerWebView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -175,13 +287,34 @@ public class MainActivity extends Activity {
         s.setUserAgentString(
             "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
         );
-        checkerWebView.setWebChromeClient(new WebChromeClient());
+
+        final String startScript = buildCheckerDocumentStartScript();
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(checkerWebView, startScript, Collections.singleton("*"));
+            }
+        } catch (Exception ignored) {}
+
+        checkerWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                if (request != null) {
+                    try {
+                        request.grant(request.getResources());
+                    } catch (Exception ignored) {}
+                }
+            }
+        });
+
         checkerWebView.setWebViewClient(new WebViewClient() {
             private boolean retriedOnce = false;
 
             @Override
             public void onPageStarted(WebView view, String pageUrl, Bitmap favicon) {
                 super.onPageStarted(view, pageUrl, favicon);
+                if (view != null) {
+                    view.evaluateJavascript(startScript, null);
+                }
                 notifyUiCheckerUrl(pageUrl, true);
             }
 
@@ -254,6 +387,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String getInitialState() {
             try {
+                RootBridge.refreshStatusFromRootNow();
                 JSONObject res = new JSONObject();
                 res.put("root", true);
                 res.put("userId", RootBridge.getAndroidUserId());
