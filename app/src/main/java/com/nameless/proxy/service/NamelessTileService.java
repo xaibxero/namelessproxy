@@ -19,6 +19,8 @@ public class NamelessTileService extends TileService {
         new Thread(() -> {
             if (RootBridge.isTunnelRunning()) {
                 RootBridge.stopTunnel(getApplicationContext());
+            } else {
+                RootBridge.startActiveSlotFromSavedPrefs(getApplicationContext());
             }
             refreshTile();
         }).start();

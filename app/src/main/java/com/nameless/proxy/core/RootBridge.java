@@ -324,17 +324,24 @@ public class RootBridge {
             PackageManager pm = context.getPackageManager();
             List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
             List<JSONObject> items = new ArrayList<>();
+            int myUid = Process.myUid();
             for (ApplicationInfo app : apps) {
-                String pkg = app.packageName != null ? app.packageName : "";
-                boolean isUserApp = (app.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
-                boolean isBrowserOrMedia = pkg.contains("chrome") || pkg.contains("youtube")
+                if (app.uid == myUid) continue;
+                String pkg = app.packageName != null ? app.packageName.toLowerCase() : "";
+                boolean isUserApp = (app.flags & ApplicationInfo.FLAG_SYSTEM) == 0
+                    || (app.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+                boolean hasLaunchIntent = pm.getLaunchIntentForPackage(app.packageName) != null;
+                boolean isCommonNetworkApp = pkg.contains("chrome") || pkg.contains("youtube")
                     || pkg.contains("brave") || pkg.contains("firefox") || pkg.contains("edge")
-                    || pkg.contains("opera") || pkg.contains("vending");
-                if (isUserApp || isBrowserOrMedia) {
+                    || pkg.contains("opera") || pkg.contains("vending") || pkg.contains("gms")
+                    || pkg.contains("browser") || pkg.contains("webview") || pkg.contains("whatsapp")
+                    || pkg.contains("telegram") || pkg.contains("instagram") || pkg.contains("tiktok")
+                    || pkg.contains("facebook") || pkg.contains("twitter") || pkg.contains("maps");
+                if (isUserApp || hasLaunchIntent || isCommonNetworkApp) {
                     JSONObject o = new JSONObject();
                     String label = pm.getApplicationLabel(app).toString();
                     o.put("name", label);
-                    o.put("pkg", pkg);
+                    o.put("pkg", app.packageName);
                     o.put("uid", app.uid);
                     items.add(o);
                 }
@@ -345,12 +352,104 @@ public class RootBridge {
                     return a.optString("name", "").compareToIgnoreCase(b.optString("name", ""));
                 }
             });
+            Set<Integer> seenUids = new HashSet<>();
             for (JSONObject item : items) {
-                arr.put(item);
+                int u = item.optInt("uid", -1);
+                if (u > 0 && seenUids.add(u)) {
+                    arr.put(item);
+                }
             }
             cachedAppsJson = arr.toString();
         } catch (Exception ignored) {}
         return arr.toString();
+    }
+
+    /**
+     * Converts Whitelist or Blacklist app UID selections into minimal contiguous START-END ranges
+     * required by Linux `ip rule add uidrange START-END` and `iptables -m owner --uid-owner START-END`.
+     * - In BLACKLIST mode, splits [APP_START..APP_END] around excluded UIDs into at most N+1 contiguous ranges!
+     * - In WHITELIST mode, merges adjacent selected UIDs (plus NamelessProxy's own UID for the Checker tab) into START-END ranges!
+     */
+    public static String buildUidRangesString(Context context, String rawTargetUids, String appFilterMode) {
+        if (rawTargetUids == null || rawTargetUids.trim().isEmpty() || rawTargetUids.equalsIgnoreCase("ALL")) {
+            return "ALL";
+        }
+        int userId = getAndroidUserId();
+        int appStart = userId * 100000 + 10000;
+        int appEnd = userId * 100000 + 19999;
+        int sdkStart = userId * 100000 + 20000;
+        int sdkEnd = userId * 100000 + 29999;
+        int myUid = Process.myUid();
+
+        Set<Integer> uidSet = new HashSet<>();
+        for (String part : rawTargetUids.split(",")) {
+            part = part.trim();
+            if (part.isEmpty()) continue;
+            if (part.contains("-")) {
+                String[] bounds = part.split("-", 2);
+                try {
+                    int s = Integer.parseInt(bounds[0].trim());
+                    int e = Integer.parseInt(bounds[1].trim());
+                    if (s == e) uidSet.add(s);
+                } catch (Exception ignored) {}
+            } else {
+                try {
+                    uidSet.add(Integer.parseInt(part));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (uidSet.isEmpty()) {
+            return "ALL";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if ("BLACKLIST".equalsIgnoreCase(appFilterMode)) {
+            uidSet.remove(myUid); // Never blacklist NamelessProxy itself so Checker tab works
+            List<Integer> excluded = new ArrayList<>();
+            for (int u : uidSet) {
+                if (u >= appStart && u <= appEnd) {
+                    excluded.add(u);
+                }
+            }
+            Collections.sort(excluded);
+            int cur = appStart;
+            for (int ex : excluded) {
+                if (ex > cur) {
+                    if (sb.length() > 0) sb.append(",");
+                    sb.append(cur).append("-").append(ex - 1);
+                }
+                cur = ex + 1;
+            }
+            if (cur <= appEnd) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(cur).append("-").append(appEnd);
+            }
+            if (sb.length() > 0) sb.append(",");
+            sb.append(sdkStart).append("-").append(sdkEnd);
+            return sb.toString();
+        } else {
+            // WHITELIST mode: include selected UIDs + NamelessProxy's own UID
+            uidSet.add(myUid);
+            List<Integer> included = new ArrayList<>(uidSet);
+            Collections.sort(included);
+            int rangeStart = included.get(0);
+            int rangeEnd = rangeStart;
+            for (int i = 1; i < included.size(); i++) {
+                int u = included.get(i);
+                if (u == rangeEnd + 1) {
+                    rangeEnd = u;
+                } else {
+                    if (sb.length() > 0) sb.append(",");
+                    sb.append(rangeStart).append("-").append(rangeEnd);
+                    rangeStart = u;
+                    rangeEnd = u;
+                }
+            }
+            if (sb.length() > 0) sb.append(",");
+            sb.append(rangeStart).append("-").append(rangeEnd);
+            return sb.toString();
+        }
     }
 
     private static void attachTransportIfConfigured(JSONObject proxyOut, String transport, String path, String hostHeader) throws Exception {
@@ -395,6 +494,8 @@ public class RootBridge {
         int alterId = cfg.optInt("alterId", 0);
         String transport = cfg.optString("transport", "tcp").trim();
         String wsPath = cfg.optString("wsPath", "").trim();
+        String targetUids = cfg.optString("targetUids", "ALL").trim();
+        boolean isPerAppMode = !targetUids.isEmpty() && !targetUids.equalsIgnoreCase("ALL");
         boolean isIpv6 = serverHost.contains(":");
 
         JSONObject root = new JSONObject();
@@ -443,7 +544,6 @@ public class RootBridge {
             .put("rcode", "NXDOMAIN")
         );
         // Resolve Private DNS provider hostnames (Google/Cloudflare/Quad9/AdGuard/NextDNS) to real IPs via dns-remote
-        // so Android netd/dnsresolv (:853 DoT) connects cleanly through the proxy without ever failing or changing settings!
         dnsRules.put(new JSONObject()
             .put("domain", new JSONArray()
                 .put("dns.google")
@@ -469,12 +569,23 @@ public class RootBridge {
             .put("action", "route")
             .put("server", "dns-remote")
         );
-        dnsRules.put(new JSONObject()
-            .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
-            .put("action", "route")
-            .put("server", "dns-fakeip")
-            .put("rewrite_ttl", 25)
-        );
+        if (isPerAppMode) {
+            // In Per-App (Whitelist/Blacklist) mode, Android's netd DNS cache is shared across all apps.
+            // Returning real IPs via dns-remote ensures unselected/bypassed apps connect directly without hitting FakeIP 198.18.0.0/15,
+            // while selected apps are redirected by UID into sing-box (with protocol sniffing)!
+            dnsRules.put(new JSONObject()
+                .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
+                .put("action", "route")
+                .put("server", "dns-remote")
+            );
+        } else {
+            dnsRules.put(new JSONObject()
+                .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
+                .put("action", "route")
+                .put("server", "dns-fakeip")
+                .put("rewrite_ttl", 25)
+            );
+        }
         dns.put("rules", dnsRules);
         dns.put("strategy", isIpv6 ? "ipv6_only" : "ipv4_only");
         dns.put("final", "dns-remote");
@@ -633,6 +744,14 @@ public class RootBridge {
             if (resolvedIp.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
                 cachedServerIp = resolvedIp;
             }
+
+            int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
+            cachedWebrtcMode = "SPOOF";
+            String rawTargetUids = cfg.optString("targetUids", "ALL");
+            String appFilterMode = cfg.optString("appFilterMode", "WHITELIST");
+            String targetUidRanges = buildUidRangesString(context, rawTargetUids, appFilterMode);
+            cfg.put("targetUids", targetUidRanges);
+
             String sbJson = generateSingBoxConfig(cfg, resolvedIp);
             int userId = getAndroidUserId();
             int slot = cfg.optInt("slot", 0);
@@ -641,45 +760,12 @@ public class RootBridge {
                 return res.put("ok", false).put("error", "Failed to write config.json");
             }
 
-            int routeHs = cfg.optBoolean("routeHotspot", true) ? 1 : 0;
-            cachedWebrtcMode = "SPOOF";
-            String targetUids = cfg.optString("targetUids", "ALL");
-            String appFilterMode = cfg.optString("appFilterMode", "WHITELIST");
-
-            if (!targetUids.equals("ALL") && !targetUids.isEmpty()) {
-                int myUid = Process.myUid();
-                if (appFilterMode.equalsIgnoreCase("BLACKLIST")) {
-                    Set<Integer> excluded = new HashSet<>();
-                    for (String part : targetUids.split(",")) {
-                        try { excluded.add(Integer.parseInt(part.trim())); } catch (Exception ignored) {}
-                    }
-                    StringBuilder allowed = new StringBuilder();
-                    try {
-                        JSONArray allApps = new JSONArray(getInstalledAppsJson(context));
-                        for (int i = 0; i < allApps.length(); i++) {
-                            int u = allApps.getJSONObject(i).optInt("uid", -1);
-                            if (u > 0 && !excluded.contains(u)) {
-                                if (allowed.length() > 0) allowed.append(",");
-                                allowed.append(u);
-                            }
-                        }
-                    } catch (Exception ignored) {}
-                    if (allowed.length() > 0) allowed.append(",");
-                    allowed.append(myUid);
-                    targetUids = allowed.toString();
-                } else {
-                    targetUids = targetUids + "," + myUid;
-                }
-            } else {
-                targetUids = "ALL";
-            }
-
             int appPid = Process.myPid();
             String out = execSu(
                 "echo -800 > /proc/" + appPid + "/oom_score_adj 2>/dev/null || true",
                 "echo " + appPid + " > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true",
                 "cmd deviceidle whitelist +com.nameless.proxy >/dev/null 2>&1 || true",
-                "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\" \"" + targetUids + "\" \"SPOOF\""
+                "/system/bin/sh " + TUNNEL_SH + " start \"" + resolvedIp + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + slot + "\" \"" + targetUidRanges + "\" \"SPOOF\""
             );
             refreshStatusFromRootNow();
             if (out.contains("OK") || cachedRunning) {
@@ -698,6 +784,38 @@ public class RootBridge {
                 res.put("ok", false).put("error", e.getMessage());
             } catch (Exception ignored) {}
             return res;
+        }
+    }
+
+    public static boolean startActiveSlotFromSavedPrefs(Context context) {
+        try {
+            String raw = loadAllSlotsFromDisk(context);
+            if (raw == null || raw.isEmpty()) return false;
+            JSONObject parsed = new JSONObject(raw);
+            int activeSlot = parsed.optInt("activeSlot", 0);
+            boolean routeHotspot = parsed.optBoolean("routeHotspot", true);
+            boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
+            String appFilterMode = parsed.optString("appFilterMode", "WHITELIST");
+            JSONArray selectedUidsArr = parsed.optJSONArray("selectedUids");
+            StringBuilder uidsSb = new StringBuilder();
+            if (!routeAllApps && selectedUidsArr != null && selectedUidsArr.length() > 0) {
+                for (int i = 0; i < selectedUidsArr.length(); i++) {
+                    if (uidsSb.length() > 0) uidsSb.append(",");
+                    uidsSb.append(selectedUidsArr.optInt(i));
+                }
+            }
+            JSONArray slots = parsed.optJSONArray("slots");
+            if (slots == null || activeSlot < 0 || activeSlot >= slots.length()) return false;
+            JSONObject slotCfg = new JSONObject(slots.getJSONObject(activeSlot).toString());
+            slotCfg.put("slot", activeSlot);
+            slotCfg.put("routeHotspot", routeHotspot);
+            slotCfg.put("targetUids", (routeAllApps || uidsSb.length() == 0) ? "ALL" : uidsSb.toString());
+            slotCfg.put("appFilterMode", appFilterMode);
+            slotCfg.put("webrtcMode", "SPOOF");
+            JSONObject r = startTunnel(context, slotCfg);
+            return r.optBoolean("ok", false);
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -890,9 +1008,21 @@ public class RootBridge {
             int activeSlot = parsed.optInt("activeSlot", 0);
             boolean routeHotspot = parsed.optBoolean("routeHotspot", true);
             boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
+            String appFilterMode = parsed.optString("appFilterMode", "WHITELIST");
             boolean bootOnStart = parsed.optBoolean("bootOnStart", false);
             cachedWebrtcMode = "SPOOF";
             JSONArray slotsArr = parsed.optJSONArray("slots");
+            JSONArray selUidsArr = parsed.optJSONArray("selectedUids");
+            StringBuilder rawUidsSb = new StringBuilder();
+            if (!routeAllApps && selUidsArr != null) {
+                for (int i = 0; i < selUidsArr.length(); i++) {
+                    if (rawUidsSb.length() > 0) rawUidsSb.append(",");
+                    rawUidsSb.append(selUidsArr.optInt(i));
+                }
+            }
+            String bootUidRanges = (routeAllApps || rawUidsSb.length() == 0)
+                ? "ALL"
+                : buildUidRangesString(context, rawUidsSb.toString(), appFilterMode);
 
             List<String> cmds = new ArrayList<>();
             cmds.add("mkdir -p " + ADB_DIR + " " + userDir + " /data/adb/service.d");
@@ -939,12 +1069,15 @@ public class RootBridge {
                     compatSlots.put(compatSlot);
 
                     if (!host.isEmpty()) {
-                        if (i == activeSlot) activeHost = host;
+                        String resolved = resolveServerIp(host);
+                        if (i == activeSlot) activeHost = resolved;
                         String b64Slot = Base64.getEncoder().encodeToString(compatSlot.toString(2).getBytes(StandardCharsets.UTF_8));
                         cmds.add("echo '" + b64Slot + "' | base64 -d > " + ADB_DIR + "/backup_u" + userId + "_s" + i + ".json");
                         cmds.add("echo '" + b64Slot + "' | base64 -d > " + userDir + "/profile_" + (i + 1) + ".json");
 
-                        String sbCfg = generateSingBoxConfig(s, host);
+                        JSONObject cfgCopy = new JSONObject(s.toString());
+                        cfgCopy.put("targetUids", bootUidRanges);
+                        String sbCfg = generateSingBoxConfig(cfgCopy, resolved);
                         String b64Cfg = Base64.getEncoder().encodeToString(sbCfg.getBytes(StandardCharsets.UTF_8));
                         cmds.add("echo '" + b64Cfg + "' | base64 -d > " + ADB_DIR + "/config_u" + userId + "_s" + i + ".json");
                         cmds.add("echo '" + b64Cfg + "' | base64 -d > " + userDir + "/config_" + (i + 1) + ".json");
@@ -966,7 +1099,7 @@ public class RootBridge {
                     "until [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 2; done\n" +
                     "sleep 3\n" +
                     "cp -f " + ADB_DIR + "/config_u" + userId + "_s" + activeSlot + ".json " + CONFIG_PATH + " 2>/dev/null || true\n" +
-                    "/system/bin/sh " + TUNNEL_SH + " start \"" + activeHost + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + activeSlot + "\" \"ALL\" \"SPOOF\" >/dev/null 2>&1 &\n";
+                    "/system/bin/sh " + TUNNEL_SH + " start \"" + activeHost + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + activeSlot + "\" \"" + bootUidRanges + "\" \"SPOOF\" >/dev/null 2>&1 &\n";
                 String b64Boot = Base64.getEncoder().encodeToString(bootSh.getBytes(StandardCharsets.UTF_8));
                 cmds.add("echo '" + b64Boot + "' | base64 -d > " + SERVICE_D_SCRIPT + " && chmod 755 " + SERVICE_D_SCRIPT);
             } else {

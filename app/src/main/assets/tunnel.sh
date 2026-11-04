@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # ==============================================================================
 # Nameless Proxy Root Kernel Tunnel Engine (/data/adb/nameless_proxy/tunnel.sh)
-# Pure POSIX Shell • Preserves Private DNS • Zero-Hang Stop • WebRTC/DNS Shield
+# Pure POSIX Shell • Per-App & Hotspot Engine • Preserves Private DNS • Zero Leak
 # ==============================================================================
 
 export PATH=/data/adb/ksu/bin:/data/adb/ap/bin:/data/adb/magisk:/system/bin:/system/xbin:$PATH
@@ -18,6 +18,7 @@ EXIT_IP_FILE="$ADB_DIR/exit_ip"
 EXIT_TZ_FILE="$ADB_DIR/exit_tz"
 EXIT_JSON_FILE="$ADB_DIR/exit_info.json"
 SAVED_TZ_FILE="$ADB_DIR/saved_tz"
+HS_STATE_FILE="$ADB_DIR/hotspot.state"
 
 INBOUND_PORT=10800
 SOCKS_PORT=10801
@@ -53,6 +54,55 @@ kill_other_profile_apps() {
     done
 }
 
+# Dynamically syncs active Wi-Fi Hotspot / USB Tethering interface routes into Table 2089
+# and keeps PREROUTING/FORWARD chains at position 1 even if Hotspot is turned on AFTER connecting!
+sync_hotspot_routes() {
+    WAN_DEV=$(cat "$ADB_DIR/wan_iface" 2>/dev/null || echo "")
+    ip route flush table 2089 2>/dev/null || true
+
+    ip -4 route show table all proto kernel scope link 2>/dev/null | while read -r net _ dev _ _ src _; do
+        case "$dev" in
+            lo|rmnet*|v4-rmnet*|ccmni*|dummy*) continue ;;
+        esac
+        if [ -n "$WAN_DEV" ] && [ "$dev" = "$WAN_DEV" ]; then
+            continue
+        fi
+        case "$dev" in
+            ap*|swlan*|softap*|rndis*|usb*|p2p*|ncm*|bt-pan*|bnep*|br*|wlan*)
+                if [ -n "$net" ] && [ -n "$dev" ]; then
+                    if [ -n "$src" ]; then
+                        ip route replace "$net" dev "$dev" scope link src "$src" table 2089 2>/dev/null || true
+                    else
+                        ip route replace "$net" dev "$dev" scope link table 2089 2>/dev/null || true
+                    fi
+                fi
+                ;;
+        esac
+    done
+
+    if [ "$(cat "$HS_STATE_FILE" 2>/dev/null)" = "1" ]; then
+        echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+        settings put global tether_offload_disabled 1 2>/dev/null || true
+        ndc tether offload disable 2>/dev/null || true
+        TOP_PRE=$(iptables -w -t nat -S PREROUTING 2>/dev/null | head -n 2 | tail -n 1)
+        case "$TOP_PRE" in
+            *"$CHAIN_HS_NAT"*) ;;
+            *)
+                iptables -w -t nat -D PREROUTING -j "$CHAIN_HS_NAT" 2>/dev/null || true
+                iptables -w -t nat -I PREROUTING 1 -j "$CHAIN_HS_NAT" 2>/dev/null || true
+                ;;
+        esac
+        TOP_FWD=$(iptables -w -S FORWARD 2>/dev/null | head -n 2 | tail -n 1)
+        case "$TOP_FWD" in
+            *"$CHAIN_HS_FWD"*) ;;
+            *)
+                iptables -w -D FORWARD -j "$CHAIN_HS_FWD" 2>/dev/null || true
+                iptables -w -I FORWARD 1 -j "$CHAIN_HS_FWD" 2>/dev/null || true
+                ;;
+        esac
+    fi
+}
+
 clean_rules() {
     echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true
     echo 0 > /proc/sys/net/ipv6/conf/default/disable_ipv6 2>/dev/null || true
@@ -60,16 +110,17 @@ clean_rules() {
         echo 0 > "$f" 2>/dev/null || true
     done
 
-    for p in 7890 7900 7901 7902 7903 7904 7905 8000 8001 8002 8500 8501 8502 8503 8504 8505 8795 8800 8801 8802 8805 8806 8807 31000 31001 31002 31003; do
+    for p in 7890 7895 7896 7897 7900 7901 7902 7903 7904 7905 8000 8001 8002 8500 8501 8502 8503 8504 8505 8795 8800 8801 8802 8805 8806 8807 31000 31001 31002 31003; do
         c=0
-        while [ "$c" -lt 30 ] && ip rule del pref "$p" 2>/dev/null; do
+        while [ "$c" -lt 250 ] && ip rule del pref "$p" 2>/dev/null; do
             c=$((c + 1))
         done
     done
     ip route flush table 2088 2>/dev/null || true
+    ip route flush table 2089 2>/dev/null || true
 
     c=0
-    while [ "$c" -lt 30 ] && ip -6 rule del pref 8900 2>/dev/null; do
+    while [ "$c" -lt 250 ] && ip -6 rule del pref 8900 2>/dev/null; do
         c=$((c + 1))
     done
     ip -6 route flush table 2288 2>/dev/null || true
@@ -112,7 +163,7 @@ clean_rules() {
 }
 
 stop_tunnel() {
-    rm -f "$STATE_FILE" 2>/dev/null || true
+    rm -f "$STATE_FILE" "$HS_STATE_FILE" "$ADB_DIR/wan_iface" 2>/dev/null || true
     if [ -f "$STUN_PID_FILE" ]; then
         kill -9 $(cat "$STUN_PID_FILE" 2>/dev/null) 2>/dev/null || true
         rm -f "$STUN_PID_FILE" 2>/dev/null || true
@@ -156,6 +207,7 @@ start_tunnel() {
     kill_other_profile_apps "$USER_ID"
     mkdir -p "$ADB_DIR"
     rm -f "$ADB_DIR/cache.db" 2>/dev/null || true
+    echo "$ROUTE_HOTSPOT" > "$HS_STATE_FILE"
 
     CUR_TZ=$(getprop persist.sys.timezone 2>/dev/null)
     if [ -n "$CUR_TZ" ] && [ ! -f "$SAVED_TZ_FILE" ]; then
@@ -171,7 +223,6 @@ start_tunnel() {
     fi
 
     # Detect active upstream WAN routing table & interface BEFORE adding rules
-    # Works on 100% of Android versions (Wi-Fi wlan0 AND Cellular rmnet/v4-rmnet/ccmni)
     ROUTE_PROBE=$(ip -4 route get "$BOOTSTRAP_V4" 2>/dev/null | head -n 1)
     WAN_TABLE=$( echo "$ROUTE_PROBE" | awk '{for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}' )
     WAN_IFACE=$( echo "$ROUTE_PROBE" | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}' )
@@ -183,10 +234,13 @@ start_tunnel() {
         WAN_TABLE=$(ip rule show | awk '/^22000:/ {print $NF; exit}')
     fi
     if [ -z "$WAN_TABLE" ]; then
-        WAN_TABLE=$(ip route show table all 2>/dev/null | awk '/^default/ && $0 !~ /table (local|2088|2288|dummy0)/ {for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}')
+        WAN_TABLE=$(ip route show table all 2>/dev/null | awk '/^default/ && $0 !~ /table (local|2088|2089|2288|dummy0)/ {for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}')
     fi
     if [ -z "$WAN_IFACE" ] && [ -n "$WAN_TABLE" ]; then
         WAN_IFACE=$(ip route show table "$WAN_TABLE" 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+    fi
+    if [ -n "$WAN_IFACE" ]; then
+        echo "$WAN_IFACE" > "$ADB_DIR/wan_iface"
     fi
 
     chmod 755 "$SINGBOX_BIN" "$STUN_BIN" 2>/dev/null || true
@@ -240,7 +294,10 @@ start_tunnel() {
     echo 0 > /proc/sys/net/ipv6/conf/default/disable_ipv6 2>/dev/null || true
     for f in /proc/sys/net/ipv6/conf/*/disable_ipv6; do echo 0 > "$f" 2>/dev/null || true; done
 
-    # 4. Pin Hotspot LAN & WAN Proxy Server routes at high priority
+    # 4. Pin Hotspot LAN (Table 2089 + local_network + main) & WAN Proxy Server routes at high priority
+    ip rule add to 192.168.0.0/16 lookup 2089 pref 7895 2>/dev/null || true
+    ip rule add to 172.16.0.0/12 lookup 2089 pref 7896 2>/dev/null || true
+    ip rule add to 10.0.0.0/8 lookup 2089 pref 7897 2>/dev/null || true
     ip rule add to 192.168.0.0/16 lookup local_network pref 7900 2>/dev/null || true
     ip rule add to 192.168.0.0/16 lookup main pref 7901 2>/dev/null || true
     ip rule add to 172.16.0.0/12 lookup local_network pref 7902 2>/dev/null || true
@@ -258,7 +315,7 @@ start_tunnel() {
         fi
     fi
 
-    # 5. Resolve Target UID Ranges (All Apps in Profile vs Selected App UIDs)
+    # 5. Resolve Target UID Ranges (All Apps in Profile vs Specific App UID Ranges)
     APP_START=$((USER_ID * 100000 + 10000))
     APP_END=$((USER_ID * 100000 + 19999))
     SDK_START=$((USER_ID * 100000 + 20000))
@@ -267,13 +324,25 @@ start_tunnel() {
     ISO_END=$((USER_ID * 100000 + 99999))
 
     if [ "$TARGET_UIDS" = "ALL" ] || [ -z "$TARGET_UIDS" ]; then
-        UID_LIST="$APP_START-$APP_END $SDK_START-$SDK_END $ISO_START-$ISO_END"
+        RAW_UID_LIST="$APP_START-$APP_END $SDK_START-$SDK_END $ISO_START-$ISO_END"
+        if [ "$USER_ID" != "0" ]; then
+            RAW_UID_LIST="$RAW_UID_LIST 90000-99999"
+        fi
     else
-        UID_LIST="$(echo "$TARGET_UIDS" | tr ',' ' ') $SDK_START-$SDK_END $ISO_START-$ISO_END"
+        # Specific Apps Mode: normalize every item to START-END range so `ip rule add uidrange` ALWAYS succeeds!
+        RAW_UID_LIST="$(echo "$TARGET_UIDS" | tr ',' ' ') $ISO_START-$ISO_END"
+        if [ "$USER_ID" != "0" ]; then
+            RAW_UID_LIST="$RAW_UID_LIST 90000-99999"
+        fi
     fi
-    if [ "$USER_ID" != "0" ]; then
-        UID_LIST="$UID_LIST 90000-99999"
-    fi
+
+    UID_LIST=""
+    for item in $RAW_UID_LIST; do
+        case "$item" in
+            *-*) UID_LIST="$UID_LIST $item" ;;
+            [0-9]*) UID_LIST="$UID_LIST ${item}-${item}" ;;
+        esac
+    done
 
     # 6. Loopback Source-Binding Engine (Table 2088: default dev lo src 127.0.0.1)
     ip route replace default dev lo src 127.0.0.1 table 2088 2>/dev/null || true
@@ -289,8 +358,10 @@ start_tunnel() {
         ip -6 rule add uidrange "$rng" lookup 2288 pref 8900 2>/dev/null || true
     done
 
-    # 8. INPUT Chain for local redirected ports
+    # 8. INPUT Chain for local redirected ports & instant Hotspot QUIC (port 9) rejection
     iptables -w -N "$CHAIN_HS_IN" 2>/dev/null || true
+    iptables -w -A "$CHAIN_HS_IN" -p udp --dport 9 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || true
+    iptables -w -A "$CHAIN_HS_IN" -p tcp --dport 9 -j REJECT --reject-with tcp-reset 2>/dev/null || true
     iptables -w -A "$CHAIN_HS_IN" -i lo -j ACCEPT 2>/dev/null || true
     for p in "$INBOUND_PORT" "$SOCKS_PORT" "$DNS_PORT" "$STUN_PORT" "$HS_DNS_PORT" "$HS_STUN_PORT" "$HS_INBOUND_PORT"; do
         iptables -w -A "$CHAIN_HS_IN" -p tcp --dport "$p" -j ACCEPT 2>/dev/null || true
@@ -336,23 +407,24 @@ start_tunnel() {
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 853 -j RETURN 2>/dev/null || true
     fi
 
-    # WebRTC STUN Handling BEFORE UDP 80/443 rejection
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 3478:3497 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 5349:5350 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 19300:19350 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+    if [ "$TARGET_UIDS" = "ALL" ] || [ -z "$TARGET_UIDS" ]; then
+        # Whole-Profile Mode: Global WebRTC STUN spoofing & QUIC rejection
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 3478:3497 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 5349:5350 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 19300:19350 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
 
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 3478:3497 -j RETURN 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 5349:5350 -j RETURN 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 19300:19350 -j RETURN 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 3478:3497 -j RETURN 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 5349:5350 -j RETURN 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp --dport 19300:19350 -j RETURN 2>/dev/null || true
 
-    # Fast-reject non-STUN QUIC (UDP 80/443) and DoQ (UDP 853) via port 9
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 80 -j REDIRECT --to-ports 9 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 443 -j REDIRECT --to-ports 9 2>/dev/null || true
-    iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 853 -j REDIRECT --to-ports 9 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 80 -j REDIRECT --to-ports 9 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 443 -j REDIRECT --to-ports 9 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp --dport 853 -j REDIRECT --to-ports 9 2>/dev/null || true
+    fi
 
-    # Exempt root (sing-box) and redirect FakeIP (198.18.0.0/15) for all non-root processes
+    # Exempt root (sing-box) and redirect FakeIP (198.18.0.0/15)
     iptables -w -t nat -A "$CHAIN_NAT_V4" -m owner --uid-owner 0 -j RETURN 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp -d 198.18.0.0/15 -j REDIRECT --to-ports "$INBOUND_PORT" 2>/dev/null || true
     iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -d 198.18.0.0/15 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
@@ -364,6 +436,16 @@ start_tunnel() {
     iptables -w -t nat -A "$CHAIN_NAT_V4" -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true
 
     for rng in $UID_LIST; do
+        if [ "$TARGET_UIDS" != "ALL" ] && [ -n "$TARGET_UIDS" ]; then
+            # Per-App Mode: Scope STUN spoofing & QUIC rejection strictly to target UIDs so bypassed apps keep direct UDP/TCP!
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" --dport 3478:3497 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" --dport 5349:5350 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" --dport 19300:19350 -j REDIRECT --to-ports "$STUN_PORT" 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" --dport 80 -j REDIRECT --to-ports 9 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" --dport 443 -j REDIRECT --to-ports 9 2>/dev/null || true
+            iptables -w -t nat -A "$CHAIN_NAT_V4" -p udp -m owner --uid-owner "$rng" --dport 853 -j REDIRECT --to-ports 9 2>/dev/null || true
+        fi
         iptables -w -t nat -A "$CHAIN_NAT_V4" -p tcp -m owner --uid-owner "$rng" -j REDIRECT --to-ports "$INBOUND_PORT" 2>/dev/null || true
     done
     iptables -w -t nat -I OUTPUT 1 -j "$CHAIN_NAT_V4" 2>/dev/null || true
@@ -395,9 +477,11 @@ start_tunnel() {
     iptables -w -A "$CHAIN_FILTER_V4" -m state --state ESTABLISHED,RELATED -j RETURN 2>/dev/null || true
     iptables -w -A "$CHAIN_FILTER_V4" -p udp --dport 9 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || true
     iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 9 -j REJECT --reject-with tcp-reset 2>/dev/null || true
-    iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 3478:3497 -j REJECT --reject-with tcp-reset 2>/dev/null || true
-    iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 5349:5350 -j REJECT --reject-with tcp-reset 2>/dev/null || true
-    iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 19300:19350 -j REJECT --reject-with tcp-reset 2>/dev/null || true
+    if [ "$TARGET_UIDS" = "ALL" ] || [ -z "$TARGET_UIDS" ]; then
+        iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 3478:3497 -j REJECT --reject-with tcp-reset 2>/dev/null || true
+        iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 5349:5350 -j REJECT --reject-with tcp-reset 2>/dev/null || true
+        iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 19300:19350 -j REJECT --reject-with tcp-reset 2>/dev/null || true
+    fi
     if [ -n "$SERVER_IP" ]; then
         case "$SERVER_IP" in
             *:*) ;;
@@ -411,6 +495,9 @@ start_tunnel() {
     done
     iptables -w -A "$CHAIN_FILTER_V4" -m owner --uid-owner 0-9999 -j RETURN 2>/dev/null || true
     for rng in $UID_LIST; do
+        iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 3478:3497 -m owner --uid-owner "$rng" -j REJECT --reject-with tcp-reset 2>/dev/null || true
+        iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 5349:5350 -m owner --uid-owner "$rng" -j REJECT --reject-with tcp-reset 2>/dev/null || true
+        iptables -w -A "$CHAIN_FILTER_V4" -p tcp --dport 19300:19350 -m owner --uid-owner "$rng" -j REJECT --reject-with tcp-reset 2>/dev/null || true
         iptables -w -A "$CHAIN_FILTER_V4" -p udp -m owner --uid-owner "$rng" -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || true
         iptables -w -A "$CHAIN_FILTER_V4" -m owner --uid-owner "$rng" -j DROP 2>/dev/null || true
     done
@@ -441,9 +528,13 @@ start_tunnel() {
     done
     ip6tables -w -I OUTPUT 1 -j "$CHAIN_FILTER_V6" 2>/dev/null || true
 
-    # 14. HOTSPOT ROUTING
+    # 14. HOTSPOT & USB TETHERING ROUTING
     if [ "$ROUTE_HOTSPOT" = "1" ]; then
         ip6tables -w -N "$CHAIN_HS_V6" 2>/dev/null || true
+        if [ -n "$WAN_IFACE" ]; then
+            ip6tables -w -A "$CHAIN_HS_V6" -i "$WAN_IFACE" -j RETURN 2>/dev/null || true
+            ip6tables -w -A "$CHAIN_HS_V6" -o "$WAN_IFACE" -j RETURN 2>/dev/null || true
+        fi
         for iface in $TETHER_IFACES; do
             ip6tables -w -A "$CHAIN_HS_V6" -i "$iface" -j DROP 2>/dev/null || true
             ip6tables -w -A "$CHAIN_HS_V6" -o "$iface" -j DROP 2>/dev/null || true
@@ -455,7 +546,8 @@ start_tunnel() {
         iptables -w -t nat -A "$CHAIN_HS_NAT" -i rmnet+ -j RETURN 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -i v4-rmnet+ -j RETURN 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -i ccmni+ -j RETURN 2>/dev/null || true
-        if [ -n "$WAN_IFACE" ] && [ "$WAN_IFACE" = "wlan0" ]; then
+        if [ -n "$WAN_IFACE" ]; then
+            iptables -w -t nat -A "$CHAIN_HS_NAT" -i "$WAN_IFACE" -j RETURN 2>/dev/null || true
             WAN_GW=$(ip route show table "${WAN_TABLE:-main}" 2>/dev/null | awk '/^default via/ {print $3; exit}')
             if [ -n "$WAN_GW" ]; then
                 iptables -w -t nat -A "$CHAIN_HS_NAT" -s "$WAN_GW" -j RETURN 2>/dev/null || true
@@ -475,16 +567,20 @@ start_tunnel() {
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p tcp --dport 53 -j REDIRECT --to-ports "$HS_DNS_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p tcp --dport 853 -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
 
+        # Hotspot WebRTC STUN spoofing (only genuine STUN magic cookie or STUN ports)
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -m u32 --u32 "0>>22&0x3C@12=0x2112A442" -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -m string --algo bm --from 28 --to 36 --hex-string "|2112a442|" -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 3478:3497 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 5349:5350 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 19300:19350 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
-        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -d 198.18.0.0/15 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
 
-        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 80 -j RETURN 2>/dev/null || true
-        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 443 -j RETURN 2>/dev/null || true
-        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 853 -j RETURN 2>/dev/null || true
+        # CRITICAL HOTSPOT QUIC FIX: Redirect UDP 80/443/853 to port 9 BEFORE FakeIP UDP rule
+        # so CHAIN_HS_IN immediately sends ICMP Port Unreachable and Hotspot browsers switch to TCP 443 in <1ms!
+        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 80 -j REDIRECT --to-ports 9 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 443 -j REDIRECT --to-ports 9 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp --dport 853 -j REDIRECT --to-ports 9 2>/dev/null || true
+
+        iptables -w -t nat -A "$CHAIN_HS_NAT" -p udp -d 198.18.0.0/15 -j REDIRECT --to-ports "$HS_STUN_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -p tcp -d 198.18.0.0/15 -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
 
         for r in $RESERVED_V4; do
@@ -493,6 +589,7 @@ start_tunnel() {
 
         iptables -w -t nat -A "$CHAIN_HS_NAT" -s 192.168.0.0/16 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
         iptables -w -t nat -A "$CHAIN_HS_NAT" -s 172.16.0.0/12 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
+        iptables -w -t nat -A "$CHAIN_HS_NAT" -s 10.0.0.0/8 -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
         for iface in $TETHER_IFACES; do
             iptables -w -t nat -A "$CHAIN_HS_NAT" -i "$iface" -p tcp -j REDIRECT --to-ports "$HS_INBOUND_PORT" 2>/dev/null || true
         done
@@ -502,6 +599,9 @@ start_tunnel() {
         iptables -w -A "$CHAIN_HS_FWD" -i rmnet+ -j RETURN 2>/dev/null || true
         iptables -w -A "$CHAIN_HS_FWD" -i v4-rmnet+ -j RETURN 2>/dev/null || true
         iptables -w -A "$CHAIN_HS_FWD" -i ccmni+ -j RETURN 2>/dev/null || true
+        if [ -n "$WAN_IFACE" ]; then
+            iptables -w -A "$CHAIN_HS_FWD" -i "$WAN_IFACE" -j RETURN 2>/dev/null || true
+        fi
         iptables -w -A "$CHAIN_HS_FWD" -p udp --dport 67:68 -j ACCEPT 2>/dev/null || true
         iptables -w -A "$CHAIN_HS_FWD" -p udp --sport 67:68 -j ACCEPT 2>/dev/null || true
         iptables -w -A "$CHAIN_HS_FWD" -s 192.168.0.0/16 -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null || true
@@ -518,7 +618,7 @@ start_tunnel() {
         iptables -w -I FORWARD 1 -j "$CHAIN_HS_FWD" 2>/dev/null || true
     fi
 
-    # Terminate any pre-existing unproxied DoT (:853) sockets so netd reconnects through sing-box
+    sync_hotspot_routes
     ss -K dport = :853 >/dev/null 2>&1 || true
     conntrack -F 2>/dev/null || true
     echo "${USER_ID}:${SLOT_ID}" > "$STATE_FILE"
@@ -529,6 +629,7 @@ start_tunnel() {
 
 status_tunnel() {
     if [ -f "$SB_PID_FILE" ] && kill -0 $(cat "$SB_PID_FILE" 2>/dev/null) 2>/dev/null; then
+        sync_hotspot_routes
         PID=$(cat "$SB_PID_FILE" 2>/dev/null)
         ST=$(cat "$STATE_FILE" 2>/dev/null || echo "0:0")
         IP=$(cat "$EXIT_IP_FILE" 2>/dev/null || echo "")
@@ -562,6 +663,7 @@ case "$1" in
             echo "stun-responder : STANDBY"
         fi
         echo "Active State   : $(cat "$STATE_FILE" 2>/dev/null || echo 'Standby')"
+        echo "Hotspot Route  : $(cat "$HS_STATE_FILE" 2>/dev/null || echo '0')"
         echo "Exit IP        : $(cat "$EXIT_IP_FILE" 2>/dev/null || echo 'Standby')"
         echo "Timezone       : $(getprop persist.sys.timezone 2>/dev/null)"
         echo "Private DNS    : $(settings get global private_dns_mode 2>/dev/null)"
@@ -575,7 +677,10 @@ case "$1" in
         ;;
     audit)
         echo "=== IP RULES ==="
-        ip rule show | grep -E "7900|7901|8000|8001|8800|8805|8806|22000" || true
+        ip rule show | grep -E "7895|7896|7897|7900|7901|8000|8001|8800|8805|8806|22000" || true
+        echo ""
+        echo "=== HOTSPOT TABLE 2089 ==="
+        ip route show table 2089 2>&1 || true
         echo ""
         echo "=== NAT (${CHAIN_NAT_V4}) ==="
         iptables -w -t nat -S "$CHAIN_NAT_V4" 2>&1 || true

@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="disconnected">
+  <!-- Ambient Floating Liquid-Glass Bubbles (GPU Accelerated, Pointer-Events None) -->
+  <div class="bg-bubbles" aria-hidden="true">
+    <span class="bg-orb orb-1"></span>
+    <span class="bg-orb orb-2"></span>
+    <span class="bg-orb orb-3"></span>
+    <span class="bg-orb orb-4"></span>
+  </div>
+
   <div class="app-shell">
     <!-- Clean Header Bar (Well Below Status Bar; Slots Moved to Body) -->
     <header class="top-bar">
@@ -59,6 +67,7 @@
             </div>
 
             <button type="button" class="power-module" id="coreBtn" onclick="toggleTunnel()">
+              <span class="pwr-ring"></span>
               <svg class="svg-ico lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 2v10"/>
                 <path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>
@@ -259,6 +268,11 @@
               <button type="button" class="tool-btn" onclick="selectAllApps()">All</button>
               <button type="button" class="tool-btn danger" onclick="clearSelectedApps()">None</button>
             </div>
+          </div>
+
+          <div class="app-mode-banner" id="appModeBanner">
+            <span id="appModeBannerText">All Profile Apps: 100% of apps in this Android profile route through the tunnel.</span>
+            <button type="button" class="apply-live-btn" id="btnApplyLiveApps" onclick="applyLiveRouting()">Apply Live</button>
           </div>
 
           <input type="text" id="appSearchInput" class="field-inp" placeholder="Search apps by name or package..." autocomplete="off" oninput="renderAppsList()" />

@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • AdGuard × FlClash Liquid Glass Controller
+// Nameless Proxy • AdGuard × FlClash Liquid Glass Controller (Bubbly v33)
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -86,6 +86,13 @@ let state = {
 let saveDebounceTimer = null;
 let transitionResetTimer = null;
 
+function triggerBubblePop(el) {
+  if (!el) return;
+  el.classList.remove("bubble-pop");
+  void el.offsetWidth;
+  el.classList.add("bubble-pop");
+}
+
 function flagEmojiFromCode(cc) {
   if (!cc || cc.length !== 2) return "🛡️";
   const codePoints = cc.toUpperCase().split("").map(c => 127397 + c.charCodeAt(0));
@@ -152,7 +159,7 @@ function initApp() {
           renderAppsList();
         }
       } catch (e) {}
-    }, 100);
+    }, 80);
   }
 
   loadSlotIntoForm(state.activeSlot);
@@ -181,7 +188,7 @@ function persistAllSlots() {
     if (window.NamelessBridge) {
       window.NamelessBridge.saveSlots(buildSlotsPayload());
     }
-  }, 250);
+  }, 200);
 }
 
 function selectSlot(idx) {
@@ -189,6 +196,8 @@ function selectSlot(idx) {
   state.activeSlot = idx;
   loadSlotIntoForm(idx);
   renderSlotCapsules();
+  const btn = document.querySelector(`.slot-pill[data-slot="${idx}"]`);
+  triggerBubblePop(btn);
   persistAllSlots();
 }
 
@@ -279,7 +288,7 @@ function renderQuickPills() {
   if (state.routeAllApps) {
     document.getElementById("lblAppsState").textContent = "ALL";
   } else {
-    const prefix = state.appFilterMode === "BLACKLIST" ? "BL:" : "WL:";
+    const prefix = state.appFilterMode === "BLACKLIST" ? "BYP:" : "SEL:";
     document.getElementById("lblAppsState").textContent = `${prefix}${state.selectedUids.length}`;
   }
 
@@ -295,16 +304,66 @@ function renderQuickPills() {
   if (btnBypass) {
     btnBypass.classList.toggle("active", !state.routeAllApps && state.appFilterMode === "BLACKLIST");
   }
+
+  const banner = document.getElementById("appModeBanner");
+  const bannerTxt = document.getElementById("appModeBannerText");
+  if (banner && bannerTxt) {
+    banner.classList.toggle("bypass-mode", !state.routeAllApps && state.appFilterMode === "BLACKLIST");
+    if (state.routeAllApps) {
+      bannerTxt.textContent = "All Apps Mode: 100% of apps in this profile route through the proxy.";
+    } else if (state.appFilterMode === "BLACKLIST") {
+      bannerTxt.textContent = `Bypass Mode: ${state.selectedUids.length} selected app(s) bypass the proxy; all others use proxy.`;
+    } else {
+      bannerTxt.textContent = `Proxy Selected: Only ${state.selectedUids.length} selected app(s) route through the proxy.`;
+    }
+  }
+}
+
+function applyLiveRouting() {
+  persistAllSlots();
+  triggerBubblePop(document.getElementById("btnApplyLiveApps"));
+  if (!state.isRunning) {
+    if (window.NamelessBridge) {
+      window.NamelessBridge.showToast("Saved! Connect tunnel to activate.");
+    }
+    return;
+  }
+  if (!state.routeAllApps && state.selectedUids.length === 0) {
+    if (window.NamelessBridge) {
+      window.NamelessBridge.showToast("Select at least 1 app or choose All Apps");
+    }
+    return;
+  }
+  const activeIdx = state.runningSlot !== null ? state.runningSlot : state.activeSlot;
+  const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
+    ? "ALL"
+    : state.selectedUids.join(",");
+  const cfg = Object.assign({}, state.slots[activeIdx], {
+    slot: activeIdx,
+    routeHotspot: state.routeHotspot,
+    targetUids: targetUidsStr,
+    appFilterMode: state.appFilterMode,
+    webrtcMode: "SPOOF"
+  });
+  if (window.NamelessBridge) {
+    window.NamelessBridge.showToast("Applying live routing rules...");
+    window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
+  }
 }
 
 function toggleHotspotSetting() {
   state.routeHotspot = !state.routeHotspot;
+  triggerBubblePop(document.getElementById("pillHotspot"));
   renderQuickPills();
   persistAllSlots();
+  if (state.isRunning) {
+    applyLiveRouting();
+  }
 }
 
 function toggleBootSetting() {
   state.bootOnStart = !state.bootOnStart;
+  triggerBubblePop(document.getElementById("pillBoot"));
   renderQuickPills();
   persistAllSlots();
   if (window.NamelessBridge) {
@@ -315,12 +374,15 @@ function toggleBootSetting() {
 function setAppRouteMode(mode) {
   if (mode === true || mode === "ALL") {
     state.routeAllApps = true;
+    triggerBubblePop(document.getElementById("btnAllApps"));
   } else if (mode === "BLACKLIST") {
     state.routeAllApps = false;
     state.appFilterMode = "BLACKLIST";
+    triggerBubblePop(document.getElementById("btnBypassApps"));
   } else {
     state.routeAllApps = false;
     state.appFilterMode = "WHITELIST";
+    triggerBubblePop(document.getElementById("btnSelApps"));
   }
   renderQuickPills();
   renderAppsList();
@@ -328,7 +390,10 @@ function setAppRouteMode(mode) {
 }
 
 function selectAllApps() {
-  state.routeAllApps = false;
+  if (state.routeAllApps) {
+    state.routeAllApps = false;
+    state.appFilterMode = "WHITELIST";
+  }
   state.selectedUids = state.installedApps.map(a => a.uid);
   renderQuickPills();
   renderAppsList();
@@ -336,7 +401,6 @@ function selectAllApps() {
 }
 
 function clearSelectedApps() {
-  state.routeAllApps = false;
   state.selectedUids = [];
   renderQuickPills();
   renderAppsList();
@@ -344,10 +408,15 @@ function clearSelectedApps() {
 }
 
 function toggleAppUid(uid) {
-  state.routeAllApps = false;
-  const idx = state.selectedUids.indexOf(uid);
-  if (idx >= 0) state.selectedUids.splice(idx, 1);
-  else state.selectedUids.push(uid);
+  if (state.routeAllApps) {
+    state.routeAllApps = false;
+    state.appFilterMode = "WHITELIST";
+    state.selectedUids = [uid];
+  } else {
+    const idx = state.selectedUids.indexOf(uid);
+    if (idx >= 0) state.selectedUids.splice(idx, 1);
+    else state.selectedUids.push(uid);
+  }
   renderQuickPills();
   renderAppsList();
   persistAllSlots();
@@ -363,16 +432,38 @@ function renderAppsList() {
   container.innerHTML = "";
   const frag = document.createDocumentFragment();
   filtered.forEach(app => {
-    const selected = state.routeAllApps || state.selectedUids.includes(app.uid);
+    const inList = state.selectedUids.includes(app.uid);
+    let rowClass = "app-row";
+    let badgeText = "OFF";
+    if (state.routeAllApps) {
+      rowClass = "app-row selected";
+      badgeText = "ALL";
+    } else if (state.appFilterMode === "BLACKLIST") {
+      if (inList) {
+        rowClass = "app-row bypassed";
+        badgeText = "BYPASS";
+      } else {
+        rowClass = "app-row selected";
+        badgeText = "PROXY";
+      }
+    } else {
+      if (inList) {
+        rowClass = "app-row selected";
+        badgeText = "PROXY";
+      } else {
+        rowClass = "app-row";
+        badgeText = "DIRECT";
+      }
+    }
     const row = document.createElement("div");
-    row.className = "app-row" + (selected ? " selected" : "");
+    row.className = rowClass;
     row.onclick = () => toggleAppUid(app.uid);
     row.innerHTML = `
       <div>
         <div class="app-name">${app.name}</div>
         <div class="app-pkg">${app.pkg}</div>
       </div>
-      <div class="app-check">✓</div>
+      <div class="app-check">${badgeText}</div>
     `;
     frag.appendChild(row);
   });
@@ -455,7 +546,9 @@ function setProtocol(proto) {
   saveFormIntoSlot(state.activeSlot);
   state.slots[state.activeSlot].type = proto;
   document.querySelectorAll(".proto-chip").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
+    const isMatch = btn.getAttribute("data-proto") === proto;
+    btn.classList.toggle("active", isMatch);
+    if (isMatch) triggerBubblePop(btn);
   });
   updateProtocolFieldsUI(proto);
   renderSlotCapsules();
@@ -507,6 +600,7 @@ function pasteUriFromClipboard() {
 function toggleTunnel() {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveFormIntoSlot(state.activeSlot);
+  triggerBubblePop(document.getElementById("coreBtn"));
 
   if (state.isRunning || state.transitionTarget === "START") {
     state.isTransitioning = true;
@@ -530,6 +624,14 @@ function toggleTunnel() {
   }
 
   if (state.isTransitioning) return;
+
+  if (!state.routeAllApps && state.selectedUids.length === 0) {
+    switchTab(2);
+    if (window.NamelessBridge) {
+      window.NamelessBridge.showToast("Select at least 1 app or choose All Apps");
+    }
+    return;
+  }
 
   const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
     ? "ALL"
@@ -725,7 +827,9 @@ function switchTab(idx) {
     pane.classList.toggle("active", i === idx);
   });
   document.querySelectorAll(".dock-btn").forEach((btn, i) => {
-    btn.classList.toggle("active", i === idx);
+    const active = i === idx;
+    btn.classList.toggle("active", active);
+    if (active) triggerBubblePop(btn);
   });
 
   if (window.NamelessBridge) {
@@ -744,7 +848,10 @@ function switchTab(idx) {
 function loadCheckerPreset(url, btnId) {
   document.querySelectorAll(".chk-tab").forEach(b => b.classList.remove("active"));
   const btn = document.getElementById(btnId);
-  if (btn) btn.classList.add("active");
+  if (btn) {
+    btn.classList.add("active");
+    triggerBubblePop(btn);
+  }
   state.checkerUrl = url;
   mountEmbeddedChecker(url);
 }
