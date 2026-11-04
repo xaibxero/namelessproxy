@@ -7,10 +7,12 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -19,6 +21,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -63,16 +66,48 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.requestFeature(Window.FEATURE_NO_TITLE);
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-        window.setStatusBarColor(Color.parseColor("#0B0F17"));
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.setStatusBarColor(Color.parseColor("#0B0F19"));
         window.setNavigationBarColor(Color.parseColor("#0F1522"));
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(true);
+        }
 
         RootBridge.startBackgroundPoller();
 
         rootLayout = new FrameLayout(this);
-        rootLayout.setBackgroundColor(Color.parseColor("#0B0F17"));
+        rootLayout.setBackgroundColor(Color.parseColor("#0B0F19"));
+        rootLayout.setFitsSystemWindows(true);
+
+        // Enforce strict system-bar & 3-button navigation bar insets on all Android 10–15 ROMs
+        rootLayout.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    Insets sysBars = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()
+                    );
+                    Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                    int bottom = Math.max(sysBars.bottom, ime.bottom);
+                    v.setPadding(sysBars.left, sysBars.top, sysBars.right, bottom);
+                    return WindowInsets.CONSUMED;
+                } else {
+                    v.setPadding(
+                        insets.getSystemWindowInsetLeft(),
+                        insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(),
+                        insets.getSystemWindowInsetBottom()
+                    );
+                    return insets.consumeSystemWindowInsets();
+                }
+            }
+        });
 
         uiWebView = new WebView(this);
-        uiWebView.setBackgroundColor(Color.parseColor("#0B0F17"));
+        uiWebView.setBackgroundColor(Color.parseColor("#0B0F19"));
         uiWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         uiWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         uiWebView.setVerticalScrollBarEnabled(false);
@@ -95,7 +130,7 @@ public class MainActivity extends Activity {
 
         checkerContainer = new FrameLayout(this);
         checkerContainer.setVisibility(View.GONE);
-        checkerContainer.setBackgroundColor(Color.parseColor("#0B0F17"));
+        checkerContainer.setBackgroundColor(Color.parseColor("#0B0F19"));
 
         rootLayout.addView(uiWebView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -107,6 +142,7 @@ public class MainActivity extends Activity {
         ));
 
         setContentView(rootLayout);
+        rootLayout.requestApplyInsets();
         uiWebView.loadUrl("file:///android_asset/ui/index.html");
 
         tunnelPool.execute(() -> {
@@ -118,25 +154,25 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (rootLayout != null) {
+            rootLayout.requestApplyInsets();
+        }
         tunnelPool.execute(RootBridge::refreshStatusFromRootNow);
     }
 
     /**
-     * Builds the document-start WebRTC ICE & Timezone synchronization shim for checkerWebView
-     * so Android System WebView never stalls for 40 seconds on virtual dummy0/IPv6 interfaces
-     * (which previously caused IPFighter to time out and display WebRTC: NA).
+     * Builds the document-start WebRTC ICE & Timezone synchronization shim for checkerWebView.
+     * WebRTC protection is ALWAYS ON whenever the tunnel is running—never leaks and never times out with NA.
      */
     private String buildCheckerDocumentStartScript() {
         boolean running = RootBridge.isTunnelRunningForCurrentUser();
         String exitIp = RootBridge.getCachedExitIp().replace("'", "");
         String exitTz = RootBridge.getCachedExitTimezone().replace("'", "");
-        String webrtcMode = RootBridge.getCachedWebrtcMode().replace("'", "");
 
         return "(function(){\n" +
             "  var TUNNEL_ON = " + (running ? "true" : "false") + ";\n" +
             "  var SPOOF_IP = '" + exitIp + "';\n" +
             "  var PROXY_TZ = '" + exitTz + "';\n" +
-            "  var RTC_MODE = '" + webrtcMode + "';\n" +
             "  if (TUNNEL_ON && PROXY_TZ && PROXY_TZ.indexOf('/') > 0) {\n" +
             "    try {\n" +
             "      var origDTF = Intl.DateTimeFormat;\n" +
@@ -148,13 +184,6 @@ public class MainActivity extends Activity {
             "      Intl.DateTimeFormat.prototype = origDTF.prototype;\n" +
             "      Intl.DateTimeFormat.supportedLocalesOf = origDTF.supportedLocalesOf;\n" +
             "    } catch(e) {}\n" +
-            "  }\n" +
-            "  if (TUNNEL_ON && RTC_MODE === 'DISABLE') {\n" +
-            "    try {\n" +
-            "      window.RTCPeerConnection = undefined;\n" +
-            "      window.webkitRTCPeerConnection = undefined;\n" +
-            "    } catch(e) {}\n" +
-            "    return;\n" +
             "  }\n" +
             "  var OrigPC = window.RTCPeerConnection || window.webkitRTCPeerConnection;\n" +
             "  if (!OrigPC) return;\n" +
@@ -243,7 +272,7 @@ public class MainActivity extends Activity {
 
     /**
      * Aligns checkerContainer using exact dimensionless viewport ratios from #checkerPlaceholder
-     * so it never conflicts with phone DPI, and immediately runs a fresh test.
+     * inside rootLayout's safe area, and immediately runs a fresh test.
      */
     @SuppressLint("SetJavaScriptEnabled")
     private void openAndAutoRunChecker(final String url, float topRatio, float bottomRatio, float sideRatio) {
@@ -275,7 +304,7 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {}
 
         checkerWebView = new WebView(this);
-        checkerWebView.setBackgroundColor(Color.parseColor("#0B0F17"));
+        checkerWebView.setBackgroundColor(Color.parseColor("#0B0F19"));
         checkerWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         WebSettings s = checkerWebView.getSettings();
         s.setJavaScriptEnabled(true);

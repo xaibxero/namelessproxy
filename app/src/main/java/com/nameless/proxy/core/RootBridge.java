@@ -27,7 +27,9 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 public class RootBridge {
 
     public static final String ADB_DIR = "/data/adb/nameless_proxy";
+    public static final String SERVICE_D_SCRIPT = "/data/adb/service.d/nameless_proxy.sh";
     public static final String SINGBOX_BIN = ADB_DIR + "/sing-box";
     public static final String STUN_BIN = ADB_DIR + "/stun-responder";
     public static final String TUNNEL_SH = ADB_DIR + "/tunnel.sh";
@@ -150,9 +153,23 @@ public class RootBridge {
         return cachedWebrtcMode != null ? cachedWebrtcMode : "SPOOF";
     }
 
+    /**
+     * Executes root commands in the global Mount Master namespace (su -mm) for Magisk, KernelSU, and APatch,
+     * with automatic fallback to standard su if -mm is unsupported.
+     */
     public static String execSu(String... commands) {
+        String res = execSuInternal(true, commands);
+        if (res == null) {
+            res = execSuInternal(false, commands);
+        }
+        return res != null ? res : "";
+    }
+
+    private static String execSuInternal(boolean mountMaster, String... commands) {
         try {
-            java.lang.Process p = new ProcessBuilder("su").redirectErrorStream(true).start();
+            java.lang.Process p = mountMaster
+                ? new ProcessBuilder("su", "-mm").redirectErrorStream(true).start()
+                : new ProcessBuilder("su").redirectErrorStream(true).start();
             try (DataOutputStream os = new DataOutputStream(p.getOutputStream())) {
                 for (String cmd : commands) {
                     os.write((cmd + "\n").getBytes(StandardCharsets.UTF_8));
@@ -168,10 +185,14 @@ public class RootBridge {
                     sb.append(line);
                 }
             }
-            p.waitFor();
-            return sb.toString().trim();
+            int code = p.waitFor();
+            String out = sb.toString().trim();
+            if (mountMaster && code != 0 && (out.contains("invalid") || out.contains("Unknown option") || out.contains("unrecognized"))) {
+                return null;
+            }
+            return out;
         } catch (Exception e) {
-            return "";
+            return mountMaster ? null : "";
         }
     }
 
@@ -296,6 +317,36 @@ public class RootBridge {
         return arr.toString();
     }
 
+    private static void attachTransportIfConfigured(JSONObject proxyOut, String transport, String path, String hostHeader) throws Exception {
+        String tr = (transport == null) ? "tcp" : transport.trim().toLowerCase();
+        if (tr.equals("ws")) {
+            JSONObject t = new JSONObject().put("type", "ws");
+            t.put("path", (path == null || path.isEmpty()) ? "/" : path);
+            if (hostHeader != null && !hostHeader.isEmpty()) {
+                t.put("headers", new JSONObject().put("Host", hostHeader));
+            }
+            proxyOut.put("transport", t);
+        } else if (tr.equals("grpc")) {
+            JSONObject t = new JSONObject().put("type", "grpc");
+            if (path != null && !path.isEmpty()) {
+                String sn = path.startsWith("/") ? path.substring(1) : path;
+                t.put("service_name", sn);
+            }
+            proxyOut.put("transport", t);
+        } else if (tr.equals("httpupgrade")) {
+            JSONObject t = new JSONObject().put("type", "httpupgrade");
+            t.put("path", (path == null || path.isEmpty()) ? "/" : path);
+            if (hostHeader != null && !hostHeader.isEmpty()) {
+                t.put("host", hostHeader);
+            }
+            proxyOut.put("transport", t);
+        }
+    }
+
+    /**
+     * Generates a complete sing-box configuration supporting all 7 non-UDP proxy protocols:
+     * SOCKS5, HTTP, SOCKS4, SHADOWSOCKS (AEAD & 2022), VLESS (Vision & REALITY), VMESS, and TROJAN.
+     */
     public static String generateSingBoxConfig(JSONObject cfg, String resolvedHost) throws Exception {
         String type = cfg.optString("type", "SOCKS5").toUpperCase();
         String rawHost = cleanHost(cfg.optString("host", ""));
@@ -307,6 +358,11 @@ public class RootBridge {
         String ssMethod = cfg.optString("ssMethod", "chacha20-ietf-poly1305").trim();
         String rpk = cfg.optString("realityPublicKey", "").trim();
         String rsid = cfg.optString("realityShortId", "").trim();
+        String vlessFlow = cfg.optString("flow", "xtls-rprx-vision").trim();
+        String vmessSecurity = cfg.optString("vmessSecurity", "auto").trim();
+        int alterId = cfg.optInt("alterId", 0);
+        String transport = cfg.optString("transport", "tcp").trim();
+        String wsPath = cfg.optString("wsPath", "").trim();
         boolean isIpv6 = serverHost.contains(":");
 
         JSONObject root = new JSONObject();
@@ -435,7 +491,11 @@ public class RootBridge {
                 proxyOut.put("type", "vless").put("server", serverHost).put("server_port", port)
                     .put("uuid", password.isEmpty() ? username : password)
                     .put("packet_encoding", "xudp");
-                if (!rpk.isEmpty()) proxyOut.put("flow", "xtls-rprx-vision");
+                if (!vlessFlow.isEmpty() && !vlessFlow.equalsIgnoreCase("none") && (transport.isEmpty() || transport.equalsIgnoreCase("tcp"))) {
+                    proxyOut.put("flow", vlessFlow);
+                } else if (!rpk.isEmpty()) {
+                    proxyOut.put("flow", "xtls-rprx-vision");
+                }
                 JSONObject tls = new JSONObject()
                     .put("enabled", true)
                     .put("server_name", sni.isEmpty() ? rawHost : sni)
@@ -444,15 +504,18 @@ public class RootBridge {
                     tls.put("reality", new JSONObject().put("enabled", true).put("public_key", rpk).put("short_id", rsid));
                 }
                 proxyOut.put("tls", tls);
+                attachTransportIfConfigured(proxyOut, transport, wsPath, sni.isEmpty() ? rawHost : sni);
                 break;
             }
             case "VMESS":
                 proxyOut.put("type", "vmess").put("server", serverHost).put("server_port", port)
                     .put("uuid", password.isEmpty() ? username : password)
-                    .put("security", "auto").put("alter_id", 0);
+                    .put("security", vmessSecurity.isEmpty() ? "auto" : vmessSecurity)
+                    .put("alter_id", Math.max(0, alterId));
                 if (!sni.isEmpty() || port == 443) {
                     proxyOut.put("tls", new JSONObject().put("enabled", true).put("server_name", sni.isEmpty() ? rawHost : sni));
                 }
+                attachTransportIfConfigured(proxyOut, transport, wsPath, sni.isEmpty() ? rawHost : sni);
                 break;
             case "TROJAN":
                 proxyOut.put("type", "trojan").put("server", serverHost).put("server_port", port)
@@ -460,19 +523,9 @@ public class RootBridge {
                     .put("tls", new JSONObject()
                         .put("enabled", true)
                         .put("server_name", sni.isEmpty() ? rawHost : sni)
+                        .put("alpn", new JSONArray().put("h2").put("http/1.1"))
                         .put("utls", new JSONObject().put("enabled", true).put("fingerprint", "chrome")));
-                break;
-            case "HYSTERIA2":
-                proxyOut.put("type", "hysteria2").put("server", serverHost).put("server_port", port)
-                    .put("password", password.isEmpty() ? username : password)
-                    .put("tls", new JSONObject().put("enabled", true).put("server_name", sni.isEmpty() ? rawHost : sni));
-                break;
-            case "TUIC":
-                proxyOut.put("type", "tuic").put("server", serverHost).put("server_port", port)
-                    .put("uuid", username.isEmpty() ? password : username)
-                    .put("password", password)
-                    .put("congestion_control", "bbr")
-                    .put("tls", new JSONObject().put("enabled", true).put("server_name", sni.isEmpty() ? rawHost : sni));
+                attachTransportIfConfigured(proxyOut, transport, wsPath, sni.isEmpty() ? rawHost : sni);
                 break;
             default:
                 proxyOut.put("type", "socks").put("server", serverHost).put("server_port", port).put("version", "5");
@@ -528,9 +581,33 @@ public class RootBridge {
             String webrtcMode = cfg.optString("webrtcMode", "SPOOF");
             cachedWebrtcMode = webrtcMode;
             String targetUids = cfg.optString("targetUids", "ALL");
+            String appFilterMode = cfg.optString("appFilterMode", "WHITELIST");
+
             if (!targetUids.equals("ALL") && !targetUids.isEmpty()) {
                 int myUid = Process.myUid();
-                targetUids = targetUids + "," + myUid;
+                if (appFilterMode.equalsIgnoreCase("BLACKLIST")) {
+                    // Build whitelist of all installed apps EXCEPT blacklisted UIDs
+                    Set<Integer> excluded = new HashSet<>();
+                    for (String part : targetUids.split(",")) {
+                        try { excluded.add(Integer.parseInt(part.trim())); } catch (Exception ignored) {}
+                    }
+                    StringBuilder allowed = new StringBuilder();
+                    try {
+                        JSONArray allApps = new JSONArray(getInstalledAppsJson(context));
+                        for (int i = 0; i < allApps.length(); i++) {
+                            int u = allApps.getJSONObject(i).optInt("uid", -1);
+                            if (u > 0 && !excluded.contains(u)) {
+                                if (allowed.length() > 0) allowed.append(",");
+                                allowed.append(u);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    if (allowed.length() > 0) allowed.append(",");
+                    allowed.append(myUid);
+                    targetUids = allowed.toString();
+                } else {
+                    targetUids = targetUids + "," + myUid;
+                }
             } else {
                 targetUids = "ALL";
             }
@@ -654,6 +731,10 @@ public class RootBridge {
                 out.put("port", v.optInt("port", 443));
                 out.put("username", v.optString("id", ""));
                 out.put("password", v.optString("id", ""));
+                out.put("alterId", v.optInt("aid", 0));
+                out.put("vmessSecurity", v.optString("scy", "auto"));
+                out.put("transport", v.optString("net", "tcp"));
+                out.put("wsPath", v.optString("path", ""));
                 out.put("sni", v.optString("sni", v.optString("host", "")));
                 return out;
             }
@@ -678,12 +759,10 @@ public class RootBridge {
             String scheme = u.getScheme() == null ? "socks5" : u.getScheme().toLowerCase();
             String type = "SOCKS5";
             if (scheme.contains("http")) type = "HTTP";
-            else if (scheme.equals("socks4")) type = "SOCKS4";
+            else if (scheme.equals("socks4") || scheme.equals("socks4a")) type = "SOCKS4";
             else if (scheme.equals("ss")) type = "SHADOWSOCKS";
             else if (scheme.equals("vless")) type = "VLESS";
             else if (scheme.equals("trojan")) type = "TROJAN";
-            else if (scheme.contains("hy2") || scheme.contains("hysteria")) type = "HYSTERIA2";
-            else if (scheme.equals("tuic")) type = "TUIC";
 
             out.put("type", type);
             out.put("host", u.getHost() != null ? u.getHost() : "");
@@ -708,9 +787,12 @@ public class RootBridge {
                     if (kv.length == 2) {
                         String k = kv[0].toLowerCase();
                         String v = URLDecoder.decode(kv[1], "UTF-8");
-                        if (k.equals("sni") || k.equals("peer")) out.put("sni", v);
+                        if (k.equals("sni") || k.equals("peer") || k.equals("host")) out.put("sni", v);
                         else if (k.equals("pbk")) out.put("realityPublicKey", v);
                         else if (k.equals("sid")) out.put("realityShortId", v);
+                        else if (k.equals("flow")) out.put("flow", v);
+                        else if (k.equals("type")) out.put("transport", v);
+                        else if (k.equals("path") || k.equals("servicename")) out.put("wsPath", v);
                     }
                 }
             }
@@ -724,25 +806,30 @@ public class RootBridge {
             sp.edit().putString("slots_json", jsonStr).apply();
 
             int userId = getAndroidUserId();
+            String userDir = ADB_DIR + "/users/" + userId;
             JSONObject parsed = new JSONObject(jsonStr);
             int activeSlot = parsed.optInt("activeSlot", 0);
             boolean routeHotspot = parsed.optBoolean("routeHotspot", true);
             boolean routeAllApps = parsed.optBoolean("routeAllApps", true);
+            boolean bootOnStart = parsed.optBoolean("bootOnStart", false);
             cachedWebrtcMode = parsed.optString("webrtcMode", "SPOOF");
             JSONArray slotsArr = parsed.optJSONArray("slots");
 
             List<String> cmds = new ArrayList<>();
-            cmds.add("mkdir -p " + ADB_DIR);
+            cmds.add("mkdir -p " + ADB_DIR + " " + userDir + " /data/adb/service.d");
 
             String b64Main = Base64.getEncoder().encodeToString(parsed.toString(2).getBytes(StandardCharsets.UTF_8));
             cmds.add("echo '" + b64Main + "' | base64 -d > " + ADB_DIR + "/slots_u" + userId + ".json");
+            cmds.add("echo '" + b64Main + "' | base64 -d > " + userDir + "/slots.json");
 
             JSONObject autoBackup = new JSONObject();
             autoBackup.put("version", 3);
             autoBackup.put("boot_slot", activeSlot);
             autoBackup.put("route_hotspot", routeHotspot);
+            autoBackup.put("boot_on_start", bootOnStart);
             JSONArray compatSlots = new JSONArray();
 
+            String activeHost = "";
             if (slotsArr != null) {
                 for (int i = 0; i < slotsArr.length(); i++) {
                     JSONObject s = slotsArr.optJSONObject(i);
@@ -773,12 +860,15 @@ public class RootBridge {
                     compatSlots.put(compatSlot);
 
                     if (!host.isEmpty()) {
+                        if (i == activeSlot) activeHost = host;
                         String b64Slot = Base64.getEncoder().encodeToString(compatSlot.toString(2).getBytes(StandardCharsets.UTF_8));
                         cmds.add("echo '" + b64Slot + "' | base64 -d > " + ADB_DIR + "/backup_u" + userId + "_s" + i + ".json");
+                        cmds.add("echo '" + b64Slot + "' | base64 -d > " + userDir + "/profile_" + (i + 1) + ".json");
 
                         String sbCfg = generateSingBoxConfig(s, host);
                         String b64Cfg = Base64.getEncoder().encodeToString(sbCfg.getBytes(StandardCharsets.UTF_8));
                         cmds.add("echo '" + b64Cfg + "' | base64 -d > " + ADB_DIR + "/config_u" + userId + "_s" + i + ".json");
+                        cmds.add("echo '" + b64Cfg + "' | base64 -d > " + userDir + "/config_" + (i + 1) + ".json");
                         if (i == activeSlot && !cachedRunning) {
                             cmds.add("echo '" + b64Cfg + "' | base64 -d > " + CONFIG_PATH);
                         }
@@ -788,7 +878,22 @@ public class RootBridge {
             autoBackup.put("slots", compatSlots);
             String b64Auto = Base64.getEncoder().encodeToString(autoBackup.toString(2).getBytes(StandardCharsets.UTF_8));
             cmds.add("echo '" + b64Auto + "' | base64 -d > " + ROOT_AUTO_BACKUP);
-            cmds.add("chmod 644 " + ADB_DIR + "/*.json 2>/dev/null || true");
+            cmds.add("chmod 644 " + ADB_DIR + "/*.json " + userDir + "/*.json 2>/dev/null || true");
+
+            // Manage /data/adb/service.d/nameless_proxy.sh Fast-Boot Script
+            if (bootOnStart && !activeHost.isEmpty()) {
+                int routeHs = routeHotspot ? 1 : 0;
+                String bootSh = "#!/system/bin/sh\n" +
+                    "# Nameless Proxy Fast-Boot Service Script (/data/adb/service.d/nameless_proxy.sh)\n" +
+                    "until [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 2; done\n" +
+                    "sleep 3\n" +
+                    "cp -f " + ADB_DIR + "/config_u" + userId + "_s" + activeSlot + ".json " + CONFIG_PATH + " 2>/dev/null || true\n" +
+                    "/system/bin/sh " + TUNNEL_SH + " start \"" + activeHost + "\" \"" + userId + "\" \"" + routeHs + "\" \"" + activeSlot + "\" \"ALL\" \"" + cachedWebrtcMode + "\" >/dev/null 2>&1 &\n";
+                String b64Boot = Base64.getEncoder().encodeToString(bootSh.getBytes(StandardCharsets.UTF_8));
+                cmds.add("echo '" + b64Boot + "' | base64 -d > " + SERVICE_D_SCRIPT + " && chmod 755 " + SERVICE_D_SCRIPT);
+            } else {
+                cmds.add("rm -f " + SERVICE_D_SCRIPT + " 2>/dev/null || true");
+            }
 
             execSu(cmds.toArray(new String[0]));
             return true;
@@ -804,7 +909,11 @@ public class RootBridge {
             return saved;
         }
         int userId = getAndroidUserId();
-        String fromAdb = execSu("if [ -f " + ADB_DIR + "/slots_u" + userId + ".json ]; then cat " + ADB_DIR + "/slots_u" + userId + ".json; fi");
+        String userDir = ADB_DIR + "/users/" + userId;
+        String fromAdb = execSu(
+            "if [ -f " + userDir + "/slots.json ]; then cat " + userDir + "/slots.json; " +
+            "elif [ -f " + ADB_DIR + "/slots_u" + userId + ".json ]; then cat " + ADB_DIR + "/slots_u" + userId + ".json; fi"
+        );
         if (!fromAdb.isEmpty() && fromAdb.startsWith("{")) {
             sp.edit().putString("slots_json", fromAdb).apply();
             return fromAdb;
@@ -819,6 +928,7 @@ public class RootBridge {
                     JSONObject converted = new JSONObject();
                     converted.put("activeSlot", legacy.optInt("boot_slot", 0));
                     converted.put("routeHotspot", legacy.optBoolean("route_hotspot", true));
+                    converted.put("bootOnStart", legacy.optBoolean("boot_on_start", false));
                     converted.put("routeAllApps", true);
                     JSONArray newSlots = new JSONArray();
                     for (int i = 0; i < 5; i++) {

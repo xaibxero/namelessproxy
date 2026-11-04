@@ -9,9 +9,9 @@ android {
     defaultConfig {
         applicationId = "com.nameless.proxy"
         minSdk = 29
-        targetSdk = 35
-        versionCode = 5
-        versionName = "2.0.0"
+        targetSdk = 34
+        versionCode = 6
+        versionName = "3.0.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

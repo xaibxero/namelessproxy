@@ -8,27 +8,24 @@
 </head>
 <body data-state="disconnected">
   <div class="app-shell">
-    <!-- Precision Top Bar -->
+    <!-- Clean Header Bar (Well Below Status Bar; Slots Moved to Body) -->
     <header class="top-bar">
-      <button type="button" class="net-chip" onclick="pollBackendStatus()">
-        <span class="status-dot" id="headerOrb"></span>
-        <span class="net-label" id="netSummaryText">Online</span>
-      </button>
-
-      <div class="slot-bar" id="slotStrip">
-        <button type="button" class="slot-pill active" data-slot="0" onclick="selectSlot(0)">P1</button>
-        <button type="button" class="slot-pill" data-slot="1" onclick="selectSlot(1)">P2</button>
-        <button type="button" class="slot-pill" data-slot="2" onclick="selectSlot(2)">P3</button>
-        <button type="button" class="slot-pill" data-slot="3" onclick="selectSlot(3)">P4</button>
-        <button type="button" class="slot-pill" data-slot="4" onclick="selectSlot(4)">P5</button>
+      <div class="brand-row">
+        <span class="brand-dot" id="headerOrb"></span>
+        <span class="brand-title">NAMELESS PROXY</span>
       </div>
+
+      <button type="button" class="net-chip" onclick="pollBackendStatus()">
+        <span class="net-label" id="netSummaryText">Online</span>
+        <span class="user-badge" id="userProfileBadge">U0 Owner</span>
+      </button>
     </header>
 
-    <!-- Main Viewport -->
+    <!-- Main Viewport (Flex-1 Between Top Header and Bottom Dock) -->
     <main class="viewport">
-      <!-- TAB 0: DASHBOARD & PROXY (DPI-INDEPENDENT, FITS SCREEN) -->
+      <!-- TAB 0: ADGUARD × FLCLASH LIQUID GLASS DASHBOARD -->
       <section class="tab-view active" id="tab-0">
-        <!-- 1. Tactical Telemetry & Power Card -->
+        <!-- 1. Hero Master Connection Card -->
         <div class="card telemetry-card">
           <div class="tel-top">
             <div class="tel-info">
@@ -71,7 +68,16 @@
           </div>
         </div>
 
-        <!-- 2. Precision 3-Module Switch Strip -->
+        <!-- 2. Dedicated 5-Slot Selector Row (Centered in Thumb Zone, Never in Status Bar) -->
+        <div class="slot-row" id="slotStrip">
+          <button type="button" class="slot-pill active" data-slot="0" onclick="selectSlot(0)">Slot 1</button>
+          <button type="button" class="slot-pill" data-slot="1" onclick="selectSlot(1)">Slot 2</button>
+          <button type="button" class="slot-pill" data-slot="2" onclick="selectSlot(2)">Slot 3</button>
+          <button type="button" class="slot-pill" data-slot="3" onclick="selectSlot(3)">Slot 4</button>
+          <button type="button" class="slot-pill" data-slot="4" onclick="selectSlot(4)">Slot 5</button>
+        </div>
+
+        <!-- 3. Core Routing Controls (3 Essential Toggles; WebRTC & DNS Shield Always Built-In) -->
         <div class="module-strip">
           <button type="button" class="mod-tile on" id="pillHotspot" onclick="toggleHotspotSetting()">
             <div class="mod-head">
@@ -89,19 +95,19 @@
             <span class="mod-name">App Filter</span>
           </button>
 
-          <button type="button" class="mod-tile on" id="pillWebrtc" onclick="toggleWebrtcMode()">
+          <button type="button" class="mod-tile" id="pillBoot" onclick="toggleBootSetting()">
             <div class="mod-head">
-              <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              <span class="mod-state" id="lblWebrtcState">ON</span>
+              <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg>
+              <span class="mod-state" id="lblBootState">OFF</span>
             </div>
-            <span class="mod-name">WebRTC</span>
+            <span class="mod-name">Fast Boot</span>
           </button>
         </div>
 
-        <!-- 3. Endpoint Configuration Card (Auto-Persisted Silently) -->
+        <!-- 4. Endpoint Configuration Card (7 Non-UDP Protocols • Auto-Saved to /data/adb/nameless_proxy) -->
         <div class="card endpoint-card">
           <div class="card-bar">
-            <span class="card-heading" id="editingSlotTitle">SLOT P1 • SOCKS5</span>
+            <span class="card-heading" id="editingSlotTitle">SLOT 1 • SOCKS5</span>
             <div class="bar-actions">
               <button type="button" class="tool-btn" onclick="pasteUriFromClipboard()">
                 <svg class="svg-ico xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -114,7 +120,7 @@
             </div>
           </div>
 
-          <!-- 8 Protocol Buttons -->
+          <!-- 7 Streamlined TCP-Capable Protocol Chips -->
           <div class="proto-matrix" id="protoGrid">
             <button type="button" class="proto-chip active" data-proto="SOCKS5" onclick="setProtocol('SOCKS5')">SOCKS5</button>
             <button type="button" class="proto-chip" data-proto="HTTP" onclick="setProtocol('HTTP')">HTTP</button>
@@ -123,7 +129,6 @@
             <button type="button" class="proto-chip" data-proto="VLESS" onclick="setProtocol('VLESS')">VLESS</button>
             <button type="button" class="proto-chip" data-proto="VMESS" onclick="setProtocol('VMESS')">VMESS</button>
             <button type="button" class="proto-chip" data-proto="TROJAN" onclick="setProtocol('TROJAN')">TROJAN</button>
-            <button type="button" class="proto-chip" data-proto="HYSTERIA2" onclick="setProtocol('HYSTERIA2')">HY2</button>
           </div>
 
           <!-- Server Host / IP + Port -->
@@ -146,8 +151,15 @@
             </div>
 
             <div class="inp-group hidden" id="groupCipher">
-              <label class="inp-lbl" for="inpCipher">CIPHER</label>
-              <input type="text" id="inpCipher" class="field-inp" placeholder="chacha20-ietf-poly1305" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+              <label class="inp-lbl" for="inpCipher">SHADOWSOCKS CIPHER</label>
+              <select id="inpCipher" class="field-inp" onchange="onFormEdited()">
+                <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                <option value="aes-256-gcm">aes-256-gcm</option>
+                <option value="aes-128-gcm">aes-128-gcm</option>
+                <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
+                <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+                <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
+              </select>
             </div>
 
             <div class="inp-group" id="groupPass">
@@ -161,10 +173,53 @@
             </div>
           </div>
 
-          <!-- Dynamic TLS SNI -->
-          <div class="inp-group hidden" id="groupSni">
-            <label class="inp-lbl" for="inpSni" id="lblSni">TLS SNI</label>
-            <input type="text" id="inpSni" class="field-inp" placeholder="Server Name (SNI)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+          <!-- Dynamic VMess Security & Alter ID -->
+          <div class="row-host-port hidden" id="groupVmessOpts">
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpVmessSec">VMESS SECURITY</label>
+              <select id="inpVmessSec" class="field-inp" onchange="onFormEdited()">
+                <option value="auto">auto</option>
+                <option value="aes-128-gcm">aes-128-gcm</option>
+                <option value="chacha20-poly1305">chacha20-poly1305</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpAlterId">ALTER ID</label>
+              <input type="number" id="inpAlterId" class="field-inp" placeholder="0" value="0" autocomplete="off" oninput="onFormEdited()" />
+            </div>
+          </div>
+
+          <!-- Dynamic VLESS Flow & Transport Selector -->
+          <div class="row-host-port hidden" id="groupTransport">
+            <div class="inp-group" id="groupVlessFlow">
+              <label class="inp-lbl" for="inpFlow">VLESS FLOW</label>
+              <select id="inpFlow" class="field-inp" onchange="onFormEdited()">
+                <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpTransport">TRANSPORT</label>
+              <select id="inpTransport" class="field-inp" onchange="onFormEdited()">
+                <option value="tcp">TCP</option>
+                <option value="ws">WebSocket (WS)</option>
+                <option value="grpc">gRPC</option>
+                <option value="httpupgrade">HTTPUpgrade</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Dynamic TLS SNI & WS/gRPC Path -->
+          <div class="creds-grid hidden" id="groupSni">
+            <div class="inp-group">
+              <label class="inp-lbl" for="inpSni" id="lblSni">TLS SNI / HOST</label>
+              <input type="text" id="inpSni" class="field-inp" placeholder="Server Name (SNI)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            </div>
+            <div class="inp-group" id="groupWsPath">
+              <label class="inp-lbl" for="inpWsPath">WS PATH / GRPC SERVICE</label>
+              <input type="text" id="inpWsPath" class="field-inp" placeholder="/path (optional)" autocomplete="off" spellcheck="false" oninput="onFormEdited()" />
+            </div>
           </div>
 
           <!-- Dynamic VLESS Reality -->
@@ -191,13 +246,14 @@
         <div class="checker-slot" id="checkerPlaceholder"></div>
       </section>
 
-      <!-- TAB 2: PER-APP SPLIT TUNNEL -->
+      <!-- TAB 2: PER-APP SPLIT TUNNEL (FLCLASH WHITELIST / BLACKLIST DRAWER) -->
       <section class="tab-view no-scroll" id="tab-2">
         <div class="card flex-card">
           <div class="card-bar">
             <div class="bar-actions">
-              <button type="button" class="tool-btn active" id="btnAllApps" onclick="setAppRouteMode(true)">All Apps</button>
-              <button type="button" class="tool-btn" id="btnSelApps" onclick="setAppRouteMode(false)">Selected</button>
+              <button type="button" class="tool-btn active" id="btnAllApps" onclick="setAppRouteMode('ALL')">All Apps</button>
+              <button type="button" class="tool-btn" id="btnSelApps" onclick="setAppRouteMode('WHITELIST')">Proxy Selected</button>
+              <button type="button" class="tool-btn" id="btnBypassApps" onclick="setAppRouteMode('BLACKLIST')">Bypass</button>
             </div>
             <div class="bar-actions">
               <button type="button" class="tool-btn" onclick="selectAllApps()">All</button>
@@ -230,7 +286,7 @@
       </section>
     </main>
 
-    <!-- Precision SVG Bottom Navigation Dock -->
+    <!-- Flex-Docked Bottom Navigation Bar (Never Covered by 3-Button Navigation) -->
     <nav class="bottom-dock" id="bottomDock">
       <button type="button" class="dock-btn active" data-tab="0" onclick="switchTab(0)">
         <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>

@@ -5,25 +5,16 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Crisp Manga Paper White Base -->
+    <!-- Deep Slate Liquid Glass Backdrop (#0F172A) -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#0F172A"
         android:pathData="M0,0h108v108h-108z" />
 
-    <!-- Subtle Manga Panel Ink Splatter & Grit Dots -->
+    <!-- Subtle Ambient Emerald Glow Behind Android Robot -->
     <path
-        android:fillColor="#1A1A1A"
-        android:pathData="
-            M22,23 A0.6,0.6 0 1,0 22,24.2 A0.6,0.6 0 1,0 22,23 Z
-            M19,63 A0.5,0.5 0 1,0 19,64 A0.5,0.5 0 1,0 19,63 Z
-            M24,68 A0.7,0.7 0 1,0 24,69.4 A0.7,0.7 0 1,0 24,68 Z
-            M84,65 A0.6,0.6 0 1,0 84,66.2 A0.6,0.7 0 1,0 84,65 Z
-            M79,72 L81,71.2
-            M21,76 L22.5,75.5" />
-
+        android:fillColor="#132338"
+        android:pathData="M54,14 A40,40 0 1,0 54,94 A40,40 0 1,0 54,14 Z" />
     <path
-        android:strokeColor="#222222"
-        android:strokeWidth="0.7"
-        android:strokeLineCap="round"
-        android:pathData="M78,72 L80.5,71 M23,67 L24,67.5 M83,58 L84,58.5" />
+        android:fillColor="#162E3F"
+        android:pathData="M54,22 A32,32 0 1,0 54,86 A32,32 0 1,0 54,22 Z" />
 </vector>

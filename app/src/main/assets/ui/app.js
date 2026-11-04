@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • Obsidian-Cobalt Controller (Multi-User Safe & Auto-Saving)
+// Nameless Proxy • AdGuard × FlClash Liquid Glass Controller
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -11,8 +11,51 @@ const defaultSlot = () => ({
   sni: "",
   ssMethod: "chacha20-ietf-poly1305",
   realityPublicKey: "",
-  realityShortId: ""
+  realityShortId: "",
+  flow: "xtls-rprx-vision",
+  vmessSecurity: "auto",
+  alterId: 0,
+  transport: "tcp",
+  wsPath: ""
 });
+
+const PROTO_SCHEMAS = {
+  SOCKS5: {
+    fields: ["user", "pass"],
+    labels: { user: "USERNAME", pass: "PASSWORD" },
+    placeholders: { user: "Optional", pass: "Optional" }
+  },
+  SOCKS4: {
+    fields: ["user"],
+    labels: { user: "USER ID (OPTIONAL)" },
+    placeholders: { user: "Optional" }
+  },
+  HTTP: {
+    fields: ["user", "pass", "sni"],
+    labels: { user: "USERNAME", pass: "PASSWORD", sni: "TLS SNI (OPTIONAL)" },
+    placeholders: { user: "Optional", pass: "Optional" }
+  },
+  SHADOWSOCKS: {
+    fields: ["cipher", "pass"],
+    labels: { pass: "PASSWORD / PSK" },
+    placeholders: { pass: "Required" }
+  },
+  VMESS: {
+    fields: ["user", "vmessOpts", "transport", "sni", "wsPath"],
+    labels: { user: "VMESS UUID", sni: "TLS SNI / HOST" },
+    placeholders: { user: "UUID (e.g. b831381d-...)" }
+  },
+  VLESS: {
+    fields: ["user", "vlessFlow", "transport", "sni", "wsPath", "reality"],
+    labels: { user: "VLESS UUID", sni: "TLS / REALITY SNI" },
+    placeholders: { user: "UUID (e.g. b831381d-...)" }
+  },
+  TROJAN: {
+    fields: ["pass", "transport", "sni", "wsPath"],
+    labels: { pass: "TROJAN PASSWORD", sni: "TLS SNI" },
+    placeholders: { pass: "Required" }
+  }
+};
 
 let state = {
   myUserId: 0,
@@ -23,9 +66,10 @@ let state = {
   isTransitioning: false,
   routeHotspot: true,
   routeAllApps: true,
+  appFilterMode: "WHITELIST",
+  bootOnStart: false,
   selectedUids: [],
   installedApps: [],
-  webrtcMode: "SPOOF",
   checkerUrl: "https://ipfighter.com",
   sessionStartMs: 0,
   slots: [defaultSlot(), defaultSlot(), defaultSlot(), defaultSlot(), defaultSlot()],
@@ -73,6 +117,10 @@ function initApp() {
       const raw = JSON.parse(window.NamelessBridge.getInitialState() || "{}");
       if (typeof raw.userId === "number") {
         state.myUserId = raw.userId;
+        const badge = document.getElementById("userProfileBadge");
+        if (badge) {
+          badge.textContent = raw.userId === 0 ? "U0 Owner" : `User ${raw.userId}`;
+        }
       }
       if (raw.network) {
         document.getElementById("netSummaryText").textContent = raw.network;
@@ -80,13 +128,14 @@ function initApp() {
       if (raw.slotsJson) {
         const parsed = JSON.parse(raw.slotsJson);
         if (Array.isArray(parsed.slots) && parsed.slots.length === 5) {
-          state.slots = parsed.slots;
+          state.slots = parsed.slots.map(s => Object.assign(defaultSlot(), s || {}));
         }
         if (typeof parsed.activeSlot === "number") state.activeSlot = parsed.activeSlot;
         if (typeof parsed.routeHotspot === "boolean") state.routeHotspot = parsed.routeHotspot;
         if (typeof parsed.routeAllApps === "boolean") state.routeAllApps = parsed.routeAllApps;
+        if (parsed.appFilterMode) state.appFilterMode = parsed.appFilterMode;
+        if (typeof parsed.bootOnStart === "boolean") state.bootOnStart = parsed.bootOnStart;
         if (Array.isArray(parsed.selectedUids)) state.selectedUids = parsed.selectedUids;
-        if (parsed.webrtcMode) state.webrtcMode = parsed.webrtcMode;
       }
       if (raw.status) {
         applyPolledStatus(raw.status, true);
@@ -116,20 +165,22 @@ function buildSlotsPayload() {
     activeSlot: state.activeSlot,
     routeHotspot: state.routeHotspot,
     routeAllApps: state.routeAllApps,
+    appFilterMode: state.appFilterMode,
+    bootOnStart: state.bootOnStart,
     selectedUids: state.selectedUids,
-    webrtcMode: state.webrtcMode,
+    webrtcMode: "SPOOF",
     slots: state.slots
   });
 }
 
-// Silently and automatically saves to SharedPreferences and /data/adb/nameless_proxy/
+// Silently and automatically saves to SharedPreferences, /data/adb/nameless_proxy/, and /data/adb/service.d/
 function persistAllSlots() {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveDebounceTimer = setTimeout(() => {
     if (window.NamelessBridge) {
       window.NamelessBridge.saveSlots(buildSlotsPayload());
     }
-  }, 300);
+  }, 250);
 }
 
 function selectSlot(idx) {
@@ -150,7 +201,7 @@ function renderSlotCapsules() {
   });
 
   const cur = state.slots[state.activeSlot] || defaultSlot();
-  document.getElementById("editingSlotTitle").textContent = `SLOT P${state.activeSlot + 1} • ${cur.type || "SOCKS5"}`;
+  document.getElementById("editingSlotTitle").textContent = `SLOT ${state.activeSlot + 1} • ${cur.type || "SOCKS5"}`;
 
   const coreBtn = document.getElementById("coreBtn");
   const coreIcon = document.getElementById("coreIcon");
@@ -169,83 +220,45 @@ function renderSlotCapsules() {
 
 function updateProtocolFieldsUI(proto) {
   const p = (proto || "SOCKS5").toUpperCase();
+  const schema = PROTO_SCHEMAS[p] || PROTO_SCHEMAS.SOCKS5;
 
   const credsGrid = document.getElementById("credsGrid");
   const groupUser = document.getElementById("groupUser");
   const groupCipher = document.getElementById("groupCipher");
   const groupPass = document.getElementById("groupPass");
+  const groupVmessOpts = document.getElementById("groupVmessOpts");
+  const groupTransport = document.getElementById("groupTransport");
+  const groupVlessFlow = document.getElementById("groupVlessFlow");
   const groupSni = document.getElementById("groupSni");
+  const groupWsPath = document.getElementById("groupWsPath");
   const groupReality = document.getElementById("groupReality");
 
-  const lblUser = document.getElementById("lblUser");
-  const inpUser = document.getElementById("inpUser");
-  const lblPass = document.getElementById("lblPass");
-  const inpPass = document.getElementById("inpPass");
-  const lblSni = document.getElementById("lblSni");
+  const hasUser = schema.fields.includes("user");
+  const hasCipher = schema.fields.includes("cipher");
+  const hasPass = schema.fields.includes("pass");
+  const hasSni = schema.fields.includes("sni");
+  const hasWsPath = schema.fields.includes("wsPath");
 
-  groupUser.classList.add("hidden");
-  groupCipher.classList.add("hidden");
-  groupPass.classList.add("hidden");
-  groupSni.classList.add("hidden");
-  groupReality.classList.add("hidden");
-  credsGrid.classList.remove("single-col");
+  groupUser.classList.toggle("hidden", !hasUser);
+  groupCipher.classList.toggle("hidden", !hasCipher);
+  groupPass.classList.toggle("hidden", !hasPass);
+  groupVmessOpts.classList.toggle("hidden", !schema.fields.includes("vmessOpts"));
+  groupTransport.classList.toggle("hidden", !schema.fields.includes("transport"));
+  groupVlessFlow.classList.toggle("hidden", !schema.fields.includes("vlessFlow"));
+  groupSni.classList.toggle("hidden", !hasSni);
+  groupWsPath.classList.toggle("hidden", !hasWsPath);
+  groupReality.classList.toggle("hidden", !schema.fields.includes("reality"));
 
-  if (p === "SOCKS5") {
-    groupUser.classList.remove("hidden");
-    groupPass.classList.remove("hidden");
-    lblUser.textContent = "USERNAME";
-    inpUser.placeholder = "Optional";
-    lblPass.textContent = "PASSWORD";
-    inpPass.placeholder = "Optional";
-  } else if (p === "HTTP") {
-    groupUser.classList.remove("hidden");
-    groupPass.classList.remove("hidden");
-    groupSni.classList.remove("hidden");
-    lblUser.textContent = "USERNAME";
-    inpUser.placeholder = "Optional";
-    lblPass.textContent = "PASSWORD";
-    inpPass.placeholder = "Optional";
-    lblSni.textContent = "TLS SNI (OPTIONAL)";
-  } else if (p === "SOCKS4") {
-    groupUser.classList.remove("hidden");
-    credsGrid.classList.add("single-col");
-    lblUser.textContent = "USER ID (OPTIONAL)";
-    inpUser.placeholder = "Optional";
-  } else if (p === "SHADOWSOCKS") {
-    groupCipher.classList.remove("hidden");
-    groupPass.classList.remove("hidden");
-    lblPass.textContent = "PASSWORD / PSK";
-    inpPass.placeholder = "Required";
-  } else if (p === "VLESS") {
-    groupUser.classList.remove("hidden");
-    credsGrid.classList.add("single-col");
-    groupSni.classList.remove("hidden");
-    groupReality.classList.remove("hidden");
-    lblUser.textContent = "VLESS UUID";
-    inpUser.placeholder = "UUID";
-    lblSni.textContent = "TLS / REALITY SNI";
-  } else if (p === "VMESS") {
-    groupUser.classList.remove("hidden");
-    credsGrid.classList.add("single-col");
-    groupSni.classList.remove("hidden");
-    lblUser.textContent = "VMESS UUID";
-    inpUser.placeholder = "UUID";
-    lblSni.textContent = "TLS SNI / HOST";
-  } else if (p === "TROJAN") {
-    groupPass.classList.remove("hidden");
-    credsGrid.classList.add("single-col");
-    groupSni.classList.remove("hidden");
-    lblPass.textContent = "TROJAN PASSWORD";
-    inpPass.placeholder = "Required";
-    lblSni.textContent = "TLS SNI";
-  } else if (p === "HYSTERIA2") {
-    groupPass.classList.remove("hidden");
-    credsGrid.classList.add("single-col");
-    groupSni.classList.remove("hidden");
-    lblPass.textContent = "HYSTERIA2 PASSWORD";
-    inpPass.placeholder = "Required";
-    lblSni.textContent = "TLS SNI";
-  }
+  const visibleCreds = [hasUser, hasCipher, hasPass].filter(Boolean).length;
+  credsGrid.classList.toggle("single-col", visibleCreds === 1);
+  groupSni.classList.toggle("single-col", !hasWsPath);
+
+  if (schema.labels.user) document.getElementById("lblUser").textContent = schema.labels.user;
+  if (schema.labels.pass) document.getElementById("lblPass").textContent = schema.labels.pass;
+  if (schema.labels.sni) document.getElementById("lblSni").textContent = schema.labels.sni;
+
+  if (schema.placeholders.user) document.getElementById("inpUser").placeholder = schema.placeholders.user;
+  if (schema.placeholders.pass) document.getElementById("inpPass").placeholder = schema.placeholders.pass;
 }
 
 function togglePasswordVisibility() {
@@ -254,7 +267,7 @@ function togglePasswordVisibility() {
   const svg = document.getElementById("eyeIconSvg");
   if (inpPass) inpPass.type = state.showPassword ? "text" : "password";
   if (svg) {
-    svg.style.color = state.showPassword ? "#60A5FA" : "";
+    svg.style.color = state.showPassword ? "#3DDC84" : "";
   }
 }
 
@@ -265,17 +278,25 @@ function renderQuickPills() {
 
   const appsPill = document.getElementById("pillApps");
   appsPill.classList.toggle("on", true);
-  document.getElementById("lblAppsState").textContent = state.routeAllApps
-    ? "ALL"
-    : `${state.selectedUids.length}`;
+  if (state.routeAllApps) {
+    document.getElementById("lblAppsState").textContent = "ALL";
+  } else {
+    const prefix = state.appFilterMode === "BLACKLIST" ? "BL:" : "WL:";
+    document.getElementById("lblAppsState").textContent = `${prefix}${state.selectedUids.length}`;
+  }
 
-  const rtcPill = document.getElementById("pillWebrtc");
-  const isSpoof = state.webrtcMode !== "DISABLE";
-  rtcPill.classList.toggle("on", isSpoof);
-  document.getElementById("lblWebrtcState").textContent = isSpoof ? "ON" : "OFF";
+  const bootPill = document.getElementById("pillBoot");
+  if (bootPill) {
+    bootPill.classList.toggle("on", state.bootOnStart);
+    document.getElementById("lblBootState").textContent = state.bootOnStart ? "ON" : "OFF";
+  }
 
   document.getElementById("btnAllApps").classList.toggle("active", state.routeAllApps);
-  document.getElementById("btnSelApps").classList.toggle("active", !state.routeAllApps);
+  document.getElementById("btnSelApps").classList.toggle("active", !state.routeAllApps && state.appFilterMode === "WHITELIST");
+  const btnBypass = document.getElementById("btnBypassApps");
+  if (btnBypass) {
+    btnBypass.classList.toggle("active", !state.routeAllApps && state.appFilterMode === "BLACKLIST");
+  }
 }
 
 function toggleHotspotSetting() {
@@ -284,14 +305,25 @@ function toggleHotspotSetting() {
   persistAllSlots();
 }
 
-function toggleWebrtcMode() {
-  state.webrtcMode = state.webrtcMode === "SPOOF" ? "DISABLE" : "SPOOF";
+function toggleBootSetting() {
+  state.bootOnStart = !state.bootOnStart;
   renderQuickPills();
   persistAllSlots();
+  if (window.NamelessBridge) {
+    window.NamelessBridge.showToast(state.bootOnStart ? "Fast-Boot (service.d) Enabled" : "Fast-Boot Disabled");
+  }
 }
 
-function setAppRouteMode(all) {
-  state.routeAllApps = !!all;
+function setAppRouteMode(mode) {
+  if (mode === true || mode === "ALL") {
+    state.routeAllApps = true;
+  } else if (mode === "BLACKLIST") {
+    state.routeAllApps = false;
+    state.appFilterMode = "BLACKLIST";
+  } else {
+    state.routeAllApps = false;
+    state.appFilterMode = "WHITELIST";
+  }
   renderQuickPills();
   renderAppsList();
   persistAllSlots();
@@ -350,8 +382,10 @@ function renderAppsList() {
 }
 
 function loadSlotIntoForm(idx) {
-  const s = state.slots[idx] || defaultSlot();
-  const proto = (s.type || "SOCKS5").toUpperCase();
+  const s = Object.assign(defaultSlot(), state.slots[idx] || {});
+  let proto = (s.type || "SOCKS5").toUpperCase();
+  if (!PROTO_SCHEMAS[proto]) proto = "SOCKS5";
+  s.type = proto;
 
   document.getElementById("inpHost").value = s.host || "";
   document.getElementById("inpPort").value = s.port || 1080;
@@ -361,6 +395,11 @@ function loadSlotIntoForm(idx) {
   document.getElementById("inpCipher").value = s.ssMethod || "chacha20-ietf-poly1305";
   document.getElementById("inpExtra").value = s.realityPublicKey || "";
   document.getElementById("inpShortId").value = s.realityShortId || "";
+  document.getElementById("inpFlow").value = s.flow || "xtls-rprx-vision";
+  document.getElementById("inpVmessSec").value = s.vmessSecurity || "auto";
+  document.getElementById("inpAlterId").value = typeof s.alterId === "number" ? s.alterId : 0;
+  document.getElementById("inpTransport").value = s.transport || "tcp";
+  document.getElementById("inpWsPath").value = s.wsPath || "";
 
   document.querySelectorAll(".proto-chip").forEach(btn => {
     btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
@@ -370,7 +409,7 @@ function loadSlotIntoForm(idx) {
 }
 
 function saveFormIntoSlot(idx) {
-  const s = state.slots[idx] || defaultSlot();
+  const s = Object.assign(defaultSlot(), state.slots[idx] || {});
   const proto = (s.type || "SOCKS5").toUpperCase();
 
   s.host = (document.getElementById("inpHost").value || "").trim();
@@ -381,6 +420,11 @@ function saveFormIntoSlot(idx) {
   s.ssMethod = (document.getElementById("inpCipher").value || "chacha20-ietf-poly1305").trim();
   s.realityPublicKey = (document.getElementById("inpExtra").value || "").trim();
   s.realityShortId = (document.getElementById("inpShortId").value || "").trim();
+  s.flow = (document.getElementById("inpFlow").value || "xtls-rprx-vision").trim();
+  s.vmessSecurity = (document.getElementById("inpVmessSec").value || "auto").trim();
+  s.alterId = parseInt(document.getElementById("inpAlterId").value || "0", 10) || 0;
+  s.transport = (document.getElementById("inpTransport").value || "tcp").trim();
+  s.wsPath = (document.getElementById("inpWsPath").value || "").trim();
 
   if ((proto === "VLESS" || proto === "VMESS") && s.username && !s.password) {
     s.password = s.username;
@@ -432,8 +476,8 @@ function pasteUriFromClipboard() {
   try {
     const parsed = JSON.parse(window.NamelessBridge.importClipboardUri() || "{}");
     if (parsed.host) {
-      const s = state.slots[state.activeSlot];
-      s.type = parsed.type || "SOCKS5";
+      const s = Object.assign(defaultSlot(), state.slots[state.activeSlot]);
+      s.type = PROTO_SCHEMAS[parsed.type] ? parsed.type : "SOCKS5";
       s.host = parsed.host || "";
       s.port = parsed.port || 1080;
       s.username = parsed.username || "";
@@ -441,10 +485,16 @@ function pasteUriFromClipboard() {
       s.sni = parsed.sni || "";
       s.realityPublicKey = parsed.realityPublicKey || "";
       s.realityShortId = parsed.realityShortId || "";
+      if (parsed.flow) s.flow = parsed.flow;
+      if (parsed.vmessSecurity) s.vmessSecurity = parsed.vmessSecurity;
+      if (typeof parsed.alterId === "number") s.alterId = parsed.alterId;
+      if (parsed.transport) s.transport = parsed.transport;
+      if (parsed.wsPath) s.wsPath = parsed.wsPath;
+      state.slots[state.activeSlot] = s;
       loadSlotIntoForm(state.activeSlot);
       renderSlotCapsules();
       persistAllSlots();
-      window.NamelessBridge.showToast("Pasted into P" + (state.activeSlot + 1));
+      window.NamelessBridge.showToast("Pasted into Slot " + (state.activeSlot + 1));
     } else {
       window.NamelessBridge.showToast("Invalid clipboard URI");
     }
@@ -471,7 +521,8 @@ function toggleTunnel() {
       slot: state.activeSlot,
       routeHotspot: state.routeHotspot,
       targetUids: targetUidsStr,
-      webrtcMode: state.webrtcMode
+      appFilterMode: state.appFilterMode,
+      webrtcMode: "SPOOF"
     });
     if (!cfg.host || cfg.host.trim() === "") {
       document.getElementById("inpHost").focus();
@@ -545,7 +596,7 @@ function applyPolledStatus(st, firstInit) {
       state.prevTime = Date.now();
     }
     if (!state.isTransitioning) {
-      coreStateText.textContent = `ACTIVE • P${(state.runningSlot || 0) + 1}`;
+      coreStateText.textContent = `CONNECTED • SLOT ${(state.runningSlot || 0) + 1}`;
     }
     coreTimerText.textContent = formatDuration(Date.now() - state.sessionStartMs);
 
@@ -614,7 +665,7 @@ function mountEmbeddedChecker(url) {
     const vh = document.documentElement.clientHeight || window.innerHeight || 800;
     const rect = slot && slot.getBoundingClientRect().height > 10
       ? slot.getBoundingClientRect()
-      : { left: 12, top: 108, right: vw - 12, bottom: vh - 64 };
+      : { left: 12, top: 104, right: vw - 12, bottom: vh - 62 };
     const topRatio = Math.max(0.08, Math.min(0.30, rect.top / vh));
     const bottomRatio = Math.max(0.05, Math.min(0.22, (vh - rect.bottom) / vh));
     const sideRatio = Math.max(0.01, Math.min(0.08, rect.left / vw));
@@ -694,7 +745,7 @@ function importAllSlots() {
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.slots) && parsed.slots.length === 5) {
-        state.slots = parsed.slots;
+        state.slots = parsed.slots.map(s => Object.assign(defaultSlot(), s || {}));
         loadSlotIntoForm(state.activeSlot);
         renderSlotCapsules();
         window.NamelessBridge.showToast("Imported 5 slots");

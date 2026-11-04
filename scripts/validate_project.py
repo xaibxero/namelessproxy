@@ -43,7 +43,7 @@ def main():
         print("ERROR: Missing android.intent.category.LAUNCHER in AndroidManifest.xml", file=sys.stderr)
         sys.exit(1)
 
-    # 2. Verify tunnel.sh safety and proven v20 Table 2088 rules (no unsupported `ipproto tcp` in ip rule!)
+    # 2. Verify tunnel.sh safety and Table 2088 rules
     with open("app/src/main/assets/tunnel.sh", "r", encoding="utf-8") as f:
         sh_text = f.read()
     if "private_dns_mode off" in sh_text:
@@ -59,11 +59,11 @@ def main():
         print("ERROR: tunnel.sh missing Table 2088 uidrange rule!", file=sys.stderr)
         sys.exit(1)
 
-    # 3. Verify style.css has zero animations or transitions
+    # 3. Verify style.css has Liquid Glass backdrop-filter and Android Green (#3DDC84)
     with open("app/src/main/assets/ui/style.css", "r", encoding="utf-8") as f:
         css_text = f.read()
-    if "@keyframes" in css_text or "transition:" in css_text:
-        print("ERROR: style.css must not contain @keyframes or transition properties!", file=sys.stderr)
+    if "#3DDC84" not in css_text or "backdrop-filter" not in css_text:
+        print("ERROR: style.css missing Liquid Glass backdrop-filter or Android Green #3DDC84!", file=sys.stderr)
         sys.exit(1)
 
     # 4. Verify all NamelessBridge calls in app.js exist in MainActivity.java
@@ -97,7 +97,7 @@ def main():
         print(f"ERROR: index.html onclick references missing JS functions: {missing_fns}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Verified {len(js_bridge_calls)} Bridge methods, {len(js_ids)} DOM IDs, and {len(onclick_fns)} UI handlers (Zero animations/transitions).")
+    print(f"Verified {len(js_bridge_calls)} Bridge methods, {len(js_ids)} DOM IDs, and {len(onclick_fns)} UI handlers (Liquid Glass + 7 Protocols).")
     print("Nameless Proxy Multi-Language Validation: ALL CHECKS PASSED")
 
 if __name__ == "__main__":
