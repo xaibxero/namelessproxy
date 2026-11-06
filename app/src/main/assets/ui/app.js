@@ -1,5 +1,5 @@
 // ============================================================================
-// Nameless Proxy • AdGuard × FlClash Liquid Glass Controller (Bubbly v33)
+// Nameless Proxy • Material 3 Expressive × Deep Liquid Glass Controller (v34)
 // ============================================================================
 
 const defaultSlot = () => ({
@@ -84,13 +84,27 @@ let state = {
 };
 
 let saveDebounceTimer = null;
+let liveAppReloadTimer = null;
 let transitionResetTimer = null;
+let popupHideTimer = null;
 
 function triggerBubblePop(el) {
   if (!el) return;
   el.classList.remove("bubble-pop");
   void el.offsetWidth;
   el.classList.add("bubble-pop");
+}
+
+function showGlassPopup(msg) {
+  const popup = document.getElementById("glassPopup");
+  const txt = document.getElementById("glassPopupText");
+  if (!popup || !txt) return;
+  txt.textContent = msg;
+  popup.classList.add("show");
+  if (popupHideTimer) clearTimeout(popupHideTimer);
+  popupHideTimer = setTimeout(() => {
+    popup.classList.remove("show");
+  }, 1900);
 }
 
 function flagEmojiFromCode(cc) {
@@ -142,9 +156,9 @@ function initApp() {
         if (typeof parsed.activeSlot === "number") state.activeSlot = parsed.activeSlot;
         if (typeof parsed.routeHotspot === "boolean") state.routeHotspot = parsed.routeHotspot;
         if (typeof parsed.routeAllApps === "boolean") state.routeAllApps = parsed.routeAllApps;
-        if (parsed.appFilterMode) state.appFilterMode = parsed.appFilterMode;
         if (typeof parsed.bootOnStart === "boolean") state.bootOnStart = parsed.bootOnStart;
         if (Array.isArray(parsed.selectedUids)) state.selectedUids = parsed.selectedUids;
+        if (state.selectedUids.length === 0) state.routeAllApps = true;
       }
       if (raw.status) {
         applyPolledStatus(raw.status, true);
@@ -156,6 +170,7 @@ function initApp() {
         const appsRaw = JSON.parse(window.NamelessBridge.getInstalledApps() || "[]");
         if (Array.isArray(appsRaw)) {
           state.installedApps = appsRaw;
+          renderQuickPills();
           renderAppsList();
         }
       } catch (e) {}
@@ -174,7 +189,7 @@ function buildSlotsPayload() {
     activeSlot: state.activeSlot,
     routeHotspot: state.routeHotspot,
     routeAllApps: state.routeAllApps,
-    appFilterMode: state.appFilterMode,
+    appFilterMode: "WHITELIST",
     bootOnStart: state.bootOnStart,
     selectedUids: state.selectedUids,
     webrtcMode: "SPOOF",
@@ -188,7 +203,29 @@ function persistAllSlots() {
     if (window.NamelessBridge) {
       window.NamelessBridge.saveSlots(buildSlotsPayload());
     }
-  }, 200);
+  }, 180);
+}
+
+function scheduleLiveReloadIfRunning(msg) {
+  persistAllSlots();
+  if (msg) showGlassPopup(msg);
+  if (!state.isRunning) return;
+  if (liveAppReloadTimer) clearTimeout(liveAppReloadTimer);
+  liveAppReloadTimer = setTimeout(() => {
+    if (!state.isRunning || !window.NamelessBridge) return;
+    const activeIdx = state.runningSlot !== null ? state.runningSlot : state.activeSlot;
+    const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
+      ? "ALL"
+      : state.selectedUids.join(",");
+    const cfg = Object.assign({}, state.slots[activeIdx], {
+      slot: activeIdx,
+      routeHotspot: state.routeHotspot,
+      targetUids: targetUidsStr,
+      appFilterMode: "WHITELIST",
+      webrtcMode: "SPOOF"
+    });
+    window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
+  }, 450);
 }
 
 function selectSlot(idx) {
@@ -198,6 +235,7 @@ function selectSlot(idx) {
   renderSlotCapsules();
   const btn = document.querySelector(`.slot-pill[data-slot="${idx}"]`);
   triggerBubblePop(btn);
+  showGlassPopup(`Slot ${idx + 1} Selected`);
   persistAllSlots();
 }
 
@@ -285,11 +323,10 @@ function renderQuickPills() {
 
   const appsPill = document.getElementById("pillApps");
   appsPill.classList.toggle("on", true);
-  if (state.routeAllApps) {
+  if (state.routeAllApps || state.selectedUids.length === 0) {
     document.getElementById("lblAppsState").textContent = "ALL";
   } else {
-    const prefix = state.appFilterMode === "BLACKLIST" ? "BYP:" : "SEL:";
-    document.getElementById("lblAppsState").textContent = `${prefix}${state.selectedUids.length}`;
+    document.getElementById("lblAppsState").textContent = `${state.selectedUids.length} APP`;
   }
 
   const bootPill = document.getElementById("pillBoot");
@@ -298,56 +335,42 @@ function renderQuickPills() {
     document.getElementById("lblBootState").textContent = state.bootOnStart ? "ON" : "OFF";
   }
 
-  document.getElementById("btnAllApps").classList.toggle("active", state.routeAllApps);
-  document.getElementById("btnSelApps").classList.toggle("active", !state.routeAllApps && state.appFilterMode === "WHITELIST");
-  const btnBypass = document.getElementById("btnBypassApps");
-  if (btnBypass) {
-    btnBypass.classList.toggle("active", !state.routeAllApps && state.appFilterMode === "BLACKLIST");
-  }
-
-  const banner = document.getElementById("appModeBanner");
+  const toggleBtn = document.getElementById("btnToggleSelectAll");
   const bannerTxt = document.getElementById("appModeBannerText");
-  if (banner && bannerTxt) {
-    banner.classList.toggle("bypass-mode", !state.routeAllApps && state.appFilterMode === "BLACKLIST");
+  const allSelected = state.routeAllApps || (state.installedApps.length > 0 && state.selectedUids.length === state.installedApps.length);
+
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("active", allSelected);
+    toggleBtn.textContent = allSelected ? "Deselect All" : "Select All";
+  }
+  if (bannerTxt) {
     if (state.routeAllApps) {
-      bannerTxt.textContent = "All Apps Mode: 100% of apps in this profile route through the proxy.";
-    } else if (state.appFilterMode === "BLACKLIST") {
-      bannerTxt.textContent = `Bypass Mode: ${state.selectedUids.length} selected app(s) bypass the proxy; all others use proxy.`;
+      bannerTxt.textContent = "All apps in this profile route through proxy";
+    } else if (state.selectedUids.length === 0) {
+      bannerTxt.textContent = "No app selected (tap apps to route)";
     } else {
-      bannerTxt.textContent = `Proxy Selected: Only ${state.selectedUids.length} selected app(s) route through the proxy.`;
+      bannerTxt.textContent = `${state.selectedUids.length} selected app(s) route through proxy`;
     }
   }
 }
 
-function applyLiveRouting() {
-  persistAllSlots();
-  triggerBubblePop(document.getElementById("btnApplyLiveApps"));
-  if (!state.isRunning) {
-    if (window.NamelessBridge) {
-      window.NamelessBridge.showToast("Saved! Connect tunnel to activate.");
-    }
-    return;
-  }
-  if (!state.routeAllApps && state.selectedUids.length === 0) {
-    if (window.NamelessBridge) {
-      window.NamelessBridge.showToast("Select at least 1 app or choose All Apps");
-    }
-    return;
-  }
-  const activeIdx = state.runningSlot !== null ? state.runningSlot : state.activeSlot;
-  const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
-    ? "ALL"
-    : state.selectedUids.join(",");
-  const cfg = Object.assign({}, state.slots[activeIdx], {
-    slot: activeIdx,
-    routeHotspot: state.routeHotspot,
-    targetUids: targetUidsStr,
-    appFilterMode: state.appFilterMode,
-    webrtcMode: "SPOOF"
-  });
-  if (window.NamelessBridge) {
-    window.NamelessBridge.showToast("Applying live routing rules...");
-    window.NamelessBridge.startTunnelAsync(JSON.stringify(cfg));
+function toggleSelectAllApps() {
+  const btn = document.getElementById("btnToggleSelectAll");
+  triggerBubblePop(btn);
+  const allSelected = state.routeAllApps || (state.installedApps.length > 0 && state.selectedUids.length === state.installedApps.length);
+  if (allSelected) {
+    state.routeAllApps = false;
+    state.selectedUids = [];
+    renderQuickPills();
+    renderAppsList();
+    persistAllSlots();
+    showGlassPopup("Deselected all apps • Tap specific apps to route");
+  } else {
+    state.routeAllApps = true;
+    state.selectedUids = [];
+    renderQuickPills();
+    renderAppsList();
+    scheduleLiveReloadIfRunning("All Profile Apps Enabled");
   }
 }
 
@@ -355,10 +378,7 @@ function toggleHotspotSetting() {
   state.routeHotspot = !state.routeHotspot;
   triggerBubblePop(document.getElementById("pillHotspot"));
   renderQuickPills();
-  persistAllSlots();
-  if (state.isRunning) {
-    applyLiveRouting();
-  }
+  scheduleLiveReloadIfRunning(state.routeHotspot ? "Hotspot Routing Enabled" : "Hotspot Routing Disabled");
 }
 
 function toggleBootSetting() {
@@ -366,60 +386,28 @@ function toggleBootSetting() {
   triggerBubblePop(document.getElementById("pillBoot"));
   renderQuickPills();
   persistAllSlots();
-  if (window.NamelessBridge) {
-    window.NamelessBridge.showToast(state.bootOnStart ? "Fast-Boot (service.d) Enabled" : "Fast-Boot Disabled");
-  }
+  showGlassPopup(state.bootOnStart ? "Fast-Boot (service.d) Enabled" : "Fast-Boot Disabled");
 }
 
-function setAppRouteMode(mode) {
-  if (mode === true || mode === "ALL") {
-    state.routeAllApps = true;
-    triggerBubblePop(document.getElementById("btnAllApps"));
-  } else if (mode === "BLACKLIST") {
-    state.routeAllApps = false;
-    state.appFilterMode = "BLACKLIST";
-    triggerBubblePop(document.getElementById("btnBypassApps"));
-  } else {
-    state.routeAllApps = false;
-    state.appFilterMode = "WHITELIST";
-    triggerBubblePop(document.getElementById("btnSelApps"));
-  }
-  renderQuickPills();
-  renderAppsList();
-  persistAllSlots();
-}
-
-function selectAllApps() {
+function toggleAppUid(uid, rowEl) {
+  if (rowEl) triggerBubblePop(rowEl);
   if (state.routeAllApps) {
     state.routeAllApps = false;
-    state.appFilterMode = "WHITELIST";
-  }
-  state.selectedUids = state.installedApps.map(a => a.uid);
-  renderQuickPills();
-  renderAppsList();
-  persistAllSlots();
-}
-
-function clearSelectedApps() {
-  state.selectedUids = [];
-  renderQuickPills();
-  renderAppsList();
-  persistAllSlots();
-}
-
-function toggleAppUid(uid) {
-  if (state.routeAllApps) {
-    state.routeAllApps = false;
-    state.appFilterMode = "WHITELIST";
     state.selectedUids = [uid];
   } else {
     const idx = state.selectedUids.indexOf(uid);
     if (idx >= 0) state.selectedUids.splice(idx, 1);
     else state.selectedUids.push(uid);
+    if (state.selectedUids.length === 0) {
+      state.routeAllApps = true;
+    }
   }
   renderQuickPills();
   renderAppsList();
-  persistAllSlots();
+  const msg = state.routeAllApps
+    ? "Routing All Profile Apps"
+    : `Routing ${state.selectedUids.length} Selected App(s)`;
+  scheduleLiveReloadIfRunning(msg);
 }
 
 function renderAppsList() {
@@ -432,38 +420,16 @@ function renderAppsList() {
   container.innerHTML = "";
   const frag = document.createDocumentFragment();
   filtered.forEach(app => {
-    const inList = state.selectedUids.includes(app.uid);
-    let rowClass = "app-row";
-    let badgeText = "OFF";
-    if (state.routeAllApps) {
-      rowClass = "app-row selected";
-      badgeText = "ALL";
-    } else if (state.appFilterMode === "BLACKLIST") {
-      if (inList) {
-        rowClass = "app-row bypassed";
-        badgeText = "BYPASS";
-      } else {
-        rowClass = "app-row selected";
-        badgeText = "PROXY";
-      }
-    } else {
-      if (inList) {
-        rowClass = "app-row selected";
-        badgeText = "PROXY";
-      } else {
-        rowClass = "app-row";
-        badgeText = "DIRECT";
-      }
-    }
+    const isChecked = state.routeAllApps || state.selectedUids.includes(app.uid);
     const row = document.createElement("div");
-    row.className = rowClass;
-    row.onclick = () => toggleAppUid(app.uid);
+    row.className = "app-row" + (isChecked ? " selected" : "");
+    row.onclick = () => toggleAppUid(app.uid, row);
     row.innerHTML = `
       <div>
         <div class="app-name">${app.name}</div>
         <div class="app-pkg">${app.pkg}</div>
       </div>
-      <div class="app-check">${badgeText}</div>
+      <div class="app-check"></div>
     `;
     frag.appendChild(row);
   });
@@ -552,6 +518,7 @@ function setProtocol(proto) {
   });
   updateProtocolFieldsUI(proto);
   renderSlotCapsules();
+  showGlassPopup(`Protocol: ${proto}`);
   persistAllSlots();
 }
 
@@ -560,6 +527,7 @@ function clearCurrentSlot() {
   loadSlotIntoForm(state.activeSlot);
   renderSlotCapsules();
   persistAllSlots();
+  showGlassPopup(`Slot ${state.activeSlot + 1} Cleared`);
 }
 
 function pasteUriFromClipboard() {
@@ -585,18 +553,13 @@ function pasteUriFromClipboard() {
       loadSlotIntoForm(state.activeSlot);
       renderSlotCapsules();
       persistAllSlots();
-      window.NamelessBridge.showToast("Pasted into Slot " + (state.activeSlot + 1));
+      showGlassPopup("Pasted into Slot " + (state.activeSlot + 1));
     } else {
-      window.NamelessBridge.showToast("Invalid clipboard URI");
+      showGlassPopup("Clipboard does not contain a valid proxy URI");
     }
   } catch (e) {}
 }
 
-/**
- * Toggles the tunnel ON or OFF.
- * Stopping is NEVER blocked by state.isTransitioning and locks transitionTarget = "STOP"
- * so background status polls never flip the UI back to CONNECTED while tunnel.sh stop completes.
- */
 function toggleTunnel() {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   saveFormIntoSlot(state.activeSlot);
@@ -611,6 +574,7 @@ function toggleTunnel() {
     document.getElementById("coreStateText").textContent = "STOPPING";
     document.getElementById("coreIcon").textContent = "WAIT";
     renderSlotCapsules();
+    showGlassPopup("Stopping Tunnel...");
     if (transitionResetTimer) clearTimeout(transitionResetTimer);
     transitionResetTimer = setTimeout(() => {
       state.isTransitioning = false;
@@ -625,14 +589,6 @@ function toggleTunnel() {
 
   if (state.isTransitioning) return;
 
-  if (!state.routeAllApps && state.selectedUids.length === 0) {
-    switchTab(2);
-    if (window.NamelessBridge) {
-      window.NamelessBridge.showToast("Select at least 1 app or choose All Apps");
-    }
-    return;
-  }
-
   const targetUidsStr = (state.routeAllApps || state.selectedUids.length === 0)
     ? "ALL"
     : state.selectedUids.join(",");
@@ -640,18 +596,19 @@ function toggleTunnel() {
     slot: state.activeSlot,
     routeHotspot: state.routeHotspot,
     targetUids: targetUidsStr,
-    appFilterMode: state.appFilterMode,
+    appFilterMode: "WHITELIST",
     webrtcMode: "SPOOF"
   });
   if (!cfg.host || cfg.host.trim() === "") {
     document.getElementById("inpHost").focus();
-    if (window.NamelessBridge) window.NamelessBridge.showToast("Enter Server Host & Port");
+    showGlassPopup("Enter Server Host & Port");
     return;
   }
   state.isTransitioning = true;
   state.transitionTarget = "START";
   document.getElementById("coreStateText").textContent = "STARTING";
   document.getElementById("coreIcon").textContent = "WAIT";
+  showGlassPopup(`Connecting Slot ${state.activeSlot + 1}...`);
   if (transitionResetTimer) clearTimeout(transitionResetTimer);
   transitionResetTimer = setTimeout(() => {
     state.isTransitioning = false;
@@ -676,10 +633,13 @@ window.onTunnelActionComplete = function(jsonStr) {
       document.body.dataset.state = "disconnected";
       document.getElementById("coreStateText").textContent = "OFFLINE";
       renderSlotCapsules();
+      showGlassPopup("Tunnel Stopped");
       return;
     }
-    if (!res.ok && res.error && window.NamelessBridge) {
-      window.NamelessBridge.showToast(res.error);
+    if (res.ok) {
+      showGlassPopup("Tunnel Connected • Shield Active");
+    } else if (res.error) {
+      showGlassPopup(res.error);
     }
   } catch (e) {}
   pollBackendStatus();
@@ -690,6 +650,7 @@ function pingCurrentNode() {
   const s = state.slots[state.activeSlot];
   if (!s.host) {
     document.getElementById("inpHost").focus();
+    showGlassPopup("Enter a host to ping");
     return;
   }
   document.getElementById("hubPingLabel").textContent = "...";
@@ -701,6 +662,7 @@ function pingCurrentNode() {
 window.onPingResult = function(ms) {
   const el = document.getElementById("hubPingLabel");
   el.textContent = ms > 0 ? `${ms} ms` : "Fail";
+  showGlassPopup(ms > 0 ? `Latency: ${ms} ms` : "Ping Timeout");
 };
 
 function applyPolledStatus(st, firstInit) {
@@ -878,6 +840,7 @@ function refreshLogsNow() {
 function clearLogsNow() {
   if (!window.NamelessBridge) return;
   window.NamelessBridge.clearKernelLogs();
+  showGlassPopup("Kernel Logs Cleared");
   setTimeout(refreshLogsNow, 150);
 }
 
@@ -887,7 +850,7 @@ function exportAllSlots() {
   if (window.NamelessBridge) {
     window.NamelessBridge.saveSlots(payload);
     const ok = window.NamelessBridge.exportAllSlots();
-    window.NamelessBridge.showToast(ok ? "Exported to Download" : "Export failed");
+    showGlassPopup(ok ? "Exported Backup to Download" : "Export Failed");
   }
 }
 
@@ -901,12 +864,12 @@ function importAllSlots() {
         state.slots = parsed.slots.map(s => Object.assign(defaultSlot(), s || {}));
         loadSlotIntoForm(state.activeSlot);
         renderSlotCapsules();
-        window.NamelessBridge.showToast("Imported 5 slots");
+        showGlassPopup("Imported 5 Slots");
         return;
       }
     } catch (e) {}
   }
-  window.NamelessBridge.showToast("No backup found");
+  showGlassPopup("No Backup File Found");
 }
 
 window.addEventListener("DOMContentLoaded", initApp);

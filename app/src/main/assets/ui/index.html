@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="disconnected">
-  <!-- Ambient Floating Liquid-Glass Bubbles (GPU Accelerated, Pointer-Events None) -->
+  <!-- Ambient Floating Liquid-Glass Bubbles (GPU Accelerated) -->
   <div class="bg-bubbles" aria-hidden="true">
     <span class="bg-orb orb-1"></span>
     <span class="bg-orb orb-2"></span>
@@ -15,8 +15,14 @@
     <span class="bg-orb orb-4"></span>
   </div>
 
+  <!-- Material 3 Bubbly Liquid-Glass Popup Toast -->
+  <div class="glass-popup" id="glassPopup" aria-live="polite">
+    <span class="popup-dot"></span>
+    <span class="popup-text" id="glassPopupText">Ready</span>
+  </div>
+
   <div class="app-shell">
-    <!-- Clean Header Bar (Well Below Status Bar; Slots Moved to Body) -->
+    <!-- Material 3 Expressive Top App Bar -->
     <header class="top-bar">
       <div class="brand-row">
         <span class="brand-dot" id="headerOrb"></span>
@@ -29,9 +35,9 @@
       </button>
     </header>
 
-    <!-- Main Viewport (Flex-1 Between Top Header and Bottom Dock) -->
+    <!-- Main Viewport (Flex-1 Between Top Header and Bottom M3 Navigation Bar) -->
     <main class="viewport">
-      <!-- TAB 0: ADGUARD × FLCLASH LIQUID GLASS DASHBOARD -->
+      <!-- TAB 0: MATERIAL 3 × LIQUID GLASS DASHBOARD -->
       <section class="tab-view active" id="tab-0">
         <!-- 1. Hero Master Connection Card -->
         <div class="card telemetry-card">
@@ -77,7 +83,7 @@
           </div>
         </div>
 
-        <!-- 2. Dedicated 5-Slot Selector Row (Centered in Thumb Zone, Never in Status Bar) -->
+        <!-- 2. Dedicated 5-Slot M3 Pill Selector Row -->
         <div class="slot-row" id="slotStrip">
           <button type="button" class="slot-pill active" data-slot="0" onclick="selectSlot(0)">Slot 1</button>
           <button type="button" class="slot-pill" data-slot="1" onclick="selectSlot(1)">Slot 2</button>
@@ -86,7 +92,7 @@
           <button type="button" class="slot-pill" data-slot="4" onclick="selectSlot(4)">Slot 5</button>
         </div>
 
-        <!-- 3. Core Routing Controls (3 Essential Toggles; WebRTC & DNS Shield Always Built-In) -->
+        <!-- 3. Material 3 Tonal Routing Tiles -->
         <div class="module-strip">
           <button type="button" class="mod-tile on" id="pillHotspot" onclick="toggleHotspotSetting()">
             <div class="mod-head">
@@ -113,7 +119,7 @@
           </button>
         </div>
 
-        <!-- 4. Endpoint Configuration Card (7 Non-UDP Protocols • Auto-Saved to /data/adb/nameless_proxy) -->
+        <!-- 4. Endpoint Configuration Card (7 Non-UDP Protocols) -->
         <div class="card endpoint-card">
           <div class="card-bar">
             <span class="card-heading" id="editingSlotTitle">SLOT 1 • SOCKS5</span>
@@ -255,24 +261,15 @@
         <div class="checker-slot" id="checkerPlaceholder"></div>
       </section>
 
-      <!-- TAB 2: PER-APP SPLIT TUNNEL (FLCLASH WHITELIST / BLACKLIST DRAWER) -->
+      <!-- TAB 2: STREAMLINED MATERIAL 3 APP ROUTING (SINGLE SELECT/DESELECT TOGGLE) -->
       <section class="tab-view no-scroll" id="tab-2">
         <div class="card flex-card">
           <div class="card-bar">
-            <div class="bar-actions">
-              <button type="button" class="tool-btn active" id="btnAllApps" onclick="setAppRouteMode('ALL')">All Apps</button>
-              <button type="button" class="tool-btn" id="btnSelApps" onclick="setAppRouteMode('WHITELIST')">Proxy Selected</button>
-              <button type="button" class="tool-btn" id="btnBypassApps" onclick="setAppRouteMode('BLACKLIST')">Bypass</button>
+            <div class="app-header-meta">
+              <span class="card-heading">APP ROUTING</span>
+              <span class="app-sub-status" id="appModeBannerText">All apps routed through proxy</span>
             </div>
-            <div class="bar-actions">
-              <button type="button" class="tool-btn" onclick="selectAllApps()">All</button>
-              <button type="button" class="tool-btn danger" onclick="clearSelectedApps()">None</button>
-            </div>
-          </div>
-
-          <div class="app-mode-banner" id="appModeBanner">
-            <span id="appModeBannerText">All Profile Apps: 100% of apps in this Android profile route through the tunnel.</span>
-            <button type="button" class="apply-live-btn" id="btnApplyLiveApps" onclick="applyLiveRouting()">Apply Live</button>
+            <button type="button" class="tool-btn active" id="btnToggleSelectAll" onclick="toggleSelectAllApps()">Select All</button>
           </div>
 
           <input type="text" id="appSearchInput" class="field-inp" placeholder="Search apps by name or package..." autocomplete="off" oninput="renderAppsList()" />
@@ -300,25 +297,33 @@
       </section>
     </main>
 
-    <!-- Flex-Docked Bottom Navigation Bar (Never Covered by 3-Button Navigation) -->
+    <!-- Material 3 Navigation Bar with Pill Indicators -->
     <nav class="bottom-dock" id="bottomDock">
       <button type="button" class="dock-btn active" data-tab="0" onclick="switchTab(0)">
-        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="m3-nav-pill">
+          <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </span>
         <span class="dock-lbl">Tunnel</span>
       </button>
 
       <button type="button" class="dock-btn" data-tab="1" onclick="switchTab(1)">
-        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span class="m3-nav-pill">
+          <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
         <span class="dock-lbl">Check</span>
       </button>
 
       <button type="button" class="dock-btn" data-tab="2" onclick="switchTab(2)">
-        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span class="m3-nav-pill">
+          <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+        </span>
         <span class="dock-lbl">Apps</span>
       </button>
 
       <button type="button" class="dock-btn" data-tab="3" onclick="switchTab(3)">
-        <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <span class="m3-nav-pill">
+          <svg class="svg-ico md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </span>
         <span class="dock-lbl">Logs</span>
       </button>
     </nav>

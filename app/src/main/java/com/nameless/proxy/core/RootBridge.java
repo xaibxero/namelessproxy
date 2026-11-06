@@ -365,22 +365,14 @@ public class RootBridge {
     }
 
     /**
-     * Converts Whitelist or Blacklist app UID selections into minimal contiguous START-END ranges
+     * Converts selected app UIDs into minimal contiguous START-END ranges
      * required by Linux `ip rule add uidrange START-END` and `iptables -m owner --uid-owner START-END`.
-     * - In BLACKLIST mode, splits [APP_START..APP_END] around excluded UIDs into at most N+1 contiguous ranges!
-     * - In WHITELIST mode, merges adjacent selected UIDs (plus NamelessProxy's own UID for the Checker tab) into START-END ranges!
      */
     public static String buildUidRangesString(Context context, String rawTargetUids, String appFilterMode) {
         if (rawTargetUids == null || rawTargetUids.trim().isEmpty() || rawTargetUids.equalsIgnoreCase("ALL")) {
             return "ALL";
         }
-        int userId = getAndroidUserId();
-        int appStart = userId * 100000 + 10000;
-        int appEnd = userId * 100000 + 19999;
-        int sdkStart = userId * 100000 + 20000;
-        int sdkEnd = userId * 100000 + 29999;
         int myUid = Process.myUid();
-
         Set<Integer> uidSet = new HashSet<>();
         for (String part : rawTargetUids.split(",")) {
             part = part.trim();
@@ -390,7 +382,7 @@ public class RootBridge {
                 try {
                     int s = Integer.parseInt(bounds[0].trim());
                     int e = Integer.parseInt(bounds[1].trim());
-                    if (s == e) uidSet.add(s);
+                    for (int u = s; u <= e; u++) uidSet.add(u);
                 } catch (Exception ignored) {}
             } else {
                 try {
@@ -403,53 +395,26 @@ public class RootBridge {
             return "ALL";
         }
 
+        uidSet.add(myUid);
+        List<Integer> included = new ArrayList<>(uidSet);
+        Collections.sort(included);
         StringBuilder sb = new StringBuilder();
-        if ("BLACKLIST".equalsIgnoreCase(appFilterMode)) {
-            uidSet.remove(myUid); // Never blacklist NamelessProxy itself so Checker tab works
-            List<Integer> excluded = new ArrayList<>();
-            for (int u : uidSet) {
-                if (u >= appStart && u <= appEnd) {
-                    excluded.add(u);
-                }
-            }
-            Collections.sort(excluded);
-            int cur = appStart;
-            for (int ex : excluded) {
-                if (ex > cur) {
-                    if (sb.length() > 0) sb.append(",");
-                    sb.append(cur).append("-").append(ex - 1);
-                }
-                cur = ex + 1;
-            }
-            if (cur <= appEnd) {
+        int rangeStart = included.get(0);
+        int rangeEnd = rangeStart;
+        for (int i = 1; i < included.size(); i++) {
+            int u = included.get(i);
+            if (u == rangeEnd + 1) {
+                rangeEnd = u;
+            } else {
                 if (sb.length() > 0) sb.append(",");
-                sb.append(cur).append("-").append(appEnd);
+                sb.append(rangeStart).append("-").append(rangeEnd);
+                rangeStart = u;
+                rangeEnd = u;
             }
-            if (sb.length() > 0) sb.append(",");
-            sb.append(sdkStart).append("-").append(sdkEnd);
-            return sb.toString();
-        } else {
-            // WHITELIST mode: include selected UIDs + NamelessProxy's own UID
-            uidSet.add(myUid);
-            List<Integer> included = new ArrayList<>(uidSet);
-            Collections.sort(included);
-            int rangeStart = included.get(0);
-            int rangeEnd = rangeStart;
-            for (int i = 1; i < included.size(); i++) {
-                int u = included.get(i);
-                if (u == rangeEnd + 1) {
-                    rangeEnd = u;
-                } else {
-                    if (sb.length() > 0) sb.append(",");
-                    sb.append(rangeStart).append("-").append(rangeEnd);
-                    rangeStart = u;
-                    rangeEnd = u;
-                }
-            }
-            if (sb.length() > 0) sb.append(",");
-            sb.append(rangeStart).append("-").append(rangeEnd);
-            return sb.toString();
         }
+        if (sb.length() > 0) sb.append(",");
+        sb.append(rangeStart).append("-").append(rangeEnd);
+        return sb.toString();
     }
 
     private static void attachTransportIfConfigured(JSONObject proxyOut, String transport, String path, String hostHeader) throws Exception {
@@ -494,8 +459,6 @@ public class RootBridge {
         int alterId = cfg.optInt("alterId", 0);
         String transport = cfg.optString("transport", "tcp").trim();
         String wsPath = cfg.optString("wsPath", "").trim();
-        String targetUids = cfg.optString("targetUids", "ALL").trim();
-        boolean isPerAppMode = !targetUids.isEmpty() && !targetUids.equalsIgnoreCase("ALL");
         boolean isIpv6 = serverHost.contains(":");
 
         JSONObject root = new JSONObject();
@@ -543,7 +506,6 @@ public class RootBridge {
             .put("action", "predefined")
             .put("rcode", "NXDOMAIN")
         );
-        // Resolve Private DNS provider hostnames (Google/Cloudflare/Quad9/AdGuard/NextDNS) to real IPs via dns-remote
         dnsRules.put(new JSONObject()
             .put("domain", new JSONArray()
                 .put("dns.google")
@@ -569,23 +531,12 @@ public class RootBridge {
             .put("action", "route")
             .put("server", "dns-remote")
         );
-        if (isPerAppMode) {
-            // In Per-App (Whitelist/Blacklist) mode, Android's netd DNS cache is shared across all apps.
-            // Returning real IPs via dns-remote ensures unselected/bypassed apps connect directly without hitting FakeIP 198.18.0.0/15,
-            // while selected apps are redirected by UID into sing-box (with protocol sniffing)!
-            dnsRules.put(new JSONObject()
-                .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
-                .put("action", "route")
-                .put("server", "dns-remote")
-            );
-        } else {
-            dnsRules.put(new JSONObject()
-                .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
-                .put("action", "route")
-                .put("server", "dns-fakeip")
-                .put("rewrite_ttl", 25)
-            );
-        }
+        dnsRules.put(new JSONObject()
+            .put("query_type", new JSONArray().put(isIpv6 ? "AAAA" : "A"))
+            .put("action", "route")
+            .put("server", "dns-fakeip")
+            .put("rewrite_ttl", 25)
+        );
         dns.put("rules", dnsRules);
         dns.put("strategy", isIpv6 ? "ipv6_only" : "ipv4_only");
         dns.put("final", "dns-remote");
@@ -637,6 +588,12 @@ public class RootBridge {
             .put("network", new JSONArray().put("tcp").put("udp"))
             .put("override_address", "1.1.1.1")
             .put("override_port", 53)
+        );
+        inbounds.put(new JSONObject()
+            .put("type", "redirect")
+            .put("tag", "direct-redirect-in")
+            .put("listen", "127.0.0.1")
+            .put("listen_port", 10808)
         );
         root.put("inbounds", inbounds);
 
@@ -716,7 +673,22 @@ public class RootBridge {
             .put("action", "hijack-dns")
         );
         routeRules.put(new JSONObject().put("port", new JSONArray().put(53)).put("action", "hijack-dns"));
-        routeRules.put(new JSONObject().put("action", "sniff").put("timeout", "200ms"));
+        routeRules.put(new JSONObject()
+            .put("inbound", new JSONArray().put("redirect-in").put("redirect-hs-in"))
+            .put("action", "sniff")
+            .put("timeout", "200ms")
+        );
+        routeRules.put(new JSONObject()
+            .put("inbound", new JSONArray().put("direct-redirect-in"))
+            .put("action", "sniff")
+            .put("override_destination", true)
+            .put("timeout", "200ms")
+        );
+        routeRules.put(new JSONObject()
+            .put("inbound", new JSONArray().put("direct-redirect-in"))
+            .put("action", "route")
+            .put("outbound", "direct-out")
+        );
         routeRules.put(new JSONObject()
             .put("network", "udp")
             .put("port", new JSONArray().put(80).put(443).put(853))

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -116,13 +117,14 @@ func probeTunnelExitIP(mixedPort int) {
 
 	endpoints := []string{
 		"http://ip-api.com/json/?fields=status,query,country,countryCode,regionName,city,isp,org,timezone",
+		"http://ipwho.is/",
 		"http://checkip.amazonaws.com",
 		"http://icanhazip.com",
 		"https://api4.ipify.org",
 		"https://ipinfo.io/ip",
 	}
 
-	time.Sleep(250 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 
 	verified := false
 	for {
@@ -150,6 +152,29 @@ func probeTunnelExitIP(mixedPort int) {
 						break
 					}
 				}
+				// Fallback parser for ipwho.is format ({"ip":"...","country":"...","country_code":"..."})
+				var raw map[string]interface{}
+				if json.Unmarshal([]byte(text), &raw) == nil {
+					if ipVal, ok := raw["ip"].(string); ok && ipVal != "" {
+						cc, _ := raw["country_code"].(string)
+						cn, _ := raw["country"].(string)
+						tz := ""
+						if tzObj, ok := raw["timezone"].(map[string]interface{}); ok {
+							tz, _ = tzObj["id"].(string)
+						}
+						g2 := GeoResponse{
+							Status:      "success",
+							Query:       ipVal,
+							Country:     cn,
+							CountryCode: cc,
+							Timezone:    tz,
+						}
+						if setExitIP(ipVal, &g2) {
+							verified = true
+							break
+						}
+					}
+				}
 			} else {
 				line := strings.Split(text, "\n")[0]
 				if setExitIP(line, nil) {
@@ -164,7 +189,7 @@ func probeTunnelExitIP(mixedPort int) {
 			case <-time.After(20 * time.Second):
 			}
 		} else {
-			time.Sleep(350 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 }
@@ -182,11 +207,20 @@ func serveSTUN(bindAddr string) {
 	_ = conn.SetReadBuffer(262144)
 	_ = conn.SetWriteBuffer(262144)
 
+	// Enable IP_PKTINFO so UDP replies on 0.0.0.0 ALWAYS use the exact post-REDIRECT/DNAT local IP
+	// expected by Linux netfilter conntrack (fixes Hotspot Laptop & Chrome Android STUN replies!)
+	if rawConn, err := conn.SyscallConn(); err == nil {
+		_ = rawConn.Control(func(fd uintptr) {
+			_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_PKTINFO, 1)
+		})
+	}
+
 	buf := make([]byte, 512)
+	oob := make([]byte, 64)
 	resp := make([]byte, 52)
 
 	for {
-		n, clientAddr, err := conn.ReadFromUDP(buf)
+		n, oobn, _, clientAddr, err := conn.ReadMsgUDP(buf, oob)
 		if err != nil {
 			continue
 		}
@@ -253,6 +287,17 @@ func serveSTUN(bindAddr string) {
 		resp[47] = 0x04
 		binary.BigEndian.PutUint32(resp[48:52], fp)
 
+		if oobn >= 28 {
+			// Clear ipi_ifindex (bytes 16..19) and set ipi_spec_dst (bytes 20..23) = ipi_addr (bytes 24..27)
+			oob[16] = 0
+			oob[17] = 0
+			oob[18] = 0
+			oob[19] = 0
+			copy(oob[20:24], oob[24:28])
+			if _, _, err := conn.WriteMsgUDP(resp, oob[:oobn], clientAddr); err == nil {
+				continue
+			}
+		}
 		_, _ = conn.WriteToUDP(resp, clientAddr)
 	}
 }
@@ -289,5 +334,5 @@ func main() {
 
 	go probeTunnelExitIP(mixedPort)
 	go serveSTUN("0.0.0.0:" + strconv.Itoa(hotspotPort))
-	serveSTUN("127.0.0.1:" + strconv.Itoa(localPort))
+	serveSTUN("0.0.0.0:" + strconv.Itoa(localPort))
 }
