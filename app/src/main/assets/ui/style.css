@@ -1,982 +1,775 @@
 :root {
-  --bg-deep: #060A12;
-  --bg-top: #0E192D;
-  --glass-bg: rgba(18, 28, 46, 0.66);
-  --glass-elev: rgba(28, 42, 68, 0.74);
-  --glass-inp: rgba(10, 15, 27, 0.84);
-  --glass-border: rgba(255, 255, 255, 0.18);
-  --glass-specular: rgba(255, 255, 255, 0.34);
-  --android-green: #3DDC84;
-  --android-green-dark: #1CA358;
-  --android-green-glow: rgba(61, 220, 132, 0.36);
-  --m3-tonal-green: rgba(61, 220, 132, 0.20);
-  --sky: #38BDF8;
-  --danger: #F43F5E;
-  --txt-hi: #F8FAFC;
-  --txt-med: #CBD5E1;
-  --txt-lo: #94A3B8;
+  --bg-deep: #070A14;
+  --glass-bg: rgba(20, 28, 52, 0.56);
+  --glass-bg-strong: rgba(24, 34, 64, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.28);
+  --m3-primary: #5CE1E6;
+  --m3-primary-container: rgba(92, 225, 230, 0.22);
+  --m3-secondary: #A78BFA;
+  --m3-emerald: #34D399;
+  --m3-danger: #FB7185;
+  --text-main: #F8FAFC;
+  --text-sub: #B8C4E0;
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
   -webkit-tap-highlight-color: transparent;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
   user-select: none;
-  -webkit-user-select: none;
 }
 
 html, body {
+  margin: 0;
+  padding: 0;
   width: 100%;
   height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-main);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
   overflow: hidden;
-  background: radial-gradient(circle at 50% -12%, #182C4E 0%, var(--bg-deep) 76%);
-  color: var(--txt-hi);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 15px;
-  line-height: 1.3;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Ambient Floating Liquid-Glass Bubbles */
-.bg-bubbles {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.bg-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(34px);
-  opacity: 0.34;
-  will-change: transform;
-}
-
-.orb-1 {
-  width: 210px;
-  height: 210px;
-  top: -35px;
-  left: -40px;
-  background: radial-gradient(circle, var(--android-green) 0%, transparent 72%);
-  animation: floatBubble1 8s ease-in-out infinite alternate;
-}
-
-.orb-2 {
-  width: 225px;
-  height: 225px;
-  top: 26%;
-  right: -65px;
-  background: radial-gradient(circle, var(--sky) 0%, transparent 72%);
-  animation: floatBubble2 10s ease-in-out infinite alternate;
-}
-
-.orb-3 {
-  width: 185px;
-  height: 185px;
-  bottom: 10%;
-  left: -35px;
-  background: radial-gradient(circle, #10B981 0%, transparent 72%);
-  animation: floatBubble3 9s ease-in-out infinite alternate;
-}
-
-.orb-4 {
-  width: 150px;
-  height: 150px;
-  bottom: 30%;
-  right: 16%;
-  background: radial-gradient(circle, rgba(61, 220, 132, 0.78) 0%, transparent 70%);
-  animation: floatBubble1 11s ease-in-out infinite alternate-reverse;
-}
-
-body[data-state="connected"] .bg-orb {
-  opacity: 0.48;
-}
-
-/* Material 3 Bubbly Liquid-Glass Popup Toast */
-.glass-popup {
-  position: fixed;
-  top: 56px;
-  left: 50%;
-  transform: translate3d(-50%, -22px, 0) scale(0.82);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 100;
-  padding: 9px 16px;
-  border-radius: 999px;
-  background: rgba(18, 32, 50, 0.88);
-  backdrop-filter: blur(22px) saturate(190%);
-  -webkit-backdrop-filter: blur(22px) saturate(190%);
-  border: 1px solid rgba(61, 220, 132, 0.55);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45), 0 0 18px rgba(61, 220, 132, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.38);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 88vw;
-  transition: transform 0.34s var(--spring), opacity 0.22s ease;
-}
-
-.glass-popup.show {
-  transform: translate3d(-50%, 0, 0) scale(1);
-  opacity: 1;
-}
-
-.popup-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--android-green);
-  box-shadow: 0 0 8px var(--android-green);
-  flex-shrink: 0;
-}
-
-.popup-text {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--txt-hi);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@keyframes floatBubble1 {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(28px, 36px, 0) scale(1.16); }
-}
-
-@keyframes floatBubble2 {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(-30px, -32px, 0) scale(1.14); }
-}
-
-@keyframes floatBubble3 {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(26px, -28px, 0) scale(1.16); }
-}
-
-@keyframes bubblePop {
-  0% { transform: scale(0.84); }
-  55% { transform: scale(1.08); }
-  100% { transform: scale(1); }
-}
-
-@keyframes tabBubbleIn {
-  0% { opacity: 0; transform: translateY(10px) scale(0.975); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes pwrPulseRing {
-  0% { transform: scale(0.94); opacity: 0.7; }
-  100% { transform: scale(1.25); opacity: 0; }
-}
-
-.bubble-pop {
-  animation: bubblePop 0.36s var(--spring);
 }
 
 input, select {
   user-select: text;
-  -webkit-user-select: text;
-  font-family: inherit;
 }
 
-button {
-  font-family: inherit;
-  border: none;
-  background: none;
-  color: inherit;
-  outline: none;
-  cursor: pointer;
-}
-
-.hidden {
-  display: none !important;
-}
-
-/* Precision SVG Vector Icons */
-.svg-ico {
-  display: block;
-  flex-shrink: 0;
-}
-
-.svg-ico.xs { width: 15px; height: 15px; }
-.svg-ico.sm { width: 17px; height: 17px; }
-.svg-ico.md { width: 20px; height: 20px; }
-.svg-ico.lg { width: 26px; height: 26px; }
-
-.app-shell {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+/* Ambient Liquid Glass Stage */
+.ambient-stage {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
   overflow: hidden;
 }
 
-/* Material 3 Expressive Top App Bar */
-.top-bar {
-  height: 52px;
-  padding: 0 14px;
-  background: rgba(12, 18, 32, 0.78);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border-bottom: 1px solid var(--glass-border);
+.liquid-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(65px);
+  opacity: 0.45;
+  animation: blobFloat 14s ease-in-out infinite alternate;
+}
+
+.blob-cyan {
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, #00E5FF, #2563EB);
+  top: -60px;
+  left: -50px;
+}
+
+.blob-violet {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, #8B5CF6, #EC4899);
+  bottom: 40px;
+  right: -70px;
+  animation-delay: -5s;
+}
+
+.blob-emerald {
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle, #10B981, #06B6D4);
+  top: 42%;
+  left: 22%;
+  opacity: 0.28;
+  animation-delay: -9s;
+}
+
+@keyframes blobFloat {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(22px, -18px) scale(1.08); }
+  100% { transform: translate(-16px, 24px) scale(0.95); }
+}
+
+@keyframes bubblePop {
+  0% { transform: scale(0.9); }
+  60% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* Liquid Glass Surfaces */
+.glass-surface {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(26px) saturate(190%);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 var(--glass-highlight);
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(185%);
+  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.36), inset 0 1px 1px var(--glass-highlight);
+}
+
+/* M3 Liquid Glass Popup Toast */
+.glass-popup {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 999;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border-radius: 22px;
+  background: rgba(18, 27, 52, 0.88);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(92, 225, 230, 0.42);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  transform: translateY(-140%) scale(0.92);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.42s var(--spring), opacity 0.28s ease;
+}
+
+.glass-popup.show {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.popup-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--m3-primary-container);
+  color: var(--m3-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.popup-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.popup-sub {
+  font-size: 13px;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+
+/* Layout Shell */
+.app-shell {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px 10px 12px;
   gap: 10px;
+}
+
+/* Top Bar */
+.top-bar {
+  border-radius: 24px;
+  padding: 12px 14px;
   flex-shrink: 0;
 }
 
 .brand-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.brand-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background-color: var(--txt-lo);
-  flex-shrink: 0;
-  transition: background-color 0.25s ease, box-shadow 0.25s ease, transform 0.3s var(--spring);
+.brand-ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.brand-dot.online {
-  background-color: var(--android-green);
-  box-shadow: 0 0 12px var(--android-green);
-  transform: scale(1.18);
+.brand-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--m3-primary), var(--m3-secondary));
+  color: #050914;
+  font-weight: 900;
+  font-size: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(92, 225, 230, 0.35);
 }
 
 .brand-title {
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.7px;
-  color: var(--txt-hi);
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
 }
 
-.net-chip {
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-specular);
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  transition: transform 0.24s var(--spring);
-}
-
-.net-label {
+.brand-sub {
+  margin: 2px 0 0 0;
   font-size: 12.5px;
-  font-weight: 800;
-  color: var(--txt-hi);
-  white-space: nowrap;
+  color: var(--text-sub);
 }
 
-.user-badge {
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: var(--m3-tonal-green);
-  border: 1px solid rgba(61, 220, 132, 0.44);
-  color: var(--android-green);
-  font-size: 11px;
-  font-weight: 900;
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-}
-
-/* Dedicated 5-Slot Material 3 Pill Selector Row */
-.slot-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 7px;
-  flex-shrink: 0;
-}
-
-.slot-pill {
-  position: relative;
-  height: 41px;
-  border-radius: 999px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(18px) saturate(170%);
-  -webkit-backdrop-filter: blur(18px) saturate(170%);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-specular);
-  color: var(--txt-med);
-  font-size: 13.5px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.28s var(--spring), background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.slot-pill.configured::after {
-  content: "";
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--android-green);
-  box-shadow: 0 0 6px var(--android-green);
-}
-
-.slot-pill.active {
-  background: linear-gradient(145deg, #56EE9B, var(--android-green-dark));
-  border-color: rgba(255, 255, 255, 0.52);
-  color: #04190E;
-  box-shadow: 0 6px 18px var(--android-green-glow), inset 0 1px 0 0 rgba(255, 255, 255, 0.55);
-  transform: translateY(-1px) scale(1.04);
-}
-
-.slot-pill.running {
-  border-color: var(--android-green);
-  color: var(--android-green);
-}
-
-.slot-pill.active.running {
-  background: linear-gradient(145deg, #56EE9B, var(--android-green-dark));
-  color: #04190E;
-}
-
-/* Viewport */
-.viewport {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.tab-view {
-  position: absolute;
-  inset: 0;
-  padding: 10px 12px 12px;
-  display: none;
-  flex-direction: column;
-  gap: 9px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-}
-
-.tab-view.no-scroll {
-  overflow: hidden;
-  padding-bottom: 10px;
-}
-
-.tab-view.active {
-  display: flex;
-  animation: tabBubbleIn 0.32s var(--spring);
-}
-
-/* Material 3 × Deep Liquid Glass Cards */
-.card {
-  padding: 14px;
-  border-radius: 24px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(24px) saturate(185%);
-  -webkit-backdrop-filter: blur(24px) saturate(185%);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 12px 32px 0 rgba(0, 0, 0, 0.38), inset 0 1px 0 0 var(--glass-specular);
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
-}
-
-/* 1. Hero Master Connection Card */
-.telemetry-card {
-  background: linear-gradient(155deg, rgba(26, 40, 66, 0.78) 0%, rgba(14, 22, 38, 0.86) 100%);
-  border-color: rgba(255, 255, 255, 0.20);
-}
-
-body[data-state="connected"] .telemetry-card {
-  background: linear-gradient(155deg, rgba(16, 58, 44, 0.82) 0%, rgba(14, 26, 44, 0.88) 100%);
-  border-color: rgba(61, 220, 132, 0.60);
-  box-shadow: 0 12px 32px 0 rgba(61, 220, 132, 0.20), inset 0 1px 0 0 var(--glass-specular);
-}
-
-.tel-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tel-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-
-.tel-badges {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.state-tag {
-  height: 25px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--glass-elev);
-  border: 1px solid var(--glass-border);
-  font-size: 11.5px;
-  font-weight: 900;
-  letter-spacing: 0.5px;
-  color: var(--txt-med);
-  display: inline-flex;
-  align-items: center;
-  transition: all 0.25s var(--spring);
-}
-
-body[data-state="connected"] .state-tag {
-  background: var(--m3-tonal-green);
-  border-color: var(--android-green);
-  color: var(--android-green);
-}
-
-.timer-tag {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--txt-med);
-  font-variant-numeric: tabular-nums;
-}
-
-.ping-tag {
-  height: 25px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(56, 189, 248, 0.18);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  color: var(--sky);
+.status-pill {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: transform 0.24s var(--spring);
+  letter-spacing: 0.6px;
 }
 
-.exit-row {
+.status-pill.disconnected {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-sub);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.status-pill.connecting {
+  background: rgba(250, 204, 21, 0.2);
+  color: #FDE047;
+  border: 1px solid rgba(250, 204, 21, 0.4);
+}
+
+.status-pill.connected {
+  background: rgba(52, 211, 153, 0.22);
+  color: #6EE7B7;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+}
+
+/* Slot Strip */
+.slot-strip-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
-  min-width: 0;
+  margin-top: 10px;
 }
 
-.exit-flag {
+.slot-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  flex: 1;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.slot-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.slot-chip {
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--text-sub);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.28s var(--spring);
+}
+
+.slot-chip.active {
+  background: var(--m3-primary-container);
+  border-color: var(--m3-primary);
+  color: var(--m3-primary);
+  transform: scale(1.03);
+}
+
+.m3-icon-pill {
+  padding: 7px 13px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(92, 225, 230, 0.38);
+  background: rgba(92, 225, 230, 0.14);
+  color: var(--m3-primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.25s var(--spring);
+}
+
+.m3-icon-pill:active {
+  transform: scale(0.92);
+}
+
+/* Main Viewport */
+.viewport {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 6px;
+}
+
+.tab-pane {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  animation: bubblePop 0.32s var(--spring);
+}
+
+.tab-pane.active {
+  display: flex;
+}
+
+/* Hero Power Card */
+.hero-card {
+  padding: 22px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.power-orb-wrap {
+  position: relative;
+  width: 126px;
+  height: 126px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(92, 225, 230, 0.28);
+  transition: all 0.4s var(--spring);
+}
+
+.orb-ring.connecting {
+  border-color: #FDE047;
+  animation: spinPulse 1.5s linear infinite;
+}
+
+.orb-ring.connected {
+  border-color: var(--m3-emerald);
+  box-shadow: 0 0 36px rgba(52, 211, 153, 0.45);
+}
+
+@keyframes spinPulse {
+  0% { transform: scale(0.96); opacity: 0.7; }
+  50% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(0.96); opacity: 0.7; }
+}
+
+.power-orb {
+  width: 102px;
+  height: 102px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: radial-gradient(circle at 30% 30%, rgba(92, 225, 230, 0.34), rgba(15, 23, 42, 0.88));
+  color: var(--m3-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.32);
+  transition: transform 0.32s var(--spring), background 0.3s ease, color 0.3s ease;
+}
+
+.power-orb:active {
+  transform: scale(0.9);
+}
+
+.power-orb.connected {
+  background: radial-gradient(circle at 30% 30%, rgba(52, 211, 153, 0.45), rgba(6, 78, 59, 0.88));
+  color: #6EE7B7;
+  border-color: rgba(52, 211, 153, 0.6);
+}
+
+.power-svg {
+  width: 42px;
+  height: 42px;
+}
+
+.hero-title {
+  margin: 4px 0 4px 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.hero-sub {
+  margin: 0 0 14px 0;
+  font-size: 14px;
+  color: var(--text-sub);
+}
+
+.quick-actions-row {
+  display: flex;
+  gap: 10px;
+}
+
+/* Telemetry Grid */
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.metric-card {
+  padding: 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.metric-label {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--text-sub);
+}
+
+.metric-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+.metric-foot {
+  font-size: 12.5px;
+  color: var(--text-sub);
+}
+
+.ok-text {
+  color: var(--m3-emerald);
+}
+
+/* Forms & Cards */
+.section-card {
+  padding: 16px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 8px;
+}
+
+.card-title {
+  margin: 0;
   font-size: 18px;
-  line-height: 1;
+  font-weight: 800;
+}
+
+.card-sub {
+  margin: 3px 0 0 0;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.card-chip {
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--m3-primary-container);
+  color: var(--m3-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.m3-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.m3-field label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+
+.m3-field input,
+.m3-field select,
+.app-search {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 15, 30, 0.62);
+  color: var(--text-main);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.m3-field input:focus,
+.m3-field select:focus,
+.app-search:focus {
+  border-color: var(--m3-primary);
+  box-shadow: 0 0 0 3px rgba(92, 225, 230, 0.2);
+}
+
+.field-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.m3-filled-btn,
+.m3-tonal-btn,
+.m3-outlined-btn {
+  padding: 12px 18px;
+  border-radius: var(--radius-pill);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.26s var(--spring), background 0.2s ease;
+}
+
+.m3-filled-btn {
+  flex: 1;
+  background: linear-gradient(135deg, var(--m3-primary), #38BDF8);
+  color: #04101E;
+  box-shadow: 0 6px 18px rgba(92, 225, 230, 0.32);
+}
+
+.m3-tonal-btn {
+  background: var(--m3-primary-container);
+  color: var(--m3-primary);
+  border: 1px solid rgba(92, 225, 230, 0.35);
+}
+
+.m3-outlined-btn {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.m3-outlined-btn.danger {
+  color: var(--m3-danger);
+  border-color: rgba(251, 113, 133, 0.38);
+}
+
+.m3-filled-btn:active,
+.m3-tonal-btn:active,
+.m3-outlined-btn:active {
+  transform: scale(0.93);
+}
+
+.compact-btn {
+  padding: 11px 16px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.exit-ip {
-  font-size: 18.5px;
-  font-weight: 900;
-  color: var(--txt-hi);
+/* App Routing List */
+.app-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.app-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.app-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.25s var(--spring), background 0.2s ease, border-color 0.2s ease;
+}
+
+.app-item.selected {
+  background: rgba(92, 225, 230, 0.13);
+  border-color: rgba(92, 225, 230, 0.42);
+}
+
+.app-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.app-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.exit-country {
-  font-size: 13.5px;
-  font-weight: 800;
-  color: var(--android-green);
+.app-pkg {
+  font-size: 12.5px;
+  color: var(--text-sub);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
 }
 
-.speed-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.spd-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-}
-
-.spd-item.down { color: var(--sky); }
-.spd-item.up { color: var(--android-green); }
-.spd-item strong { color: var(--txt-hi); font-weight: 800; }
-.spd-item small { color: var(--txt-lo); font-size: 12px; font-weight: 600; }
-
-.power-module {
+/* Material 3 Switch */
+.m3-switch {
   position: relative;
-  width: 88px;
-  height: 82px;
-  border-radius: 26px;
-  background: var(--glass-elev);
-  border: 1.5px solid rgba(255, 255, 255, 0.28);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42), inset 0 1px 0 0 var(--glass-specular);
-  color: var(--txt-hi);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+  display: inline-block;
+  width: 52px;
+  height: 30px;
   flex-shrink: 0;
-  transition: transform 0.28s var(--spring), background 0.25s ease, box-shadow 0.25s ease;
 }
 
-.pwr-ring {
-  position: absolute;
-  inset: -3px;
-  border-radius: 28px;
-  border: 2px solid var(--android-green);
+.m3-switch input {
   opacity: 0;
-  pointer-events: none;
+  width: 0;
+  height: 0;
 }
 
-.power-module.online {
-  background: linear-gradient(145deg, #56EE9B, var(--android-green-dark));
-  box-shadow: 0 0 28px var(--android-green-glow), inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #04190E;
+.m3-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid rgba(255, 255, 255, 0.32);
+  transition: all 0.28s var(--spring);
 }
 
-.power-module.online .pwr-ring {
-  animation: pwrPulseRing 2.1s ease-out infinite;
+.m3-slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 4px;
+  bottom: 4px;
+  border-radius: 50%;
+  background: #CBD5E1;
+  transition: all 0.28s var(--spring);
 }
 
-.pwr-label {
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.5px;
+.m3-switch input:checked + .m3-slider {
+  background: var(--m3-primary);
+  border-color: var(--m3-primary);
 }
 
-/* 3. Material 3 Tonal Routing Tiles */
-.module-strip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  flex-shrink: 0;
+.m3-switch input:checked + .m3-slider::before {
+  transform: translateX(22px) scale(1.12);
+  background: #04101E;
 }
 
-.mod-tile {
-  padding: 10px 12px;
-  border-radius: 20px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-specular);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  color: var(--txt-lo);
-  transition: transform 0.28s var(--spring), background 0.2s ease, border-color 0.2s ease;
-}
-
-.mod-tile.on {
-  background: linear-gradient(160deg, rgba(30, 52, 72, 0.82) 0%, rgba(20, 36, 54, 0.84) 100%);
-  border-color: rgba(61, 220, 132, 0.52);
-  color: var(--txt-hi);
-  box-shadow: 0 6px 16px rgba(61, 220, 132, 0.14), inset 0 1px 0 0 var(--glass-specular);
-}
-
-.mod-head {
-  width: 100%;
+/* Settings Rows */
+.setting-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.mod-tile.on .svg-ico {
-  color: var(--android-green);
-}
-
-.mod-state {
-  font-size: 12px;
-  font-weight: 900;
-  color: var(--txt-lo);
-}
-
-.mod-tile.on .mod-state {
-  color: var(--android-green);
-}
-
-.mod-name {
-  font-size: 13.5px;
-  font-weight: 800;
-  text-align: left;
-}
-
-/* 4. Endpoint Configuration Card */
-.card-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.card-heading {
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.5px;
-  color: var(--android-green);
-}
-
-.app-header-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.app-sub-status {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--txt-med);
-}
-
-.bar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tool-btn {
-  height: 35px;
-  padding: 0 13px;
-  border-radius: 999px;
-  background: var(--glass-elev);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-specular);
-  color: var(--txt-hi);
-  font-size: 13px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: transform 0.26s var(--spring), background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.tool-btn.active {
-  background: linear-gradient(145deg, #56EE9B, var(--android-green-dark));
-  border-color: rgba(255, 255, 255, 0.48);
-  color: #04190E;
-  box-shadow: 0 4px 14px var(--android-green-glow);
-}
-
-.tool-btn.danger {
-  color: #FDA4AF;
-  border-color: rgba(244, 63, 94, 0.45);
-}
-
-.proto-matrix {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-
-.proto-chip {
-  height: 38px;
-  border-radius: 999px;
-  background: var(--glass-elev);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-specular);
-  color: var(--txt-med);
-  font-size: 13px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.26s var(--spring), background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.proto-chip.active {
-  background: linear-gradient(145deg, #56EE9B, var(--android-green-dark));
-  border-color: rgba(255, 255, 255, 0.48);
-  color: #04190E;
-  box-shadow: 0 4px 14px var(--android-green-glow);
-  transform: translateY(-1px) scale(1.04);
-}
-
-/* Bubbly M3 Spring Press Elasticity */
-.tool-btn:active, .slot-pill:active, .power-module:active, .proto-chip:active, .mod-tile:active, .chk-tab:active, .net-chip:active, .app-row:active, .dock-btn:active {
-  transform: scale(0.90);
-}
-
-.row-host-port {
-  display: grid;
-  grid-template-columns: 2.2fr 1fr;
-  gap: 9px;
-}
-
-.creds-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
-}
-
-.creds-grid.single-col {
-  grid-template-columns: 1fr;
-}
-
-.inp-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.inp-lbl {
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  color: var(--txt-med);
-}
-
-.field-inp {
-  width: 100%;
-  height: 43px;
-  padding: 0 13px;
-  border-radius: 15px;
-  background-color: var(--glass-inp);
-  border: 1.5px solid var(--glass-border);
-  color: var(--txt-hi);
+.setting-title {
   font-size: 15px;
   font-weight: 700;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.field-inp::placeholder {
-  color: #64748B;
-  font-weight: 600;
-}
-
-.field-inp:focus {
-  border-color: var(--android-green);
-  background-color: #101A2C;
-  box-shadow: 0 0 0 3px rgba(61, 220, 132, 0.18);
-}
-
-.pass-box {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.pass-box .field-inp {
-  padding-right: 40px;
-}
-
-.eye-toggle {
-  position: absolute;
-  right: 5px;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  color: var(--txt-med);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Checker Tab */
-.checker-header {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.chk-tab {
-  height: 42px;
-  border-radius: 999px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-specular);
-  color: var(--txt-med);
-  font-size: 14px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.26s var(--spring), background 0.2s ease;
-}
-
-.chk-tab.active {
-  background: linear-gradient(145deg, #56EE9B, var(--android-green-dark));
-  border-color: rgba(255, 255, 255, 0.48);
-  color: #04190E;
-  box-shadow: 0 4px 14px var(--android-green-glow);
-}
-
-.checker-slot {
-  flex: 1;
-  width: 100%;
-  border-radius: 20px;
-  border: 1px solid var(--glass-border);
-  background-color: var(--bg-deep);
-}
-
-/* Apps & Logs */
-.flex-card {
-  flex: 1;
-  min-height: 0;
-}
-
-.apps-list {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.app-row {
-  padding: 11px 14px;
-  border-radius: 18px;
-  background: var(--glass-elev);
-  border: 1px solid var(--glass-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  transition: transform 0.22s var(--spring), border-color 0.2s ease, background 0.2s ease;
-}
-
-.app-row.selected {
-  border-color: var(--android-green);
-  background: rgba(61, 220, 132, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-
-.app-name {
-  font-size: 14.5px;
-  font-weight: 800;
-  color: var(--txt-hi);
-}
-
-.app-pkg {
-  font-size: 12px;
-  color: var(--txt-lo);
-}
-
-/* Material 3 Pill Switch Indicator on App Rows */
-.app-check {
-  width: 44px;
-  height: 25px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.78);
-  border: 1.5px solid var(--txt-lo);
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  flex-shrink: 0;
-  transition: background-color 0.24s var(--spring), border-color 0.24s ease;
-}
-
-.app-check::after {
-  content: "";
-  width: 17px;
-  height: 17px;
-  border-radius: 50%;
-  background: var(--txt-med);
-  transform: translateX(0);
-  transition: transform 0.26s var(--spring), background-color 0.2s ease;
-}
-
-.app-row.selected .app-check {
-  background-color: var(--android-green);
-  border-color: var(--android-green);
-}
-
-.app-row.selected .app-check::after {
-  background-color: #04190E;
-  transform: translateX(19px);
-}
-
-.log-box {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  border-radius: 16px;
-  background-color: var(--glass-inp);
-  border: 1px solid var(--glass-border);
-  color: #A7F3D0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.setting-desc {
   font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
+  color: var(--text-sub);
+  margin-top: 3px;
+  line-height: 1.35;
 }
 
-/* Material 3 Navigation Bar with Active Pill Indicators */
-.bottom-dock {
-  height: 62px;
-  flex-shrink: 0;
-  z-index: 30;
-  background: rgba(12, 18, 32, 0.88);
-  backdrop-filter: blur(24px) saturate(185%);
-  -webkit-backdrop-filter: blur(24px) saturate(185%);
-  border-top: 1px solid var(--glass-border);
+.info-banner {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(92, 225, 230, 0.1);
+  border: 1px solid rgba(92, 225, 230, 0.28);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+/* Material 3 Bottom Navigation Bar */
+.m3-navbar {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  padding: 8px 6px;
+  border-radius: 26px;
+  flex-shrink: 0;
 }
 
-.dock-btn {
+.m3-nav-item {
+  background: none;
+  border: none;
+  color: var(--text-sub);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
-  color: var(--txt-lo);
-  transition: transform 0.26s var(--spring), color 0.2s ease;
+  gap: 4px;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: color 0.2s ease, transform 0.25s var(--spring);
+}
+
+.m3-nav-item:active {
+  transform: scale(0.92);
 }
 
 .m3-nav-pill {
   width: 56px;
   height: 30px;
-  border-radius: 999px;
-  display: inline-flex;
+  border-radius: var(--radius-pill);
+  display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.26s var(--spring), transform 0.26s var(--spring), box-shadow 0.26s ease;
+  transition: background 0.28s var(--spring), transform 0.28s var(--spring);
 }
 
-.dock-btn.active {
-  color: var(--txt-hi);
+.m3-nav-item.active {
+  color: var(--text-main);
 }
 
-.dock-btn.active .m3-nav-pill {
-  background: var(--m3-tonal-green);
-  border: 1px solid rgba(61, 220, 132, 0.42);
-  color: var(--android-green);
-  box-shadow: 0 4px 12px rgba(61, 220, 132, 0.18);
+.m3-nav-item.active .m3-nav-pill {
+  background: var(--m3-primary-container);
+  color: var(--m3-primary);
   transform: scale(1.05);
 }
 
-.dock-lbl {
-  font-size: 12px;
-  font-weight: 800;
+.m3-nav-label {
+  font-size: 12.5px;
+  font-weight: 700;
 }

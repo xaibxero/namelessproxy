@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NamelessProxy" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:statusBarColor">#070A14</item>
+        <item name="android:navigationBarColor">#070A14</item>
+        <item name="android:windowBackground">#070A14</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

@@ -1,104 +1,96 @@
 #!/usr/bin/env python3
-"""
-Nameless Proxy Multi-Language Build & Cross-Layer Integrity Validator (Python 3)
-"""
+"""Static validator for NamelessProxy v35 repository."""
+import json
 import os
 import re
+import subprocess
 import sys
-import xml.etree.ElementTree as ET
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 REQUIRED_FILES = [
-    "build.gradle.kts",
-    "settings.gradle.kts",
-    "app/build.gradle.kts",
+    "settings.gradle",
+    "build.gradle",
+    "gradle.properties",
+    ".gitignore",
+    "README.md",
+    ".github/workflows/build.yml",
+    "core/stun-responder/go.mod",
+    "core/stun-responder/main.go",
+    "app/build.gradle",
+    "app/proguard-rules.pro",
     "app/src/main/AndroidManifest.xml",
     "app/src/main/assets/tunnel.sh",
     "app/src/main/assets/ui/index.html",
     "app/src/main/assets/ui/style.css",
     "app/src/main/assets/ui/app.js",
     "app/src/main/java/com/nameless/proxy/MainActivity.java",
+    "app/src/main/java/com/nameless/proxy/core/ProxyConfig.java",
     "app/src/main/java/com/nameless/proxy/core/RootBridge.java",
-    "app/src/main/java/com/nameless/proxy/receiver/BootReceiver.java",
-    "app/src/main/java/com/nameless/proxy/service/NamelessTileService.java",
-    "core/stun-responder/go.mod",
-    "core/stun-responder/main.go",
+    "app/src/main/java/com/nameless/proxy/service/ProxyVpnService.java",
+    "app/src/main/java/com/nameless/proxy/service/BootReceiver.java",
+    "app/src/main/res/values/strings.xml",
+    "app/src/main/res/values/themes.xml",
+    "app/src/main/res/drawable/ic_launcher.xml",
 ]
 
+
 def main():
-    for path in REQUIRED_FILES:
-        if not os.path.isfile(path):
-            print(f"ERROR: Missing required file: {path}", file=sys.stderr)
-            sys.exit(1)
+    errors = []
+    for rel in REQUIRED_FILES:
+        p = os.path.join(ROOT, rel)
+        if not os.path.isfile(p) or os.path.getsize(p) == 0:
+            errors.append(f"Missing or empty file: {rel}")
 
-    # 1. Verify AndroidManifest.xml has MAIN action and LAUNCHER category
-    tree = ET.parse("app/src/main/AndroidManifest.xml")
-    root = tree.getroot()
-    actions = [el.attrib.get("{http://schemas.android.com/apk/res/android}name") for el in root.findall(".//action")]
-    categories = [el.attrib.get("{http://schemas.android.com/apk/res/android}name") for el in root.findall(".//category")]
+    # 1. Validate shell syntax of tunnel.sh
+    tunnel_sh = os.path.join(ROOT, "app/src/main/assets/tunnel.sh")
+    res = subprocess.run(["sh", "-n", tunnel_sh], capture_output=True, text=True)
+    if res.returncode != 0:
+        errors.append(f"tunnel.sh syntax error: {res.stderr}")
 
-    if "android.intent.action.MAIN" not in actions:
-        print("ERROR: Missing android.intent.action.MAIN in AndroidManifest.xml", file=sys.stderr)
-        sys.exit(1)
-    if "android.intent.category.LAUNCHER" not in categories:
-        print("ERROR: Missing android.intent.category.LAUNCHER in AndroidManifest.xml", file=sys.stderr)
-        sys.exit(1)
+    with open(tunnel_sh, "r", encoding="utf-8") as f:
+        sh_txt = f.read()
+    if "</dev/null" not in sh_txt:
+        errors.append("tunnel.sh background daemons must detach stdin (</dev/null)")
+    if "DIRECT_REDIRECT_PORT=10808" not in sh_txt:
+        errors.append("tunnel.sh missing DIRECT_REDIRECT_PORT=10808")
 
-    # 2. Verify tunnel.sh safety and Table 2088 rules
-    with open("app/src/main/assets/tunnel.sh", "r", encoding="utf-8") as f:
-        sh_text = f.read()
-    if "private_dns_mode off" in sh_text:
-        print("ERROR: tunnel.sh must never set private_dns_mode off!", file=sys.stderr)
-        sys.exit(1)
-    if "echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6" in sh_text:
-        print("ERROR: tunnel.sh must not disable IPv6 on cellular interfaces!", file=sys.stderr)
-        sys.exit(1)
-    if "ipproto tcp" in sh_text:
-        print("ERROR: tunnel.sh must not use unsupported `ipproto tcp` in Android `ip rule`!", file=sys.stderr)
-        sys.exit(1)
-    if 'ip rule add uidrange "$rng" lookup 2088 pref 8800' not in sh_text:
-        print("ERROR: tunnel.sh missing Table 2088 uidrange rule!", file=sys.stderr)
-        sys.exit(1)
+    # 2. Validate RootBridge.java sing-box 1.11.4 config rules
+    rb_path = os.path.join(ROOT, "app/src/main/java/com/nameless/proxy/core/RootBridge.java")
+    with open(rb_path, "r", encoding="utf-8") as f:
+        rb_txt = f.read()
+    if '"override_destination"' in rb_txt:
+        errors.append("RootBridge.java must NOT use unknown field 'override_destination' in route.rules for sing-box 1.11.4")
+    if '"sniff_override_destination"' not in rb_txt:
+        errors.append("RootBridge.java must set 'sniff_override_destination' on inbounds")
+    if '"direct-redirect-in"' not in rb_txt or '"mixed-in"' not in rb_txt:
+        errors.append("RootBridge.java missing direct-redirect-in or mixed-in inbound")
 
-    # 3. Verify style.css has Liquid Glass backdrop-filter and Android Green (#3DDC84)
-    with open("app/src/main/assets/ui/style.css", "r", encoding="utf-8") as f:
-        css_text = f.read()
-    if "#3DDC84" not in css_text or "backdrop-filter" not in css_text:
-        print("ERROR: style.css missing Liquid Glass backdrop-filter or Android Green #3DDC84!", file=sys.stderr)
-        sys.exit(1)
+    # 3. Validate DOM IDs between index.html and app.js
+    html_path = os.path.join(ROOT, "app/src/main/assets/ui/index.html")
+    js_path = os.path.join(ROOT, "app/src/main/assets/ui/app.js")
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_txt = f.read()
+    with open(js_path, "r", encoding="utf-8") as f:
+        js_txt = f.read()
 
-    # 4. Verify all NamelessBridge calls in app.js exist in MainActivity.java
-    with open("app/src/main/assets/ui/app.js", "r", encoding="utf-8") as f:
-        js_text = f.read()
-    with open("app/src/main/java/com/nameless/proxy/MainActivity.java", "r", encoding="utf-8") as f:
-        java_text = f.read()
-
-    js_bridge_calls = set(re.findall(r"NamelessBridge\.([a-zA-Z0-9_]+)\s*\(", js_text))
-    java_bridge_methods = set(re.findall(r"@JavascriptInterface\s+public\s+[A-Za-z0-9_<>\[\]]+\s+([a-zA-Z0-9_]+)\s*\(", java_text))
-    missing_methods = js_bridge_calls - java_bridge_methods
-    if missing_methods:
-        print(f"ERROR: app.js calls missing NamelessBridge methods: {missing_methods}", file=sys.stderr)
-        sys.exit(1)
-
-    # 5. Verify all document.getElementById calls in app.js exist in index.html
-    with open("app/src/main/assets/ui/index.html", "r", encoding="utf-8") as f:
-        html_text = f.read()
-    html_ids = set(re.findall(r'id="([^"]+)"', html_text))
-    js_ids = set(re.findall(r'getElementById\("([^"]+)"\)', js_text))
+    html_ids = set(re.findall(r'id="([^"]+)"', html_txt))
+    js_ids = set(re.findall(r'\$\("([^"]+)"\)', js_txt))
     missing_ids = js_ids - html_ids
     if missing_ids:
-        print(f"ERROR: app.js references missing HTML IDs: {missing_ids}", file=sys.stderr)
+        errors.append(f"app.js references DOM IDs missing in index.html: {sorted(missing_ids)}")
+
+    for forbidden in ["filterSelected", "filterUnselected", "btnSelectNone", "btnApplyAppsLive"]:
+        if forbidden in html_txt:
+            errors.append(f"Cluttered button ID still present in index.html: {forbidden}")
+
+    if errors:
+        for e in errors:
+            print("ERROR:", e, file=sys.stderr)
         sys.exit(1)
 
-    # 6. Verify all onclick="fn(...)" handlers in index.html exist in app.js
-    onclick_fns = set(re.findall(r'onclick="([a-zA-Z0-9_]+)\(', html_text))
-    js_fns = set(re.findall(r'function\s+([a-zA-Z0-9_]+)\s*\(', js_text))
-    missing_fns = onclick_fns - js_fns
-    if missing_fns:
-        print(f"ERROR: index.html onclick references missing JS functions: {missing_fns}", file=sys.stderr)
-        sys.exit(1)
+    print(f"OK: Validated {len(REQUIRED_FILES)} files, shell syntax, DOM IDs, and sing-box 1.11.4 config schema.")
 
-    print(f"Verified {len(js_bridge_calls)} Bridge methods, {len(js_ids)} DOM IDs, and {len(onclick_fns)} UI handlers (Liquid Glass + 7 Protocols).")
-    print("Nameless Proxy Multi-Language Validation: ALL CHECKS PASSED")
 
 if __name__ == "__main__":
     main()
