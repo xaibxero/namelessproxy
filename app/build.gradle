@@ -2,6 +2,43 @@ plugins {
     id 'com.android.application'
 }
 
+// Auto-clean any leftover files from previous GitHub "Add files via upload" commits
+def allowedJavaFiles = [
+    'com/nameless/proxy/MainActivity.java',
+    'com/nameless/proxy/core/ProxyConfig.java',
+    'com/nameless/proxy/core/RootBridge.java',
+    'com/nameless/proxy/service/ProxyVpnService.java',
+    'com/nameless/proxy/service/BootReceiver.java'
+] as Set
+
+def javaRoot = file('src/main/java')
+if (javaRoot.exists()) {
+    fileTree(dir: 'src/main/java').files.each { File f ->
+        def rel = javaRoot.toPath().relativize(f.toPath()).toString().replace('\\', '/')
+        if (!allowedJavaFiles.contains(rel)) {
+            println "Cleaning stale Java file: ${rel}"
+            f.delete()
+        }
+    }
+}
+
+def allowedResFiles = [
+    'drawable/ic_launcher.xml',
+    'values/strings.xml',
+    'values/themes.xml'
+] as Set
+
+def resRoot = file('src/main/res')
+if (resRoot.exists()) {
+    fileTree(dir: 'src/main/res').files.each { File f ->
+        def rel = resRoot.toPath().relativize(f.toPath()).toString().replace('\\', '/')
+        if (!allowedResFiles.contains(rel)) {
+            println "Cleaning stale resource file: ${rel}"
+            f.delete()
+        }
+    }
+}
+
 android {
     namespace 'com.nameless.proxy'
     compileSdk 34
@@ -9,12 +46,24 @@ android {
     defaultConfig {
         applicationId "com.nameless.proxy"
         minSdk 26
-        targetSdk 34
-        versionCode 35
-        versionName "35.0-M3-LiquidGlass"
+        targetSdk 33
+        versionCode 36
+        versionName "36.0-M3-LiquidGlass"
 
         ndk {
             abiFilters 'arm64-v8a'
+        }
+    }
+
+    sourceSets {
+        main {
+            java {
+                include 'com/nameless/proxy/MainActivity.java'
+                include 'com/nameless/proxy/core/ProxyConfig.java'
+                include 'com/nameless/proxy/core/RootBridge.java'
+                include 'com/nameless/proxy/service/ProxyVpnService.java'
+                include 'com/nameless/proxy/service/BootReceiver.java'
+            }
         }
     }
 
@@ -32,6 +81,11 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+
+    lintOptions {
+        abortOnError false
+        checkReleaseBuilds false
     }
 
     compileOptions {

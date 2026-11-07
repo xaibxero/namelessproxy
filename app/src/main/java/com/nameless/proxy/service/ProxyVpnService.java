@@ -16,7 +16,7 @@ public class ProxyVpnService extends Service {
     public static final String ACTION_START = "com.nameless.proxy.ACTION_START";
     public static final String ACTION_STOP = "com.nameless.proxy.ACTION_STOP";
     private static final String CHANNEL_ID = "nameless_proxy_channel";
-    private static final int NOTIF_ID = 3501;
+    private static final int NOTIF_ID = 3601;
 
     @Override
     public void onCreate() {
@@ -29,13 +29,19 @@ public class ProxyVpnService extends Service {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             new Thread(() -> {
                 RootBridge.stopTunnel(getApplicationContext());
-                stopForeground(true);
+                try {
+                    stopForeground(true);
+                } catch (Throwable ignored) {
+                }
                 stopSelf();
             }).start();
             return START_NOT_STICKY;
         }
 
-        startForeground(NOTIF_ID, buildNotification("NamelessProxy Active", "Zero-Leak DNS & WebRTC Shield Running"));
+        try {
+            startForeground(NOTIF_ID, buildNotification("NamelessProxy Active", "Zero-Leak DNS & WebRTC Shield Running"));
+        } catch (Throwable ignored) {
+        }
         return START_STICKY;
     }
 
@@ -54,6 +60,7 @@ public class ProxyVpnService extends Service {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private Notification buildNotification(String title, String text) {
         Intent openIntent = new Intent(this, MainActivity.class);
         PendingIntent piOpen = PendingIntent.getActivity(

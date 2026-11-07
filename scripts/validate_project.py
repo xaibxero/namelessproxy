@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Static validator for NamelessProxy v35 repository."""
-import json
+"""Static and compiler validator for NamelessProxy v36 repository."""
 import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,7 +42,25 @@ def main():
         if not os.path.isfile(p) or os.path.getsize(p) == 0:
             errors.append(f"Missing or empty file: {rel}")
 
-    # 1. Validate shell syntax of tunnel.sh
+    # 1. Validate XML files parse cleanly
+    for xml_rel in [
+        "app/src/main/AndroidManifest.xml",
+        "app/src/main/res/values/strings.xml",
+        "app/src/main/res/values/themes.xml",
+        "app/src/main/res/drawable/ic_launcher.xml",
+    ]:
+        try:
+            ET.parse(os.path.join(ROOT, xml_rel))
+        except Exception as exc:
+            errors.append(f"Invalid XML in {xml_rel}: {exc}")
+
+    # 2. Validate app/build.gradle starts with plugins {}
+    with open(os.path.join(ROOT, "app/build.gradle"), "r", encoding="utf-8") as f:
+        bg_txt = f.read().lstrip()
+    if not bg_txt.startswith("plugins {"):
+        errors.append("app/build.gradle must start with plugins {} block")
+
+    # 3. Validate shell syntax of tunnel.sh
     tunnel_sh = os.path.join(ROOT, "app/src/main/assets/tunnel.sh")
     res = subprocess.run(["sh", "-n", tunnel_sh], capture_output=True, text=True)
     if res.returncode != 0:
@@ -55,10 +73,12 @@ def main():
     if "DIRECT_REDIRECT_PORT=10808" not in sh_txt:
         errors.append("tunnel.sh missing DIRECT_REDIRECT_PORT=10808")
 
-    # 2. Validate RootBridge.java sing-box 1.11.4 config rules
+    # 4. Validate RootBridge.java has no Process import collision and valid sing-box 1.11.4 config
     rb_path = os.path.join(ROOT, "app/src/main/java/com/nameless/proxy/core/RootBridge.java")
     with open(rb_path, "r", encoding="utf-8") as f:
         rb_txt = f.read()
+    if "import android.os.Process;" in rb_txt:
+        errors.append("RootBridge.java must not import android.os.Process (collides with java.lang.Process)")
     if '"override_destination"' in rb_txt:
         errors.append("RootBridge.java must NOT use unknown field 'override_destination' in route.rules for sing-box 1.11.4")
     if '"sniff_override_destination"' not in rb_txt:
@@ -66,7 +86,7 @@ def main():
     if '"direct-redirect-in"' not in rb_txt or '"mixed-in"' not in rb_txt:
         errors.append("RootBridge.java missing direct-redirect-in or mixed-in inbound")
 
-    # 3. Validate DOM IDs between index.html and app.js
+    # 5. Validate DOM IDs between index.html and app.js
     html_path = os.path.join(ROOT, "app/src/main/assets/ui/index.html")
     js_path = os.path.join(ROOT, "app/src/main/assets/ui/app.js")
     with open(html_path, "r", encoding="utf-8") as f:
@@ -89,7 +109,7 @@ def main():
             print("ERROR:", e, file=sys.stderr)
         sys.exit(1)
 
-    print(f"OK: Validated {len(REQUIRED_FILES)} files, shell syntax, DOM IDs, and sing-box 1.11.4 config schema.")
+    print(f"OK: Validated {len(REQUIRED_FILES)} files, XML, Gradle, shell syntax, DOM IDs, and sing-box 1.11.4 config schema.")
 
 
 if __name__ == "__main__":

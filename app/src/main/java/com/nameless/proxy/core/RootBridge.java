@@ -3,14 +3,12 @@ package com.nameless.proxy.core;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.os.Process;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -21,9 +19,7 @@ import java.net.Proxy;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -40,7 +36,7 @@ public class RootBridge {
     private static volatile long connectedSinceMs = 0L;
 
     public static int getCurrentUserId() {
-        return Process.myUid() / 100000;
+        return android.os.Process.myUid() / 100000;
     }
 
     public static String getWorkDirPath() {
@@ -72,7 +68,7 @@ public class RootBridge {
     }
 
     public static String execRoot(String cmd, long timeoutMs) {
-        Process proc = null;
+        java.lang.Process proc = null;
         try {
             proc = new ProcessBuilder("su", "-c", cmd)
                     .redirectErrorStream(true)
@@ -282,12 +278,10 @@ public class RootBridge {
         if (cfg == null || cfg.selectedApps == null || cfg.selectedApps.isEmpty()) {
             return uids;
         }
-        // If user explicitly chose global and selected 0 apps, return empty
         PackageManager pm = ctx.getPackageManager();
         int userId = getCurrentUserId();
         String selfPkg = ctx.getPackageName();
 
-        // Count total user-visible apps so if "Select All" was used, we can still route per-UID or global cleanly
         for (String pkg : cfg.selectedApps) {
             if (pkg == null || pkg.trim().isEmpty() || pkg.equals(selfPkg)) {
                 continue;
@@ -301,7 +295,6 @@ public class RootBridge {
                 }
             } catch (Exception ignored) {
             }
-            // Root fallback via /data/system/packages.list
             String line = execRoot("grep -E '^" + sanitizeShell(pkg) + " ' /data/system/packages.list 2>/dev/null | awk '{print $2}'", 2000);
             if (line != null && !line.trim().isEmpty()) {
                 try {
@@ -531,10 +524,8 @@ public class RootBridge {
     public static JSONObject queryAndSyncExitMetadata() {
         JSONObject result = new JSONObject();
         try {
-            // Query through sing-box's local mixed-in HTTP proxy (127.0.0.1:10809)
             Proxy localProxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 10809));
 
-            // Try ipwho.is over HTTPS first
             String body = httpGetViaProxy("https://ipwho.is/", localProxy, 4500);
             if (body != null && body.contains("\"ip\"")) {
                 JSONObject j = new JSONObject(body);
@@ -577,14 +568,12 @@ public class RootBridge {
             }
 
             if (!cachedExitIp.isEmpty()) {
-                // Push verified Proxy Exit IP to stun-responder control endpoint
                 String u = "http://127.0.0.1:10804/update?ip=" + URLEncoder.encode(cachedExitIp, "UTF-8")
                         + "&country=" + URLEncoder.encode(cachedCountry, "UTF-8")
                         + "&cc=" + URLEncoder.encode(cachedCountryCode, "UTF-8")
                         + "&isp=" + URLEncoder.encode(cachedIsp, "UTF-8");
                 httpGetDirect(u, 2000);
             } else {
-                // Ask stun-responder /status in case it already resolved the IP
                 String st = httpGetDirect("http://127.0.0.1:10804/status", 2500);
                 if (st != null && st.contains("\"ip\"")) {
                     JSONObject sj = new JSONObject(st);
