@@ -49,7 +49,7 @@ object RootEngine {
         }
 
         val configJson = SingBoxConfigBuilder.build(slot, settings)
-        val daemonScript = buildLiveDaemonScript(settings)
+        val daemonScript = buildLiveDaemonScript(slot, settings)
 
         val tmpConfig = File(context.cacheDir, "config_${ProfileContext.userId}.json").apply {
             writeText(configJson)
@@ -101,7 +101,7 @@ object RootEngine {
         return res.out == "YES"
     }
 
-    private fun buildLiveDaemonScript(settings: ProfileSettings): String {
+    private fun buildLiveDaemonScript(slot: ProxySlot, settings: ProfileSettings): String {
         val u = ProfileContext.userId
         val chain = "NP_U$u"
         val uidRange = "${ProfileContext.uidStart}-${ProfileContext.uidEnd}"
@@ -112,6 +112,7 @@ object RootEngine {
         val mark = ProfileContext.tproxyMark
         val blockIpv6 = settings.ipv6Mode == Ipv6Mode.STRICT_BLOCK
         val hotspot = settings.shareHotspot
+        val tcpOnlyProxy = slot.protocol != ProxyProtocol.SOCKS5
 
         return """
             #!/system/bin/sh
@@ -146,6 +147,30 @@ object RootEngine {
                 iptables -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
                     iptables -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT
 
+                # Capture Android Private DNS (netd UID 0-9999 on DoT 853 & DoH3 443) so even cloned profiles never leak
+                iptables -t mangle -N ${chain}_PDNS 2>/dev/null || iptables -t mangle -F ${chain}_PDNS
+                iptables -t mangle -A ${chain}_PDNS -m mark --mark $bypassHex -j RETURN
+                iptables -t mangle -A ${chain}_PDNS -p tcp --dport 853 -j MARK --set-mark $mark
+                iptables -t mangle -A ${chain}_PDNS -p udp --dport 853 -j MARK --set-mark $mark
+                for DNS_IP in 8.8.8.8 8.8.4.4 1.1.1.1 1.0.0.1 9.9.9.9 149.112.112.112; do
+                    iptables -t mangle -A ${chain}_PDNS -d ${'$'}DNS_IP -p udp --dport 443 -j MARK --set-mark $mark
+                done
+                iptables -t mangle -C OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || \
+                    iptables -t mangle -I OUTPUT 1 -m owner --uid-owner 0-9999 -j ${chain}_PDNS
+
+                # Force TCP-853 DoT fallback when upstream proxy (HTTP/HTTPS/SOCKS4) does not support UDP
+                if [ "${if (tcpOnlyProxy) "1" else "0"}" = "1" ]; then
+                    iptables -N ${chain}_UDPDROP 2>/dev/null || iptables -F ${chain}_UDPDROP
+                    iptables -A ${chain}_UDPDROP -m mark --mark $bypassHex -j RETURN
+                    iptables -A ${chain}_UDPDROP -p udp --dport 853 -j DROP
+                    for DNS_IP in 8.8.8.8 8.8.4.4 1.1.1.1 1.0.0.1 9.9.9.9 149.112.112.112; do
+                        iptables -A ${chain}_UDPDROP -d ${'$'}DNS_IP -p udp --dport 443 -j DROP
+                    done
+                    iptables -C OUTPUT -j ${chain}_UDPDROP 2>/dev/null || \
+                        iptables -I OUTPUT 1 -j ${chain}_UDPDROP
+                fi
+
+                # Hard-capture standard port 53 DNS
                 iptables -t nat -N ${chain}_DNS 2>/dev/null || iptables -t nat -F ${chain}_DNS
                 iptables -t nat -A ${chain}_DNS -m mark --mark $bypassHex -j RETURN
                 iptables -t nat -A ${chain}_DNS -p udp --dport 53 -j REDIRECT --to-ports $dnsPort
@@ -166,6 +191,10 @@ object RootEngine {
                 if [ "${if (blockIpv6) "1" else "0"}" = "1" ]; then
                     ip6tables -C OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || \
                         ip6tables -I OUTPUT 1 -m owner --uid-owner $uidRange ! -o lo -j DROP
+                    ip6tables -C OUTPUT -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP 2>/dev/null || \
+                        ip6tables -I OUTPUT 1 -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP
+                    ip6tables -C OUTPUT -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP 2>/dev/null || \
+                        ip6tables -I OUTPUT 1 -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP
                 else
                     ip -6 rule show | grep -q "fwmark $mark lookup $table" || ip -6 rule add fwmark $mark table $table pref $((1000 + $u))
                     ip -6 route replace local ::/0 dev lo table $table
@@ -187,6 +216,17 @@ object RootEngine {
                     ip6tables -t mangle -A ${chain}_OUT -p udp -j MARK --set-mark $mark
                     ip6tables -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
                         ip6tables -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT
+
+                    # Route IPv6 Private DNS (DoT 853 & DoH3 443) through TProxy as well
+                    ip6tables -t mangle -N ${chain}_PDNS 2>/dev/null || ip6tables -t mangle -F ${chain}_PDNS
+                    ip6tables -t mangle -A ${chain}_PDNS -m mark --mark $bypassHex -j RETURN
+                    ip6tables -t mangle -A ${chain}_PDNS -p tcp --dport 853 -j MARK --set-mark $mark
+                    ip6tables -t mangle -A ${chain}_PDNS -p udp --dport 853 -j MARK --set-mark $mark
+                    for DNS6_IP in 2001:4860:4860::8888 2001:4860:4860::8844 2606:4700:4700::1111 2606:4700:4700::1001 2620:fe::fe 2620:fe::9; do
+                        ip6tables -t mangle -A ${chain}_PDNS -d ${'$'}DNS6_IP -p udp --dport 443 -j MARK --set-mark $mark
+                    done
+                    ip6tables -t mangle -C OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || \
+                        ip6tables -t mangle -I OUTPUT 1 -m owner --uid-owner 0-9999 -j ${chain}_PDNS
                 fi
             }
 
@@ -209,23 +249,31 @@ object RootEngine {
         val mark = ProfileContext.tproxyMark
         return """
             iptables -t mangle -D OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || true
+            iptables -t mangle -D OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || true
             iptables -t mangle -D PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || true
             iptables -t nat -D OUTPUT -m owner --uid-owner $uidRange -j ${chain}_DNS 2>/dev/null || true
+            iptables -D OUTPUT -j ${chain}_UDPDROP 2>/dev/null || true
             for IFACE in wlan+ ap+ rndis+ swlan+; do
                 iptables -t mangle -D PREROUTING -i ${'$'}IFACE -j $chain 2>/dev/null || true
                 iptables -t nat -D PREROUTING -i ${'$'}IFACE -p udp --dport 53 -j REDIRECT --to-ports ${ProfileContext.dnsPort} 2>/dev/null || true
             done
             iptables -t mangle -F $chain 2>/dev/null && iptables -t mangle -X $chain 2>/dev/null || true
             iptables -t mangle -F ${chain}_OUT 2>/dev/null && iptables -t mangle -X ${chain}_OUT 2>/dev/null || true
+            iptables -t mangle -F ${chain}_PDNS 2>/dev/null && iptables -t mangle -X ${chain}_PDNS 2>/dev/null || true
             iptables -t nat -F ${chain}_DNS 2>/dev/null && iptables -t nat -X ${chain}_DNS 2>/dev/null || true
+            iptables -F ${chain}_UDPDROP 2>/dev/null && iptables -X ${chain}_UDPDROP 2>/dev/null || true
             ip rule del fwmark $mark table $table 2>/dev/null || true
             ip route flush table $table 2>/dev/null || true
 
             ip6tables -D OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || true
+            ip6tables -D OUTPUT -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP 2>/dev/null || true
+            ip6tables -D OUTPUT -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP 2>/dev/null || true
             ip6tables -t mangle -D OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || true
+            ip6tables -t mangle -D OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || true
             ip6tables -t mangle -D PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || true
             ip6tables -t mangle -F $chain 2>/dev/null && ip6tables -t mangle -X $chain 2>/dev/null || true
             ip6tables -t mangle -F ${chain}_OUT 2>/dev/null && ip6tables -t mangle -X ${chain}_OUT 2>/dev/null || true
+            ip6tables -t mangle -F ${chain}_PDNS 2>/dev/null && ip6tables -t mangle -X ${chain}_PDNS 2>/dev/null || true
             ip -6 rule del fwmark $mark table $table 2>/dev/null || true
             ip -6 route flush table $table 2>/dev/null || true
         """.trimIndent()
