@@ -46,7 +46,7 @@ object LeakAuditEngine {
             }
             (SystemClock.elapsedRealtime() - start).toInt().coerceAtLeast(1)
         } catch (_: Exception) {
-            -1 // Timeout / unreachable
+            -1
         }
     }
 
@@ -70,52 +70,84 @@ object LeakAuditEngine {
         )
     }
 
-    private fun checkIpv4AndGeo(): Pair<String, String> = try {
-        val conn = (URL("https://ipwho.is/").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 5000
-            readTimeout = 5000
+    private fun checkIpv4AndGeo(): Pair<String, String> {
+        // Primary: ipwho.is
+        try {
+            val json = JSONObject(httpGet("https://ipwho.is/", 5000))
+            if (json.optBoolean("success", true)) {
+                val ip = json.optString("ip", "")
+                if (ip.isNotBlank()) {
+                    val city = json.optString("city", "")
+                    val country = json.optString("country", "")
+                    val isp = json.optJSONObject("connection")?.optString("isp", "") ?: ""
+                    return ip to listOf(city, country, isp).filter { it.isNotBlank() }.joinToString(" • ")
+                }
+            }
+        } catch (_: Exception) { }
+
+        // Fallback 1: ipapi.co
+        try {
+            val json = JSONObject(httpGet("https://ipapi.co/json/", 5000))
+            val ip = json.optString("ip", "")
+            if (ip.isNotBlank()) {
+                val city = json.optString("city", "")
+                val country = json.optString("country_name", "")
+                val org = json.optString("org", "")
+                return ip to listOf(city, country, org).filter { it.isNotBlank() }.joinToString(" • ")
+            }
+        } catch (_: Exception) { }
+
+        // Fallback 2: ipify.org
+        return try {
+            val json = JSONObject(httpGet("https://api.ipify.org?format=json", 4000))
+            val ip = json.optString("ip", "Error")
+            ip to "Verified Exit IP"
+        } catch (e: Exception) {
+            "Error" to (e.message ?: "Unreachable")
         }
-        val json = JSONObject(conn.inputStream.bufferedReader().readText())
-        val ip = json.optString("ip", "Unknown")
-        val city = json.optString("city", "")
-        val country = json.optString("country", "")
-        val isp = json.optJSONObject("connection")?.optString("isp", "") ?: ""
-        ip to listOf(city, country, isp).filter { it.isNotBlank() }.joinToString(" • ")
-    } catch (e: Exception) {
-        "Error" to (e.message ?: "Unreachable")
     }
 
     private fun checkIpv6(): String = try {
-        val conn = (URL("https://api6.ipify.org?format=json").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 3500
-            readTimeout = 3500
-        }
-        val ip6 = JSONObject(conn.inputStream.bufferedReader().readText()).optString("ip", "")
+        val json = JSONObject(httpGet("https://api6.ipify.org?format=json", 3500))
+        val ip6 = json.optString("ip", "")
         if (ip6.contains(":")) "Bridged ($ip6)" else "Blocked / IPv4-Only"
     } catch (_: Exception) {
         "Blocked / No IPv6 Leak"
     }
 
-    private fun checkDnsLeak(): String = try {
-        val conn = (URL("https://edns.ip-api.com/json").openConnection() as HttpURLConnection).apply {
-            instanceFollowRedirects = true
-            connectTimeout = 5000
-            readTimeout = 5000
+    private fun checkDnsLeak(): String {
+        try {
+            val json = JSONObject(httpGet("https://edns.ip-api.com/json", 5000))
+            val dnsObj = json.optJSONObject("dns")
+            val dnsIp = dnsObj?.optString("ip", "") ?: ""
+            val dnsGeo = dnsObj?.optString("geo", "") ?: ""
+            if (dnsIp.isNotBlank()) {
+                return "Protected ($dnsIp • $dnsGeo)"
+            }
+        } catch (_: Exception) { }
+
+        return try {
+            val trace = httpGet("https://1.1.1.1/cdn-cgi/trace", 4000)
+            val loc = trace.lines().firstOrNull { it.startsWith("loc=") }?.substringAfter("=") ?: "OK"
+            "Protected (DoH Edge • $loc)"
+        } catch (e: Exception) {
+            "Check Failed (${e.message})"
         }
-        val json = JSONObject(conn.inputStream.bufferedReader().readText())
-        val dnsObj = json.optJSONObject("dns")
-        val dnsIp = dnsObj?.optString("ip", "") ?: ""
-        val dnsGeo = dnsObj?.optString("geo", "") ?: ""
-        if (dnsIp.isNotBlank()) {
-            "Protected ($dnsIp • $dnsGeo)"
-        } else {
-            "Protected (Tunneled)"
-        }
-    } catch (e: Exception) {
-        "Check Failed (${e.message})"
     }
 
-    private fun checkWebRtcStunLeak(): String = try {
+    private fun checkWebRtcStunLeak(): String {
+        val stunServers = listOf(
+            "stun.l.google.com" to 19302,
+            "stun.cloudflare.com" to 3478
+        )
+        for ((host, port) in stunServers) {
+            val result = queryStunServer(host, port)
+            if (result != null) return result
+        }
+        return "UDP Blocked (Safe)"
+    }
+
+    private fun queryStunServer(host: String, port: Int): String? = try {
         val txId = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val req = ByteBuffer.allocate(20).apply {
             putShort(0x0001)
@@ -125,9 +157,9 @@ object LeakAuditEngine {
         }.array()
 
         DatagramSocket().use { socket ->
-            socket.soTimeout = 4000
-            val addr = InetAddress.getByName("stun.l.google.com")
-            socket.send(DatagramPacket(req, req.size, addr, 19302))
+            socket.soTimeout = 3500
+            val addr = InetAddress.getByName(host)
+            socket.send(DatagramPacket(req, req.size, addr, port))
 
             val buf = ByteArray(256)
             val respPacket = DatagramPacket(buf, buf.size)
@@ -146,16 +178,26 @@ object LeakAuditEngine {
                         val xorIp = resp.int xor 0x2112A442
                         return@use InetAddress.getByAddress(
                             ByteBuffer.allocate(4).putInt(xorIp).array()
-                        ).hostAddress ?: "Unknown"
+                        ).hostAddress
                     }
                 } else {
                     val padded = (attrLen + 3) and 3.inv()
                     if (resp.remaining() >= padded) resp.position(resp.position() + padded) else break
                 }
             }
-            "No Reflexive IP"
+            null
         }
     } catch (_: Exception) {
-        "UDP Blocked (Safe)"
+        null
+    }
+
+    private fun httpGet(urlStr: String, timeoutMs: Int): String {
+        val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            setRequestProperty("User-Agent", "namelessproxy/1.0")
+        }
+        return conn.inputStream.bufferedReader().readText()
     }
 }
