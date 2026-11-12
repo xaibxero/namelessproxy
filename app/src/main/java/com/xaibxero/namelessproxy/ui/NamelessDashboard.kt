@@ -9,6 +9,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +41,7 @@ private val ChipSurface = Color(0xFF0E1219)
 private val HairlineBorder = Color(0xFF1D2432)
 private val NeonMint = Color(0xFF00F59B)
 private val AlertCoral = Color(0xFFFF4D6D)
+private val WarnAmber = Color(0xFFFFBE0B)
 private val MutedText = Color(0xFF8B95A5)
 
 private val BubblySpring = spring<Float>(
@@ -49,6 +52,7 @@ private val BubblySpring = spring<Float>(
 @Composable
 fun NamelessDashboard() {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
     var settings by remember { mutableStateOf(ProfileSettings()) }
@@ -57,6 +61,8 @@ fun NamelessDashboard() {
     var statusText by remember {
         mutableStateOf("IDLE • USER ${ProfileContext.userId} (UID ${ProfileContext.myUid})")
     }
+    var slotLatencies by remember { mutableStateOf>(emptyMap()) }
+    var isPinging by remember { mutableStateOf(false) }
     var leakReport by remember { mutableStateOf<LeakReport?>(null) }
     var isAuditing by remember { mutableStateOf(false) }
 
@@ -66,11 +72,11 @@ fun NamelessDashboard() {
         if (isConnected) {
             statusText = "KERNEL ACTIVE • USER ${ProfileContext.userId}"
         }
+        slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
     }
 
     val activeSlot = settings.slots[settings.activeSlot]
 
-    // Bubbly spring physics for the center power orb
     val orbInteraction = remember { MutableInteractionSource() }
     val orbPressed by orbInteraction.collectIsPressedAsState()
     val orbScale by animateFloatAsState(
@@ -91,7 +97,6 @@ fun NamelessDashboard() {
         label = "orbBorder"
     )
 
-    // Subtle breathing halo ring when proxy is active
     val infiniteTransition = rememberInfiniteTransition(label = "orbPulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1.0f,
@@ -146,7 +151,7 @@ fun NamelessDashboard() {
             // Center Bubbly Power Orb with Pulse Halo
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.padding(vertical = 10.dp)
+                modifier = Modifier.padding(vertical = 8.dp)
             ) {
                 if (isConnected) {
                     Box(
@@ -207,21 +212,22 @@ fun NamelessDashboard() {
                 fontSize = 12.sp
             )
 
-            // 5 Bubbly Proxy Slot Pills (S1 - S5)
+            // 5 Bubbly Proxy Slot Pills (S1 - S5) with Live Latency Badges
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 settings.slots.forEachIndexed { idx, slot ->
                     val selected = idx == settings.activeSlot
                     val hasHost = slot.host.isNotBlank()
+                    val pingMs = slotLatencies[idx]
                     val pillScale by animateFloatAsState(
-                        targetValue = if (selected) 1.06f else 0.96f,
+                        targetValue = if (selected) 1.05f else 0.96f,
                         animationSpec = BubblySpring,
                         label = "slotPill$idx"
                     )
                     Surface(
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(18.dp),
                         color = if (selected) NeonMint else CardSurface,
                         border = BorderStroke(
                             1.dp,
@@ -234,29 +240,48 @@ fun NamelessDashboard() {
                         modifier = Modifier
                             .weight(1f)
                             .scale(pillScale)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(18.dp))
                             .clickable {
                                 settings = settings.copy(activeSlot = idx)
                                 scope.launch { SettingsStore.save(context, settings) }
                             }
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(vertical = 10.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
                         ) {
                             Text(
                                 text = "S${idx + 1}",
                                 color = if (selected) AmoledBlack else Color.White,
                                 fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp
+                            )
+                            val pingLabel = when {
+                                pingMs == null -> "--"
+                                pingMs < 0 -> "DEAD"
+                                else -> "${pingMs}ms"
+                            }
+                            val pingColor = when {
+                                selected -> AmoledBlack.copy(alpha = 0.8f)
+                                pingMs == null -> MutedText
+                                pingMs < 0 -> AlertCoral
+                                pingMs < 180 -> NeonMint
+                                else -> WarnAmber
+                            }
+                            Text(
+                                text = pingLabel,
+                                color = pingColor,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
                             )
                         }
                     }
                 }
             }
 
-            // Slot Configuration Card (Hairline AMOLED Border)
+            // Slot Configuration Card (With 1-Tap Clipboard Paste & Ping All)
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = CardSurface,
@@ -273,37 +298,57 @@ fun NamelessDashboard() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SLOT ${settings.activeSlot + 1} ENDPOINT",
+                            text = "SLOT ${settings.activeSlot + 1}",
                             color = Color.White,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
-                        Surface(
-                            shape = CircleShape,
-                            color = ChipSurface,
-                            border = BorderStroke(1.dp, NeonMint.copy(alpha = 0.5f)),
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ActionPill(
+                                label = if (isPinging) "..." else "PING ALL",
+                                accent = MutedText
+                            ) {
+                                scope.launch {
+                                    isPinging = true
+                                    slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
+                                    isPinging = false
+                                }
+                            }
+                            ActionPill(label = "PASTE URI", accent = NeonMint) {
+                                val clipText = clipboard.getText()?.text.orEmpty()
+                                val parsed = ProxyUriParser.parseIntoSlot(clipText, activeSlot)
+                                if (parsed != null) {
+                                    val updated = settings.slots.toMutableList().apply {
+                                        this[settings.activeSlot] = parsed
+                                    }
+                                    settings = settings.copy(slots = updated)
                                     scope.launch {
                                         SettingsStore.save(context, settings)
-                                        statusText = "SAVED SLOT ${settings.activeSlot + 1} -> ${ProfileContext.userDir}"
+                                        slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
                                     }
+                                    statusText = "IMPORTED ${parsed.protocol} -> ${parsed.host}:${parsed.port}"
+                                } else {
+                                    statusText = "CLIPBOARD HAS NO VALID PROXY URI"
                                 }
-                        ) {
-                            Text(
-                                text = "SAVE",
-                                color = NeonMint,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                            )
+                            }
+                            ActionPill(label = "SAVE", accent = NeonMint) {
+                                scope.launch {
+                                    SettingsStore.save(context, settings)
+                                    slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
+                                    statusText = "SAVED SLOT ${settings.activeSlot + 1} -> ${ProfileContext.userDir}"
+                                }
+                            }
                         }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Scrollable Protocol Selector (SOCKS5, SOCKS4, SOCKS4A, HTTP, HTTPS, SHADOWSOCKS, VLESS, TROJAN)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         ProxyProtocol.entries.forEach { proto ->
                             val isSelected = activeSlot.protocol == proto
                             FilterChip(
@@ -348,21 +393,20 @@ fun NamelessDashboard() {
                         cursorColor = NeonMint
                     )
 
-                    OutlinedTextField(
-                        value = activeSlot.host,
-                        onValueChange = { v ->
-                            val updated = settings.slots.toMutableList().apply {
-                                this[settings.activeSlot] = activeSlot.copy(host = v)
-                            }
-                            settings = settings.copy(slots = updated)
-                        },
-                        label = { Text("Proxy IP / Host") },
-                        singleLine = true,
-                        colors = fieldColors,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = activeSlot.host,
+                            onValueChange = { v ->
+                                val updated = settings.slots.toMutableList().apply {
+                                    this[settings.activeSlot] = activeSlot.copy(host = v)
+                                }
+                                settings = settings.copy(slots = updated)
+                            },
+                            label = { Text("Host / IP") },
+                            singleLine = true,
+                            colors = fieldColors,
+                            modifier = Modifier.weight(2.2f)
+                        )
                         OutlinedTextField(
                             value = if (activeSlot.port == 0) "" else activeSlot.port.toString(),
                             onValueChange = { v ->
@@ -377,32 +421,144 @@ fun NamelessDashboard() {
                             colors = fieldColors,
                             modifier = Modifier.weight(1f)
                         )
-                        OutlinedTextField(
-                            value = activeSlot.username,
-                            onValueChange = { v ->
-                                val updated = settings.slots.toMutableList().apply {
-                                    this[settings.activeSlot] = activeSlot.copy(username = v)
+                    }
+
+                    when (activeSlot.protocol) {
+                        ProxyProtocol.SHADOWSOCKS -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = activeSlot.methodOrFlow,
+                                    onValueChange = { v ->
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = activeSlot.copy(methodOrFlow = v)
+                                        }
+                                        settings = settings.copy(slots = updated)
+                                    },
+                                    label = { Text("Cipher Method") },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = activeSlot.password,
+                                    onValueChange = { v ->
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = activeSlot.copy(password = v)
+                                        }
+                                        settings = settings.copy(slots = updated)
+                                    },
+                                    label = { Text("Password") },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        ProxyProtocol.VLESS, ProxyProtocol.TROJAN -> {
+                            OutlinedTextField(
+                                value = activeSlot.password,
+                                onValueChange = { v ->
+                                    val updated = settings.slots.toMutableList().apply {
+                                        this[settings.activeSlot] = activeSlot.copy(password = v)
+                                    }
+                                    settings = settings.copy(slots = updated)
+                                },
+                                label = { Text(if (activeSlot.protocol == ProxyProtocol.VLESS) "UUID" else "Trojan Password") },
+                                singleLine = true,
+                                colors = fieldColors,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = activeSlot.sni,
+                                    onValueChange = { v ->
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = activeSlot.copy(sni = v)
+                                        }
+                                        settings = settings.copy(slots = updated)
+                                    },
+                                    label = { Text("SNI") },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = activeSlot.transport,
+                                    onValueChange = { v ->
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = activeSlot.copy(transport = v)
+                                        }
+                                        settings = settings.copy(slots = updated)
+                                    },
+                                    label = { Text("tcp / ws / grpc") },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (activeSlot.protocol == ProxyProtocol.VLESS && activeSlot.realityPublicKey.isNotBlank()) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = activeSlot.realityPublicKey,
+                                        onValueChange = { v ->
+                                            val updated = settings.slots.toMutableList().apply {
+                                                this[settings.activeSlot] = activeSlot.copy(realityPublicKey = v)
+                                            }
+                                            settings = settings.copy(slots = updated)
+                                        },
+                                        label = { Text("Reality Public Key") },
+                                        singleLine = true,
+                                        colors = fieldColors,
+                                        modifier = Modifier.weight(1.4f)
+                                    )
+                                    OutlinedTextField(
+                                        value = activeSlot.realityShortId,
+                                        onValueChange = { v ->
+                                            val updated = settings.slots.toMutableList().apply {
+                                                this[settings.activeSlot] = activeSlot.copy(realityShortId = v)
+                                            }
+                                            settings = settings.copy(slots = updated)
+                                        },
+                                        label = { Text("Short ID") },
+                                        singleLine = true,
+                                        colors = fieldColors,
+                                        modifier = Modifier.weight(0.6f)
+                                    )
                                 }
-                                settings = settings.copy(slots = updated)
-                            },
-                            label = { Text("User") },
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = activeSlot.password,
-                            onValueChange = { v ->
-                                val updated = settings.slots.toMutableList().apply {
-                                    this[settings.activeSlot] = activeSlot.copy(password = v)
-                                }
-                                settings = settings.copy(slots = updated)
-                            },
-                            label = { Text("Pass") },
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.weight(1f)
-                        )
+                            }
+                        }
+
+                        else -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = activeSlot.username,
+                                    onValueChange = { v ->
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = activeSlot.copy(username = v)
+                                        }
+                                        settings = settings.copy(slots = updated)
+                                    },
+                                    label = { Text("User (Optional)") },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = activeSlot.password,
+                                    onValueChange = { v ->
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = activeSlot.copy(password = v)
+                                        }
+                                        settings = settings.copy(slots = updated)
+                                    },
+                                    label = { Text("Pass (Optional)") },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -562,6 +718,27 @@ fun NamelessDashboard() {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ActionPill(label: String, accent: Color, onClick: () -> Unit) {
+    Surface(
+        shape = CircleShape,
+        color = ChipSurface,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            text = label,
+            color = accent,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        )
     }
 }
 
