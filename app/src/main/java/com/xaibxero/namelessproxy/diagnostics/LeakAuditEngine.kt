@@ -10,7 +10,6 @@ import java.net.InetAddress
 import java.net.URL
 import java.nio.ByteBuffer
 import java.security.SecureRandom
-import java.util.UUID
 
 data class LeakReport(
     val ipv4Exit: String,
@@ -70,12 +69,19 @@ object LeakAuditEngine {
     }
 
     private fun checkDnsLeak(): String = try {
-        val probeHost = "${UUID.randomUUID().toString().take(8)}.cloudflare.com"
-        val resolved = InetAddress.getByName(probeHost).hostAddress ?: ""
-        if (resolved.startsWith("198.18.")) {
-            "Protected (Fake-IP $resolved -> DoH)"
+        val conn = (URL("https://edns.ip-api.com/json").openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = 5000
+            readTimeout = 5000
+        }
+        val json = JSONObject(conn.inputStream.bufferedReader().readText())
+        val dnsObj = json.optJSONObject("dns")
+        val dnsIp = dnsObj?.optString("ip", "") ?: ""
+        val dnsGeo = dnsObj?.optString("geo", "") ?: ""
+        if (dnsIp.isNotBlank()) {
+            "Protected ($dnsIp • $dnsGeo)"
         } else {
-            "Protected (Tunneled -> $resolved)"
+            "Protected (Tunneled)"
         }
     } catch (e: Exception) {
         "Check Failed (${e.message})"
