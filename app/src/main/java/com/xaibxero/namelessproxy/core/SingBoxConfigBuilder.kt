@@ -5,7 +5,12 @@ import org.json.JSONObject
 
 object SingBoxConfigBuilder {
 
+    private val ipv4Regex = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
+
     fun build(slot: ProxySlot, settings: ProfileSettings): String {
+        val cleanHost = slot.host.trim()
+        val hostIsDomain = cleanHost.isNotBlank() && !ipv4Regex.matches(cleanHost) && !cleanHost.contains(":")
+
         val domainStrategy = when (settings.ipv6Mode) {
             Ipv6Mode.BRIDGE_OVER_IPV4 -> "ipv4_only"
             Ipv6Mode.NATIVE_DUAL_STACK -> "prefer_ipv6"
@@ -15,7 +20,7 @@ object SingBoxConfigBuilder {
         val outbound = JSONObject().apply {
             put("tag", "proxy-out")
             put("routing_mark", ProfileContext.outboundBypassMark)
-            put("server", slot.host.trim())
+            put("server", cleanHost)
             put("server_port", slot.port)
 
             when (slot.protocol) {
@@ -80,6 +85,20 @@ object SingBoxConfigBuilder {
             }
         }
 
+        val dnsRules = JSONArray().apply {
+            // Resolve the proxy server's own domain directly (with routing_mark) to prevent DNS deadlock
+            if (hostIsDomain) {
+                put(JSONObject().apply {
+                    put("domain", JSONArray().put(cleanHost))
+                    put("server", "direct-dns")
+                })
+            }
+            put(JSONObject().apply {
+                put("query_type", JSONArray().put("A").put("AAAA"))
+                put("server", "fakeip-dns")
+            })
+        }
+
         val root = JSONObject().apply {
             put("log", JSONObject().apply {
                 put("level", "warn")
@@ -101,21 +120,23 @@ object SingBoxConfigBuilder {
                         put("detour", "proxy-out")
                     })
                     put(JSONObject().apply {
+                        put("tag", "direct-dns")
+                        put("address", "1.1.1.1")
+                        put("strategy", "ipv4_only")
+                        put("detour", "direct-out")
+                    })
+                    put(JSONObject().apply {
                         put("tag", "fakeip-dns")
                         put("address", "fakeip")
                     })
                 })
-                put("rules", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("query_type", JSONArray().put("A").put("AAAA"))
-                        put("server", "fakeip-dns")
-                    })
-                })
+                put("rules", dnsRules)
                 put("fakeip", JSONObject().apply {
                     put("enabled", true)
                     put("inet4_range", "198.18.0.0/15")
                     put("inet6_range", "fc00::/18")
                 })
+                put("final", "remote-doh")
                 put("independent_cache", true)
             })
 
@@ -138,6 +159,11 @@ object SingBoxConfigBuilder {
 
             put("outbounds", JSONArray().apply {
                 put(outbound)
+                put(JSONObject().apply {
+                    put("type", "direct")
+                    put("tag", "direct-out")
+                    put("routing_mark", ProfileContext.outboundBypassMark)
+                })
                 put(JSONObject().put("type", "dns").put("tag", "dns-out"))
                 put(JSONObject().put("type", "block").put("tag", "block-out"))
             })
@@ -178,7 +204,7 @@ object SingBoxConfigBuilder {
     }
 
     private fun buildTransportObject(slot: ProxySlot): JSONObject? {
-        return when (slot.transport.lowercase()) {
+        return when (slot.transport.lowercase().trim()) {
             "ws" -> JSONObject().apply {
                 put("type", "ws")
                 put("path", slot.wsPathOrService.ifBlank { "/" })
