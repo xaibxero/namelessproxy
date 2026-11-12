@@ -18,14 +18,14 @@ class BootReceiver : BroadcastReceiver() {
             action != "com.htc.intent.action.QUICKBOOT_POWERON"
         ) return
 
-        val u = ProfileContext.userId
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val cmd = """
                     if [ -f '${ProfileContext.bootFlagPath}' ] && [ -f '${ProfileContext.daemonScriptPath}' ]; then
                         touch '${ProfileContext.enabledFlagPath}'
-                        if ! pgrep -f 'live_daemon.sh.*user${u}/' >/dev/null 2>&1; then
+                        DPID=$(cat '${ProfileContext.daemonPidPath}' 2>/dev/null)
+                        if [ -z "${'$'}DPID" ] || ! kill -0 "${'$'}DPID" 2>/dev/null; then
                             setsid sh '${ProfileContext.daemonScriptPath}' >/dev/null 2>&1 < /dev/null &
                         fi
                     fi
