@@ -11,13 +11,6 @@ enum class ProxyProtocol {
 }
 
 @Serializable
-enum class Ipv6Mode {
-    BRIDGE_OVER_IPV4,
-    NATIVE_DUAL_STACK,
-    STRICT_BLOCK
-}
-
-@Serializable
 data class ProxySlot(
     val index: Int,
     val label: String = "Slot ${index + 1}",
@@ -40,7 +33,6 @@ data class ProfileSettings(
     val activeSlot: Int = 0,
     val bootOnStartup: Boolean = false,
     val shareHotspot: Boolean = false,
-    val ipv6Mode: Ipv6Mode = Ipv6Mode.BRIDGE_OVER_IPV4,
     val slots: List<ProxySlot> = List(5) { ProxySlot(index = it) }
 )
 
@@ -51,7 +43,7 @@ object ProxyUriParser {
         if (text.isBlank()) return null
 
         val remark = if (text.contains("#")) {
-            decode(text.substringAfterLast("#")).trim().take(24)
+            decode(text.substringAfterLast("#")).trim().take(20)
         } else {
             ""
         }
