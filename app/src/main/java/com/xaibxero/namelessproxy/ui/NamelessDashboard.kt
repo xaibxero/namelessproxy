@@ -78,6 +78,21 @@ fun NamelessDashboard() {
 
     val activeSlot = settings.slots[settings.activeSlot]
 
+    suspend fun applyLiveSettings(updatedSettings: ProfileSettings) {
+        settings = updatedSettings
+        SettingsStore.save(context, updatedSettings)
+        if (isConnected) {
+            val slot = updatedSettings.slots[updatedSettings.activeSlot]
+            val res = RootEngine.startProxy(context, slot, updatedSettings)
+            isConnected = res.ok
+            statusText = if (res.ok) {
+                "RELOADED • ${slot.protocol} -> ${slot.host}:${slot.port}"
+            } else {
+                res.err.ifBlank { "RELOAD FAILED" }.uppercase()
+            }
+        }
+    }
+
     val orbInteraction = remember { MutableInteractionSource() }
     val orbPressed by orbInteraction.collectIsPressedAsState()
     val orbScale by animateFloatAsState(
@@ -243,8 +258,9 @@ fun NamelessDashboard() {
                             .scale(pillScale)
                             .clip(RoundedCornerShape(18.dp))
                             .clickable {
-                                settings = settings.copy(activeSlot = idx)
-                                scope.launch { SettingsStore.save(context, settings) }
+                                val next = settings.copy(activeSlot = idx)
+                                settings = next
+                                scope.launch { SettingsStore.save(context, next) }
                             }
                     ) {
                         Column(
@@ -282,7 +298,7 @@ fun NamelessDashboard() {
                 }
             }
 
-            // Slot Configuration Card (With 1-Tap Clipboard Paste & Ping All)
+            // Slot Configuration Card
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = CardSurface,
@@ -299,11 +315,11 @@ fun NamelessDashboard() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SLOT ${settings.activeSlot + 1}",
+                            text = "S${settings.activeSlot + 1} • ${activeSlot.label.uppercase()}",
                             color = Color.White,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             ActionPill(
@@ -323,10 +339,11 @@ fun NamelessDashboard() {
                                     val updated = settings.slots.toMutableList().apply {
                                         this[settings.activeSlot] = parsed
                                     }
-                                    settings = settings.copy(slots = updated)
+                                    val next = settings.copy(slots = updated)
+                                    settings = next
                                     scope.launch {
-                                        SettingsStore.save(context, settings)
-                                        slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
+                                        SettingsStore.save(context, next)
+                                        slotLatencies = LeakAuditEngine.pingAllSlots(next.slots)
                                     }
                                     statusText = "IMPORTED ${parsed.protocol} -> ${parsed.host}:${parsed.port}"
                                 } else {
@@ -335,9 +352,11 @@ fun NamelessDashboard() {
                             }
                             ActionPill(label = "SAVE", accent = NeonMint) {
                                 scope.launch {
-                                    SettingsStore.save(context, settings)
+                                    applyLiveSettings(settings)
                                     slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
-                                    statusText = "SAVED SLOT ${settings.activeSlot + 1} -> ${ProfileContext.userDir}"
+                                    if (!isConnected) {
+                                        statusText = "SAVED SLOT ${settings.activeSlot + 1} -> ${ProfileContext.userDir}"
+                                    }
                                 }
                             }
                         }
@@ -470,6 +489,44 @@ fun NamelessDashboard() {
                                 colors = fieldColors,
                                 modifier = Modifier.fillMaxWidth()
                             )
+
+                            if (activeSlot.protocol == ProxyProtocol.VLESS) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf("none", "tls", "reality").forEach { sec ->
+                                        val isSecSelected = activeSlot.security.equals(sec, true)
+                                        FilterChip(
+                                            selected = isSecSelected,
+                                            onClick = {
+                                                val updated = settings.slots.toMutableList().apply {
+                                                    this[settings.activeSlot] = activeSlot.copy(security = sec)
+                                                }
+                                                settings = settings.copy(slots = updated)
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = NeonMint,
+                                                selectedLabelColor = AmoledBlack,
+                                                containerColor = ChipSurface,
+                                                labelColor = Color.White
+                                            ),
+                                            border = FilterChipDefaults.filterChipBorder(
+                                                enabled = true,
+                                                selected = isSecSelected,
+                                                borderColor = HairlineBorder,
+                                                selectedBorderColor = NeonMint
+                                            ),
+                                            label = {
+                                                Text(
+                                                    text = sec.uppercase(),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     value = activeSlot.sni,
@@ -498,7 +555,8 @@ fun NamelessDashboard() {
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            if (activeSlot.protocol == ProxyProtocol.VLESS && activeSlot.realityPublicKey.isNotBlank()) {
+
+                            if (activeSlot.protocol == ProxyProtocol.VLESS && activeSlot.security.equals("reality", true)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedTextField(
                                         value = activeSlot.realityPublicKey,
@@ -564,7 +622,7 @@ fun NamelessDashboard() {
                 }
             }
 
-            // Kernel Routing Toggles Card
+            // Kernel Routing Toggles Card (Hot-reloads immediately when ON)
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = CardSurface,
@@ -576,12 +634,13 @@ fun NamelessDashboard() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AmoledToggleRow("Boot on Startup", settings.bootOnStartup) {
-                        settings = settings.copy(bootOnStartup = it)
-                        scope.launch { SettingsStore.save(context, settings) }
+                        val next = settings.copy(bootOnStartup = it)
+                        settings = next
+                        scope.launch { SettingsStore.save(context, next) }
                     }
                     AmoledToggleRow("Share via Hotspot", settings.shareHotspot) {
-                        settings = settings.copy(shareHotspot = it)
-                        scope.launch { SettingsStore.save(context, settings) }
+                        val next = settings.copy(shareHotspot = it)
+                        scope.launch { applyLiveSettings(next) }
                     }
                     Text(
                         text = "IPV6 ENGINE MODE",
@@ -601,8 +660,8 @@ fun NamelessDashboard() {
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
-                                    settings = settings.copy(ipv6Mode = mode)
-                                    scope.launch { SettingsStore.save(context, settings) }
+                                    val next = settings.copy(ipv6Mode = mode)
+                                    scope.launch { applyLiveSettings(next) }
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = NeonMint,
