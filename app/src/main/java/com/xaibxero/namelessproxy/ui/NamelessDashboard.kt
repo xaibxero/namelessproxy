@@ -61,7 +61,8 @@ fun NamelessDashboard() {
     var statusText by remember {
         mutableStateOf("IDLE • USER ${ProfileContext.userId} (UID ${ProfileContext.myUid})")
     }
-    var slotLatencies by remember { mutableStateOf>(emptyMap()) }
+    val emptyLatencies: Map<Int, Int?> = emptyMap()
+    var slotLatencies by remember { mutableStateOf(emptyLatencies) }
     var isPinging by remember { mutableStateOf(false) }
     var leakReport by remember { mutableStateOf<LeakReport?>(null) }
     var isAuditing by remember { mutableStateOf(false) }
@@ -220,7 +221,7 @@ fun NamelessDashboard() {
                 settings.slots.forEachIndexed { idx, slot ->
                     val selected = idx == settings.activeSlot
                     val hasHost = slot.host.isNotBlank()
-                    val pingMs = slotLatencies[idx]
+                    val pingMs: Int? = slotLatencies[idx]
                     val pillScale by animateFloatAsState(
                         targetValue = if (selected) 1.05f else 0.96f,
                         animationSpec = BubblySpring,
@@ -342,7 +343,7 @@ fun NamelessDashboard() {
                         }
                     }
 
-                    // Scrollable Protocol Selector (SOCKS5, SOCKS4, SOCKS4A, HTTP, HTTPS, SHADOWSOCKS, VLESS, TROJAN)
+                    // Scrollable Protocol Selector
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
