@@ -5,17 +5,8 @@ import org.json.JSONObject
 
 object SingBoxConfigBuilder {
 
-    private val ipv4Regex = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
-
-    fun build(slot: ProxySlot, settings: ProfileSettings): String {
+    fun build(slot: ProxySlot): String {
         val cleanHost = slot.host.trim()
-        val hostIsDomain = cleanHost.isNotBlank() && !ipv4Regex.matches(cleanHost) && !cleanHost.contains(":")
-
-        val domainStrategy = when (settings.ipv6Mode) {
-            Ipv6Mode.BRIDGE_OVER_IPV4 -> "ipv4_only"
-            Ipv6Mode.NATIVE_DUAL_STACK -> "prefer_ipv6"
-            Ipv6Mode.STRICT_BLOCK -> "ipv4_only"
-        }
 
         val outbound = JSONObject().apply {
             put("tag", "proxy-out")
@@ -85,23 +76,9 @@ object SingBoxConfigBuilder {
             }
         }
 
-        val dnsRules = JSONArray().apply {
-            // Resolve the proxy server's own domain directly (with routing_mark) to prevent DNS deadlock
-            if (hostIsDomain) {
-                put(JSONObject().apply {
-                    put("domain", JSONArray().put(cleanHost))
-                    put("server", "direct-dns")
-                })
-            }
-            put(JSONObject().apply {
-                put("query_type", JSONArray().put("A").put("AAAA"))
-                put("server", "fakeip-dns")
-            })
-        }
-
         val root = JSONObject().apply {
             put("log", JSONObject().apply {
-                put("level", "warn")
+                put("level", "info")
                 put("timestamp", true)
             })
 
@@ -110,13 +87,7 @@ object SingBoxConfigBuilder {
                     put(JSONObject().apply {
                         put("tag", "remote-doh")
                         put("address", "https://1.1.1.1/dns-query")
-                        put("address_resolver", "bootstrap-dns")
-                        put("strategy", domainStrategy)
-                        put("detour", "proxy-out")
-                    })
-                    put(JSONObject().apply {
-                        put("tag", "bootstrap-dns")
-                        put("address", "1.1.1.1")
+                        put("strategy", "ipv4_only")
                         put("detour", "proxy-out")
                     })
                     put(JSONObject().apply {
@@ -130,7 +101,17 @@ object SingBoxConfigBuilder {
                         put("address", "fakeip")
                     })
                 })
-                put("rules", dnsRules)
+                put("rules", JSONArray().apply {
+                    // Resolve outbound server hostnames directly (with routing_mark) to avoid DNS deadlock
+                    put(JSONObject().apply {
+                        put("outbound", "any")
+                        put("server", "direct-dns")
+                    })
+                    put(JSONObject().apply {
+                        put("query_type", JSONArray().put("A").put("AAAA"))
+                        put("server", "fakeip-dns")
+                    })
+                })
                 put("fakeip", JSONObject().apply {
                     put("enabled", true)
                     put("inet4_range", "198.18.0.0/15")
@@ -173,9 +154,6 @@ object SingBoxConfigBuilder {
                 put("rules", JSONArray().apply {
                     put(JSONObject().put("inbound", "dns-in").put("outbound", "dns-out"))
                     put(JSONObject().put("protocol", "dns").put("outbound", "dns-out"))
-                    if (settings.ipv6Mode == Ipv6Mode.STRICT_BLOCK) {
-                        put(JSONObject().put("ip_version", 6).put("outbound", "block-out"))
-                    }
                 })
                 put("final", "proxy-out")
             })
