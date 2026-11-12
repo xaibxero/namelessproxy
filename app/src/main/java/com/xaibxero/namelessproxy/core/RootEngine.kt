@@ -112,7 +112,12 @@ object RootEngine {
         val mark = ProfileContext.tproxyMark
         val blockIpv6 = settings.ipv6Mode == Ipv6Mode.STRICT_BLOCK
         val hotspot = settings.shareHotspot
-        val tcpOnlyProxy = slot.protocol != ProxyProtocol.SOCKS5
+        val tcpOnlyProxy = slot.protocol in setOf(
+            ProxyProtocol.HTTP,
+            ProxyProtocol.HTTPS,
+            ProxyProtocol.SOCKS4,
+            ProxyProtocol.SOCKS4A
+        )
 
         return """
             #!/system/bin/sh
@@ -147,7 +152,7 @@ object RootEngine {
                 iptables -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
                     iptables -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT
 
-                # Capture Android Private DNS (netd UID 0-9999 on DoT 853 & DoH3 443) so even cloned profiles never leak
+                # Capture Android Private DNS (netd UID 0-9999 on DoT 853 & DoH3 443)
                 iptables -t mangle -N ${chain}_PDNS 2>/dev/null || iptables -t mangle -F ${chain}_PDNS
                 iptables -t mangle -A ${chain}_PDNS -m mark --mark $bypassHex -j RETURN
                 iptables -t mangle -A ${chain}_PDNS -p tcp --dport 853 -j MARK --set-mark $mark
@@ -158,7 +163,6 @@ object RootEngine {
                 iptables -t mangle -C OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || \
                     iptables -t mangle -I OUTPUT 1 -m owner --uid-owner 0-9999 -j ${chain}_PDNS
 
-                # Force TCP-853 DoT fallback when upstream proxy (HTTP/HTTPS/SOCKS4) does not support UDP
                 if [ "${if (tcpOnlyProxy) "1" else "0"}" = "1" ]; then
                     iptables -N ${chain}_UDPDROP 2>/dev/null || iptables -F ${chain}_UDPDROP
                     iptables -A ${chain}_UDPDROP -m mark --mark $bypassHex -j RETURN
@@ -170,7 +174,6 @@ object RootEngine {
                         iptables -I OUTPUT 1 -j ${chain}_UDPDROP
                 fi
 
-                # Hard-capture standard port 53 DNS
                 iptables -t nat -N ${chain}_DNS 2>/dev/null || iptables -t nat -F ${chain}_DNS
                 iptables -t nat -A ${chain}_DNS -m mark --mark $bypassHex -j RETURN
                 iptables -t nat -A ${chain}_DNS -p udp --dport 53 -j REDIRECT --to-ports $dnsPort
@@ -217,7 +220,6 @@ object RootEngine {
                     ip6tables -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
                         ip6tables -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT
 
-                    # Route IPv6 Private DNS (DoT 853 & DoH3 443) through TProxy as well
                     ip6tables -t mangle -N ${chain}_PDNS 2>/dev/null || ip6tables -t mangle -F ${chain}_PDNS
                     ip6tables -t mangle -A ${chain}_PDNS -m mark --mark $bypassHex -j RETURN
                     ip6tables -t mangle -A ${chain}_PDNS -p tcp --dport 853 -j MARK --set-mark $mark
