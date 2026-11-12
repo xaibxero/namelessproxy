@@ -22,29 +22,61 @@ object SingBoxConfigBuilder {
                 ProxyProtocol.SOCKS5 -> {
                     put("type", "socks")
                     put("version", "5")
+                    if (slot.username.isNotBlank()) {
+                        put("username", slot.username)
+                        put("password", slot.password)
+                    }
                 }
                 ProxyProtocol.SOCKS4 -> {
                     put("type", "socks")
                     put("version", "4")
+                    if (slot.username.isNotBlank()) put("username", slot.username)
                 }
                 ProxyProtocol.SOCKS4A -> {
                     put("type", "socks")
                     put("version", "4a")
+                    if (slot.username.isNotBlank()) put("username", slot.username)
                 }
                 ProxyProtocol.HTTP -> {
                     put("type", "http")
+                    if (slot.username.isNotBlank()) {
+                        put("username", slot.username)
+                        put("password", slot.password)
+                    }
                 }
                 ProxyProtocol.HTTPS -> {
                     put("type", "http")
+                    if (slot.username.isNotBlank()) {
+                        put("username", slot.username)
+                        put("password", slot.password)
+                    }
                     put("tls", JSONObject().apply {
                         put("enabled", true)
+                        if (slot.sni.isNotBlank()) put("server_name", slot.sni.trim())
                     })
                 }
-            }
-
-            if (slot.username.isNotBlank()) {
-                put("username", slot.username)
-                put("password", slot.password)
+                ProxyProtocol.SHADOWSOCKS -> {
+                    put("type", "shadowsocks")
+                    put("method", slot.methodOrFlow.ifBlank { "2022-blake3-aes-128-gcm" }.trim())
+                    put("password", slot.password)
+                }
+                ProxyProtocol.VLESS -> {
+                    put("type", "vless")
+                    put("uuid", slot.password.trim())
+                    if (slot.methodOrFlow.isNotBlank()) {
+                        put("flow", slot.methodOrFlow.trim())
+                    }
+                    if (slot.security.equals("tls", true) || slot.security.equals("reality", true)) {
+                        put("tls", buildTlsObject(slot, isReality = slot.security.equals("reality", true)))
+                    }
+                    buildTransportObject(slot)?.let { put("transport", it) }
+                }
+                ProxyProtocol.TROJAN -> {
+                    put("type", "trojan")
+                    put("password", slot.password)
+                    put("tls", buildTlsObject(slot, isReality = false))
+                    buildTransportObject(slot)?.let { put("transport", it) }
+                }
             }
         }
 
@@ -124,5 +156,41 @@ object SingBoxConfigBuilder {
         }
 
         return root.toString(2)
+    }
+
+    private fun buildTlsObject(slot: ProxySlot, isReality: Boolean): JSONObject = JSONObject().apply {
+        put("enabled", true)
+        val serverName = slot.sni.ifBlank { slot.host }.trim()
+        if (serverName.isNotBlank()) put("server_name", serverName)
+        if (isReality || slot.realityPublicKey.isNotBlank()) {
+            put("utls", JSONObject().apply {
+                put("enabled", true)
+                put("fingerprint", "chrome")
+            })
+            put("reality", JSONObject().apply {
+                put("enabled", true)
+                put("public_key", slot.realityPublicKey.trim())
+                if (slot.realityShortId.isNotBlank()) {
+                    put("short_id", slot.realityShortId.trim())
+                }
+            })
+        }
+    }
+
+    private fun buildTransportObject(slot: ProxySlot): JSONObject? {
+        return when (slot.transport.lowercase()) {
+            "ws" -> JSONObject().apply {
+                put("type", "ws")
+                put("path", slot.wsPathOrService.ifBlank { "/" })
+                if (slot.sni.isNotBlank()) {
+                    put("headers", JSONObject().put("Host", slot.sni.trim()))
+                }
+            }
+            "grpc" -> JSONObject().apply {
+                put("type", "grpc")
+                put("service_name", slot.wsPathOrService.ifBlank { "grpc" })
+            }
+            else -> null
+        }
     }
 }
