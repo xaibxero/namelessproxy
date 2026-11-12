@@ -1,5 +1,7 @@
 package com.xaibxero.namelessproxy.ui
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -19,14 +21,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -34,13 +34,11 @@ import androidx.compose.ui.unit.sp
 import com.xaibxero.namelessproxy.core.*
 import com.xaibxero.namelessproxy.diagnostics.LeakAuditEngine
 import kotlinx.coroutines.launch
-import kotlin.math.cos
-import kotlin.math.sin
 
 private val AmoledBlack = Color(0xFF000000)
-private val CardSurface = Color(0xFF090C12)
-private val ChipSurface = Color(0xFF121722)
-private val HairlineBorder = Color(0xFF1F2736)
+private val CardSurface = Color(0xFF0A0D14)
+private val ChipSurface = Color(0xFF131822)
+private val HairlineBorder = Color(0xFF1E2634)
 private val NeonMint = Color(0xFF00F59B)
 private val ElectricCyan = Color(0xFF00D2FF)
 private val AlertCoral = Color(0xFFFF4D6D)
@@ -58,7 +56,8 @@ fun NamelessDashboard() {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
-    var currentPage by remember { mutableIntStateOf(0) } // 0 = Proxy Engine, 1 = Web Leak Tabs
+    // 0 = Proxy Engine, 1 = IPFighter, 2 = DNS Leak, 3 = WebRTC
+    var selectedTab by remember { mutableIntStateOf(0) }
     var settings by remember { mutableStateOf(ProfileSettings()) }
     var isConnected by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
@@ -80,17 +79,27 @@ fun NamelessDashboard() {
         slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
     }
 
+    // Apply or clear hardware GPU acceleration flag on the window dynamically
+    LaunchedEffect(settings.gpuAcceleration) {
+        val window = (context as? Activity)?.window ?: return@LaunchedEffect
+        if (settings.gpuAcceleration) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
+        }
+    }
+
     val activeSlot = settings.slots[settings.activeSlot]
 
     val orbInteraction = remember { MutableInteractionSource() }
     val orbPressed by orbInteraction.collectIsPressedAsState()
     val orbScale by animateFloatAsState(
         targetValue = when {
-            orbPressed -> 0.85f
-            isConnected -> 1.06f
+            orbPressed -> 0.88f
+            isConnected -> 1.04f
             else -> 1.0f
         },
-        animationSpec = BubblySpring,
+        animationSpec = if (settings.gpuAcceleration) BubblySpring else snap(),
         label = "orbScale"
     )
     val orbCoreColor by animateColorAsState(
@@ -98,25 +107,22 @@ fun NamelessDashboard() {
         label = "orbCoreColor"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "bubbleAnim")
-    val ripplePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "ripplePhase"
-    )
-    val bubbleFloat by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(3600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "bubbleFloat"
-    )
+    // Run smooth GPU pulse ring only when connected AND GPU Acceleration is enabled
+    val pulsePhase = if (isConnected && settings.gpuAcceleration) {
+        val infinite = rememberInfiniteTransition(label = "gpuPulse")
+        val anim by infinite.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "pulsePhase"
+        )
+        anim
+    } else {
+        0f
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = AmoledBlack) {
         Column(
@@ -126,11 +132,11 @@ fun NamelessDashboard() {
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            // Top Bar: Brand + User Profile Pill
+            // Settled Top Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -139,7 +145,7 @@ fun NamelessDashboard() {
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.4).sp
+                    letterSpacing = (-0.3).sp
                 )
                 Surface(
                     shape = CircleShape,
@@ -149,7 +155,6 @@ fun NamelessDashboard() {
                     Text(
                         text = "USER ${ProfileContext.userId} • UID ${ProfileContext.myUid}",
                         color = if (isConnected) NeonMint else MutedText,
-                        fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -157,68 +162,73 @@ fun NamelessDashboard() {
                 }
             }
 
-            // Bubbly Page Switcher: PROXY ENGINE vs WEB LEAK CHECK
+            // Auto-Open / Auto-Close Top Navigation Strip: Proxy | IPFighter | DNS Leak | WebRTC
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 4.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
                     .clip(CircleShape)
                     .background(CardSurface)
                     .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("Proxy Engine", "Web Leak Check").forEachIndexed { idx, title ->
-                    val active = currentPage == idx
-                    val tabScale by animateFloatAsState(
-                        targetValue = if (active) 1.0f else 0.96f,
-                        animationSpec = BubblySpring,
-                        label = "pageTab$idx"
-                    )
+                val navTitles = listOf("Proxy", "IPFighter", "DNS Leak", "WebRTC")
+                navTitles.forEachIndexed { idx, label ->
+                    val isTabActive = selectedTab == idx
                     Surface(
                         shape = CircleShape,
-                        color = if (active) NeonMint else Color.Transparent,
+                        color = if (isTabActive) NeonMint else Color.Transparent,
                         modifier = Modifier
                             .weight(1f)
-                            .scale(tabScale)
                             .clip(CircleShape)
-                            .clickable { currentPage = idx }
+                            .clickable { selectedTab = idx }
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.padding(vertical = 9.dp)
                         ) {
                             Text(
-                                text = title,
-                                color = if (active) AmoledBlack else MutedText,
+                                text = label,
+                                color = if (isTabActive) AmoledBlack else MutedText,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                fontSize = 12.sp,
+                                maxLines = 1
                             )
                         }
                     }
                 }
             }
 
-            if (currentPage == 1) {
-                BuiltInWebTabs(modifier = Modifier.weight(1f))
+            // When a Web Tab is tapped, mount & auto-run ONLY that tab; auto-destroy on switch/close
+            if (selectedTab in 1..3) {
+                SingleAutoLeakWebTab(
+                    preset = LeakTabPresets[selectedTab - 1],
+                    gpuAccelerated = settings.gpuAcceleration,
+                    onCloseTab = { selectedTab = 0 },
+                    modifier = Modifier.weight(1f)
+                )
                 return@Column
             }
 
-            // Page 0: Proxy Engine Control Center
+            // Main Proxy Dashboard
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Bubbly Liquid Canvas Power Orb
+                // GPU-Accelerated Bubbly Power Orb
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(184.dp)
-                        .scale(orbScale)
+                        .size(164.dp)
+                        .graphicsLayer {
+                            scaleX = orbScale
+                            scaleY = orbScale
+                        }
                         .clickable(
                             interactionSource = orbInteraction,
                             indication = null,
@@ -248,74 +258,45 @@ fun NamelessDashboard() {
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val center = Offset(size.width / 2f, size.height / 2f)
-                        val baseRadius = size.minDimension * 0.34f
+                        val baseRadius = size.minDimension * 0.36f
 
-                        if (isConnected) {
-                            // Two staggered expanding liquid sonar rings
-                            for (i in 0..1) {
-                                val phase = (ripplePhase + i * 0.5f) % 1f
-                                val ringRadius = baseRadius + (size.minDimension * 0.16f * phase)
-                                val alpha = (1f - phase) * 0.45f
-                                drawCircle(
-                                    color = NeonMint.copy(alpha = alpha),
-                                    radius = ringRadius,
-                                    center = center,
-                                    style = Stroke(width = 3.dp.toPx())
-                                )
-                            }
+                        if (isConnected && settings.gpuAcceleration) {
+                            val ringRadius = baseRadius + (size.minDimension * 0.14f * pulsePhase)
+                            val alpha = (1f - pulsePhase) * 0.45f
+                            drawCircle(
+                                color = NeonMint.copy(alpha = alpha),
+                                radius = ringRadius,
+                                center = center,
+                                style = Stroke(width = 2.5.dp.toPx())
+                            )
                         }
 
-                        // Outer gradient halo border
                         drawCircle(
-                            brush = Brush.sweepGradient(
-                                colors = if (isConnected) {
-                                    listOf(NeonMint, ElectricCyan, NeonMint)
-                                } else {
-                                    listOf(HairlineBorder, ChipSurface, HairlineBorder)
-                                }
-                            ),
-                            radius = baseRadius + 8.dp.toPx(),
+                            color = if (isConnected) NeonMint.copy(alpha = 0.45f) else HairlineBorder,
+                            radius = baseRadius + 6.dp.toPx(),
                             center = center,
-                            style = Stroke(width = 2.dp.toPx())
+                            style = Stroke(width = 1.5.dp.toPx())
                         )
 
-                        // Main Orb Fill
                         drawCircle(
                             color = orbCoreColor,
                             radius = baseRadius,
                             center = center
                         )
-
-                        // Floating ambient micro-bubbles inside the orb
-                        val bubbleColor = if (isConnected) {
-                            Color.White.copy(alpha = 0.28f)
-                        } else {
-                            NeonMint.copy(alpha = 0.16f)
-                        }
-                        val b1 = Offset(
-                            center.x + cos(bubbleFloat) * (baseRadius * 0.45f),
-                            center.y + sin(bubbleFloat * 1.3f) * (baseRadius * 0.40f)
-                        )
-                        val b2 = Offset(
-                            center.x + sin(bubbleFloat * 0.9f) * (baseRadius * 0.50f),
-                            center.y - cos(bubbleFloat * 1.1f) * (baseRadius * 0.42f)
-                        )
-                        drawCircle(color = bubbleColor, radius = 6.dp.toPx(), center = b1)
-                        drawCircle(color = bubbleColor, radius = 4.dp.toPx(), center = b2)
                     }
 
                     Text(
                         text = if (isBusy) "..." else if (isConnected) "ON" else "OFF",
                         color = if (isConnected) AmoledBlack else Color.White,
-                        fontSize = 24.sp,
+                        fontSize = 23.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 1.sp
                     )
                 }
 
-                // Status / Diagnostic Banner
+                // Settled Status Pill
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = when {
                         isError -> AlertCoral.copy(alpha = 0.14f)
                         isConnected -> NeonMint.copy(alpha = 0.12f)
@@ -345,7 +326,7 @@ fun NamelessDashboard() {
                     )
                 }
 
-                // 5 Equally Aligned Bubbly Slot Cards (S1 - S5)
+                // 5 Symmetrical Proxy Slot Cards (S1 - S5)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -355,12 +336,12 @@ fun NamelessDashboard() {
                         val hasHost = slot.host.isNotBlank()
                         val pingMs: Int? = slotLatencies[idx]
                         val pillScale by animateFloatAsState(
-                            targetValue = if (selected) 1.05f else 0.97f,
-                            animationSpec = BubblySpring,
+                            targetValue = if (selected) 1.03f else 0.98f,
+                            animationSpec = if (settings.gpuAcceleration) BubblySpring else snap(),
                             label = "slotCard$idx"
                         )
                         Surface(
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(16.dp),
                             color = if (selected) NeonMint else CardSurface,
                             border = BorderStroke(
                                 1.dp,
@@ -372,9 +353,12 @@ fun NamelessDashboard() {
                             ),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(58.dp)
-                                .scale(pillScale)
-                                .clip(RoundedCornerShape(18.dp))
+                                .height(54.dp)
+                                .graphicsLayer {
+                                    scaleX = pillScale
+                                    scaleY = pillScale
+                                }
+                                .clip(RoundedCornerShape(16.dp))
                                 .clickable {
                                     val next = settings.copy(activeSlot = idx)
                                     settings = next
@@ -392,7 +376,6 @@ fun NamelessDashboard() {
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 14.sp
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
                                 val pingLabel = when {
                                     pingMs == null -> "--"
                                     pingMs < 0 -> "OFF"
@@ -408,7 +391,6 @@ fun NamelessDashboard() {
                                 Text(
                                     text = pingLabel,
                                     color = pingColor,
-                                    fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp
                                 )
@@ -417,9 +399,9 @@ fun NamelessDashboard() {
                     }
                 }
 
-                // Active Slot Editor Card
+                // Active Proxy Slot Card
                 Surface(
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = CardSurface,
                     border = BorderStroke(1.dp, HairlineBorder),
                     modifier = Modifier.fillMaxWidth()
@@ -437,51 +419,33 @@ fun NamelessDashboard() {
                                 text = "Slot ${settings.activeSlot + 1} • ${activeSlot.label}",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 15.sp
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                MiniPill(
-                                    label = if (isPinging) "..." else "Ping",
-                                    accent = MutedText
-                                ) {
-                                    scope.launch {
-                                        isPinging = true
-                                        slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
-                                        isPinging = false
-                                    }
-                                }
-                                MiniPill(label = "Paste", accent = ElectricCyan) {
-                                    val clipText = clipboard.getText()?.text.orEmpty()
-                                    val parsed = ProxyUriParser.parseIntoSlot(clipText, activeSlot)
-                                    if (parsed != null) {
-                                        val updated = settings.slots.toMutableList().apply {
-                                            this[settings.activeSlot] = parsed
-                                        }
-                                        val next = settings.copy(slots = updated)
-                                        settings = next
-                                        isError = false
-                                        statusText = "Imported ${parsed.protocol} (${parsed.host}:${parsed.port})"
+                            Surface(
+                                shape = CircleShape,
+                                color = ChipSurface,
+                                border = BorderStroke(1.dp, HairlineBorder),
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
                                         scope.launch {
-                                            SettingsStore.save(context, next)
-                                            slotLatencies = LeakAuditEngine.pingAllSlots(next.slots)
+                                            isPinging = true
+                                            slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
+                                            isPinging = false
                                         }
-                                    } else {
-                                        isError = true
-                                        statusText = "No valid proxy URI found in clipboard"
                                     }
-                                }
-                                MiniPill(label = "Save", accent = NeonMint) {
-                                    scope.launch {
-                                        SettingsStore.save(context, settings)
-                                        slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
-                                        isError = false
-                                        statusText = "Saved Slot ${settings.activeSlot + 1} to ${ProfileContext.userDir}"
-                                    }
-                                }
+                            ) {
+                                Text(
+                                    text = if (isPinging) "Pinging..." else "Ping Slots",
+                                    color = MutedText,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
                             }
                         }
 
-                        // Protocol Selector Row
+                        // Protocol Selector Strip
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -678,19 +642,83 @@ fun NamelessDashboard() {
                                 }
                             }
                         }
+
+                        // Balanced Full-Width Action Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val clipText = clipboard.getText()?.text.orEmpty()
+                                    val parsed = ProxyUriParser.parseIntoSlot(clipText, activeSlot)
+                                    if (parsed != null) {
+                                        val updated = settings.slots.toMutableList().apply {
+                                            this[settings.activeSlot] = parsed
+                                        }
+                                        val next = settings.copy(slots = updated)
+                                        settings = next
+                                        isError = false
+                                        statusText = "Imported ${parsed.protocol} (${parsed.host}:${parsed.port})"
+                                        scope.launch {
+                                            SettingsStore.save(context, next)
+                                            slotLatencies = LeakAuditEngine.pingAllSlots(next.slots)
+                                        }
+                                    } else {
+                                        isError = true
+                                        statusText = "No valid proxy URI in clipboard"
+                                    }
+                                },
+                                shape = CircleShape,
+                                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                            ) {
+                                Text(
+                                    text = "Paste URI",
+                                    color = ElectricCyan,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        SettingsStore.save(context, settings)
+                                        slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
+                                        isError = false
+                                        statusText = "Saved Slot ${settings.activeSlot + 1}"
+                                    }
+                                },
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonMint),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                            ) {
+                                Text(
+                                    text = "Save Slot",
+                                    color = AmoledBlack,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
                     }
                 }
 
-                // Clean Kernel Switches Card (Only Boot & Hotspot)
+                // System & Performance Switches Card
                 Surface(
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = CardSurface,
                     border = BorderStroke(1.dp, HairlineBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         CleanToggleRow("Boot on Startup", settings.bootOnStartup) {
                             val next = settings.copy(bootOnStartup = it)
@@ -708,30 +736,16 @@ fun NamelessDashboard() {
                                 }
                             }
                         }
+                        HorizontalDivider(color = HairlineBorder, thickness = 0.5.dp)
+                        CleanToggleRow("GPU Acceleration", settings.gpuAcceleration) {
+                            val next = settings.copy(gpuAcceleration = it)
+                            settings = next
+                            scope.launch { SettingsStore.save(context, next) }
+                        }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MiniPill(label: String, accent: Color, onClick: () -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = ChipSurface,
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.45f)),
-        modifier = Modifier
-            .clip(CircleShape)
-            .clickable(onClick = onClick)
-    ) {
-        Text(
-            text = label,
-            color = accent,
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
-        )
     }
 }
 

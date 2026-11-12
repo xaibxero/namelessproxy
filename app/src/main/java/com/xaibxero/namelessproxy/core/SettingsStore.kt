@@ -18,7 +18,6 @@ object SettingsStore {
     suspend fun load(context: Context): ProfileSettings = withContext(Dispatchers.IO) {
         val localFile = File(context.filesDir, "settings_user${ProfileContext.userId}.json")
 
-        // Prefer persistent root storage /data/adb/namelessproxy/user<id>/settings.json
         val rootRead = RootEngine.su("cat '${ProfileContext.settingsPath}' 2>/dev/null")
         val raw = if (rootRead.ok && rootRead.out.startsWith("{")) {
             localFile.writeText(rootRead.out)

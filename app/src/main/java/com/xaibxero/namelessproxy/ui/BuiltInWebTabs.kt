@@ -2,12 +2,14 @@ package com.xaibxero.namelessproxy.ui
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,91 +24,89 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
-private data class LeakWebTab(
+data class LeakTabPreset(
     val title: String,
-    val defaultUrl: String
+    val url: String
 )
 
-private val PresetTabs = listOf(
-    LeakWebTab("IPFighter", "https://ipfighter.com"),
-    LeakWebTab("DNS Leak", "https://www.dnsleaktest.com"),
-    LeakWebTab("WebRTC", "https://browserleaks.com/webrtc")
+val LeakTabPresets = listOf(
+    LeakTabPreset("IPFighter", "https://ipfighter.com"),
+    LeakTabPreset("DNS Leak", "https://www.dnsleaktest.com"),
+    LeakTabPreset("WebRTC", "https://browserleaks.com/webrtc")
 )
+
+private fun destroyWebViewCleanly(wv: WebView?) {
+    if (wv == null) return
+    try {
+        wv.stopLoading()
+        wv.loadUrl("about:blank")
+        wv.clearHistory()
+        wv.removeAllViews()
+        wv.destroy()
+    } catch (_: Exception) {
+    }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun BuiltInWebTabs(modifier: Modifier = Modifier) {
+fun SingleAutoLeakWebTab(
+    preset: LeakTabPreset,
+    gpuAccelerated: Boolean,
+    onCloseTab: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val focusManager = LocalFocusManager.current
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabUrls = remember {
-        mutableStateListOf(
-            PresetTabs[0].defaultUrl,
-            PresetTabs[1].defaultUrl,
-            PresetTabs[2].defaultUrl
-        )
-    }
-    var addressInput by remember { mutableStateOf(tabUrls[0]) }
-    var pageProgress by remember { mutableIntStateOf(0) }
-    val webViews = remember { mutableStateMapOf<Int, WebView>() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var addressInput by remember(preset.url) { mutableStateOf(preset.url) }
+    var pageProgress by remember(preset.url) { mutableIntStateOf(0) }
+    var activeWebView by remember(preset.url) { mutableStateOf<WebView?>(null) }
 
-    LaunchedEffect(selectedTab) {
-        addressInput = tabUrls[selectedTab]
+    BackHandler {
+        val wv = activeWebView
+        if (wv != null && wv.canGoBack()) {
+            wv.goBack()
+        } else {
+            onCloseTab()
+        }
+    }
+
+    // Auto-close and release WebView memory immediately when switching tabs or leaving app
+    DisposableEffect(preset.url, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                destroyWebViewCleanly(activeWebView)
+                activeWebView = null
+                onCloseTab()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            destroyWebViewCleanly(activeWebView)
+            activeWebView = null
+        }
     }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // 3 Preset Browser Tabs (IPFighter / DNS Leak / WebRTC)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            PresetTabs.forEachIndexed { idx, tab ->
-                val isSelected = idx == selectedTab
-                Surface(
-                    shape = CircleShape,
-                    color = if (isSelected) Color(0xFF00F59B) else Color(0xFF0A0D14),
-                    border = BorderStroke(
-                        1.dp,
-                        if (isSelected) Color(0xFF00F59B) else Color(0xFF1F2736)
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(CircleShape)
-                        .clickable {
-                            selectedTab = idx
-                        }
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(vertical = 9.dp)
-                    ) {
-                        Text(
-                            text = tab.title,
-                            color = if (isSelected) Color.Black else Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
-        }
-
-        // Compact Browser Address & Navigation Bar
         Surface(
             shape = RoundedCornerShape(18.dp),
             color = Color(0xFF0A0D14),
-            border = BorderStroke(1.dp, Color(0xFF1F2736)),
+            border = BorderStroke(1.dp, Color(0xFF1E2634)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -114,11 +114,11 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                NavPill("<") {
-                    webViews[selectedTab]?.let { if (it.canGoBack()) it.goBack() }
+                SmallCircleBtn("<") {
+                    activeWebView?.let { if (it.canGoBack()) it.goBack() }
                 }
-                NavPill("↻") {
-                    webViews[selectedTab]?.reload()
+                SmallCircleBtn("↻") {
+                    activeWebView?.reload()
                 }
                 OutlinedTextField(
                     value = addressInput,
@@ -137,18 +137,20 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
                         } else {
                             "https://${addressInput.trim()}"
                         }
-                        tabUrls[selectedTab] = target
-                        webViews[selectedTab]?.loadUrl(target)
+                        activeWebView?.loadUrl(target)
                     }),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color(0xFF00F59B),
-                        unfocusedBorderColor = Color(0xFF1F2736),
+                        unfocusedBorderColor = Color(0xFF1E2634),
                         cursorColor = Color(0xFF00F59B)
                     ),
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
                 )
+                SmallCircleBtn("✕", tint = Color(0xFFFF4D6D)) {
+                    onCloseTab()
+                }
             }
         }
 
@@ -163,23 +165,26 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
             )
         }
 
-        // Live WebView Surface (All HTTP/DNS/WebRTC goes through kernel TProxy)
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = Color(0xFF0A0D14),
-            border = BorderStroke(1.dp, Color(0xFF1F2736)),
+            border = BorderStroke(1.dp, Color(0xFF1E2634)),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            key(selectedTab) {
+            key(preset.url) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        webViews[selectedTab] ?: WebView(ctx).apply {
+                        WebView(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            setLayerType(
+                                if (gpuAccelerated) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_SOFTWARE,
+                                null
                             )
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
@@ -188,6 +193,7 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
                             settings.loadWithOverviewMode = true
                             settings.builtInZoomControls = true
                             settings.displayZoomControls = false
+                            settings.cacheMode = WebSettings.LOAD_NO_CACHE
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
                             webViewClient = object : WebViewClient() {
@@ -197,10 +203,7 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
                                 ): Boolean = false
 
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    if (!url.isNullOrBlank()) {
-                                        tabUrls[selectedTab] = url
-                                        addressInput = url
-                                    }
+                                    if (!url.isNullOrBlank()) addressInput = url
                                 }
                             }
                             webChromeClient = object : WebChromeClient() {
@@ -208,9 +211,15 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
                                     pageProgress = newProgress
                                 }
                             }
-                            loadUrl(tabUrls[selectedTab])
-                            webViews[selectedTab] = this
+                            loadUrl(preset.url)
+                            activeWebView = this
                         }
+                    },
+                    update = { wv ->
+                        wv.setLayerType(
+                            if (gpuAccelerated) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_SOFTWARE,
+                            null
+                        )
                     }
                 )
             }
@@ -219,7 +228,7 @@ fun BuiltInWebTabs(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun NavPill(symbol: String, onClick: () -> Unit) {
+private fun SmallCircleBtn(symbol: String, tint: Color = Color(0xFF00F59B), onClick: () -> Unit) {
     Surface(
         shape = CircleShape,
         color = Color(0xFF131822),
@@ -232,9 +241,9 @@ private fun NavPill(symbol: String, onClick: () -> Unit) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = symbol,
-                color = Color(0xFF00F59B),
+                color = tint,
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
+                fontSize = 13.sp
             )
         }
     }

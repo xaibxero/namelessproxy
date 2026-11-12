@@ -102,7 +102,6 @@ object SingBoxConfigBuilder {
                     })
                 })
                 put("rules", JSONArray().apply {
-                    // Resolve outbound server hostnames directly (with routing_mark) to avoid DNS deadlock
                     put(JSONObject().apply {
                         put("outbound", "any")
                         put("server", "direct-dns")
@@ -151,6 +150,7 @@ object SingBoxConfigBuilder {
 
             put("route", JSONObject().apply {
                 put("auto_detect_interface", false)
+                put("default_mark", ProfileContext.outboundBypassMark)
                 put("rules", JSONArray().apply {
                     put(JSONObject().put("inbound", "dns-in").put("outbound", "dns-out"))
                     put(JSONObject().put("protocol", "dns").put("outbound", "dns-out"))

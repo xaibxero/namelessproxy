@@ -33,6 +33,7 @@ data class ProfileSettings(
     val activeSlot: Int = 0,
     val bootOnStartup: Boolean = false,
     val shareHotspot: Boolean = false,
+    val gpuAcceleration: Boolean = true,
     val slots: List<ProxySlot> = List(5) { ProxySlot(index = it) }
 )
 

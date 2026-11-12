@@ -23,7 +23,6 @@ object ProfileContext {
     val singboxPidPath: String = "$userDir/singbox.pid"
     val singboxLogPath: String = "$userDir/sing-box.log"
 
-    // Isolated per-profile TProxy port, DNS port, routing table, and fwmark
     val tproxyPort: Int = 12345 + userId
     val dnsPort: Int = 10530 + userId
     val routingTable: Int = 100 + userId
