@@ -50,7 +50,13 @@ object ProxyUriParser {
         val text = rawInput.trim()
         if (text.isBlank()) return null
 
-        return try {
+        val remark = if (text.contains("#")) {
+            decode(text.substringAfterLast("#")).trim().take(24)
+        } else {
+            ""
+        }
+
+        val parsed = try {
             when {
                 text.startsWith("ss://", ignoreCase = true) -> parseShadowsocks(text, current)
                 text.startsWith("vless://", ignoreCase = true) -> parseVless(text, current)
@@ -66,14 +72,18 @@ object ProxyUriParser {
             }
         } catch (_: Exception) {
             null
-        }
+        } ?: return null
+
+        return if (remark.isNotBlank()) parsed.copy(label = remark) else parsed
     }
 
     private fun parseHostPortLine(text: String, current: ProxySlot): ProxySlot? {
-        val parts = text.split(":")
+        val clean = text.substringBefore("#").trim()
+        val parts = clean.split(":")
         if (parts.size < 2) return null
         val host = parts[0].trim()
         val port = parts[1].trim().toIntOrNull() ?: return null
+        if (host.isBlank() || port !in 1..65535) return null
         val user = parts.getOrNull(2)?.trim() ?: ""
         val pass = parts.getOrNull(3)?.trim() ?: ""
         return current.copy(host = host, port = port, username = user, password = pass)
