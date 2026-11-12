@@ -9,33 +9,57 @@ object RootEngine {
 
     data class CmdResult(val ok: Boolean, val out: String, val err: String)
 
+    private var cachedSuFlag: String? = null
+
     suspend fun su(cmd: String): CmdResult = withContext(Dispatchers.IO) {
-        try {
-            val process = ProcessBuilder("su", "-c", cmd).start()
-            val out = process.inputStream.bufferedReader().readText().trim()
-            val err = process.errorStream.bufferedReader().readText().trim()
-            val code = process.waitFor()
-            CmdResult(code == 0, out, err)
-        } catch (e: Exception) {
-            CmdResult(false, "", e.message ?: "su execution failed")
+        val flag = cachedSuFlag
+        if (flag != null) {
+            return@withContext runSuWithFlag(flag, cmd)
         }
+        val mmRes = runSuWithFlag("--mount-master", cmd)
+        if (mmRes.ok) {
+            cachedSuFlag = "--mount-master"
+            return@withContext mmRes
+        }
+        val stdRes = runSuWithFlag("", cmd)
+        if (stdRes.ok) {
+            cachedSuFlag = ""
+        }
+        stdRes
+    }
+
+    private fun runSuWithFlag(flag: String, cmd: String): CmdResult = try {
+        val args = if (flag.isNotBlank()) listOf("su", flag, "-c", cmd) else listOf("su", "-c", cmd)
+        val process = ProcessBuilder(args).start()
+        val out = process.inputStream.bufferedReader().readText().trim()
+        val err = process.errorStream.bufferedReader().readText().trim()
+        val code = process.waitFor()
+        CmdResult(code == 0, out, err)
+    } catch (e: Exception) {
+        CmdResult(false, "", e.message ?: "su execution failed")
     }
 
     suspend fun isRootAvailable(): Boolean = su("id -u").out == "0"
 
-    suspend fun ensureEnvironment(context: Context): Boolean {
-        val nativeBin = "${context.applicationInfo.nativeLibraryDir}/libsingbox.so"
-        val userDir = ProfileContext.userDir
-        val setup = """
-            mkdir -p '${ProfileContext.BASE_DIR}/bin' '$userDir'
-            chmod 700 '${ProfileContext.BASE_DIR}' '$userDir'
+    private fun resolveBinarySnippet(nativeBin: String): String = """
+        mkdir -p '${ProfileContext.BASE_DIR}/bin' '${ProfileContext.userDir}'
+        chmod 700 '${ProfileContext.BASE_DIR}' '${ProfileContext.userDir}'
+        if [ -f "$nativeBin" ]; then
             if [ ! -f '${ProfileContext.BIN_PATH}' ] || [ "$nativeBin" -nt '${ProfileContext.BIN_PATH}' ]; then
                 cp -f "$nativeBin" '${ProfileContext.BIN_PATH}'
                 chmod 755 '${ProfileContext.BIN_PATH}'
+                chcon u:object_r:system_file:s0 '${ProfileContext.BIN_PATH}' 2>/dev/null || true
             fi
-        """.trimIndent()
-        return su(setup).ok
-    }
+        fi
+        ACTIVE_BIN='${ProfileContext.BIN_PATH}'
+        if ! "${'$'}ACTIVE_BIN" version >/dev/null 2>&1; then
+            mkdir -p '${ProfileContext.FALLBACK_BIN_DIR}'
+            cp -f '${ProfileContext.BIN_PATH}' '${ProfileContext.FALLBACK_BIN_PATH}'
+            chmod 755 '${ProfileContext.FALLBACK_BIN_PATH}'
+            chcon u:object_r:system_file:s0 '${ProfileContext.FALLBACK_BIN_PATH}' 2>/dev/null || true
+            ACTIVE_BIN='${ProfileContext.FALLBACK_BIN_PATH}'
+        fi
+    """.trimIndent()
 
     suspend fun startProxy(context: Context, slot: ProxySlot, settings: ProfileSettings): CmdResult {
         if (slot.host.isBlank() || slot.port !in 1..65535) {
@@ -44,20 +68,14 @@ object RootEngine {
         if (!isRootAvailable()) {
             return CmdResult(false, "", "Root (su) permission denied")
         }
-        if (!ensureEnvironment(context)) {
-            return CmdResult(false, "", "Failed to prepare /data/adb/namelessproxy")
-        }
 
+        val nativeBin = "${context.applicationInfo.nativeLibraryDir}/libsingbox.so"
         val u = ProfileContext.userId
-        val configJson = SingBoxConfigBuilder.build(slot, settings)
+        val configJson = SingBoxConfigBuilder.build(slot)
         val daemonScript = buildLiveDaemonScript(slot, settings)
 
-        val tmpConfig = File(context.cacheDir, "config_$u.json").apply {
-            writeText(configJson)
-        }
-        val tmpDaemon = File(context.cacheDir, "daemon_$u.sh").apply {
-            writeText(daemonScript)
-        }
+        val tmpConfig = File(context.cacheDir, "config_$u.json").apply { writeText(configJson) }
+        val tmpDaemon = File(context.cacheDir, "daemon_$u.sh").apply { writeText(daemonScript) }
 
         val bootCmd = if (settings.bootOnStartup) {
             "touch '${ProfileContext.bootFlagPath}'"
@@ -65,33 +83,71 @@ object RootEngine {
             "rm -f '${ProfileContext.bootFlagPath}'"
         }
 
+        // Uses exact PID files instead of pkill -f so Toybox never kills the parent shell
         val startCmd = """
+            ${resolveBinarySnippet(nativeBin)}
+            if ! "${'$'}ACTIVE_BIN" version >/dev/null 2>&1; then
+                echo "ERR: sing-box binary could not execute (check arm64 ABI)" >&2
+                exit 1
+            fi
             cp -f '${tmpConfig.absolutePath}' '${ProfileContext.configPath}'
             cp -f '${tmpDaemon.absolutePath}' '${ProfileContext.daemonScriptPath}'
             chmod 600 '${ProfileContext.configPath}'
             chmod 755 '${ProfileContext.daemonScriptPath}'
             $bootCmd
-            pkill -f 'live_daemon.sh.*user${u}/' 2>/dev/null || true
-            pkill -f 'sing-box.*user${u}/' 2>/dev/null || true
+
+            rm -f '${ProfileContext.enabledFlagPath}'
+            if [ -f '${ProfileContext.daemonPidPath}' ]; then
+                OLD_D=$(cat '${ProfileContext.daemonPidPath}' 2>/dev/null)
+                [ -n "${'$'}OLD_D" ] && kill -9 "${'$'}OLD_D" 2>/dev/null || true
+                rm -f '${ProfileContext.daemonPidPath}'
+            fi
+            if [ -f '${ProfileContext.singboxPidPath}' ]; then
+                OLD_S=$(cat '${ProfileContext.singboxPidPath}' 2>/dev/null)
+                [ -n "${'$'}OLD_S" ] && kill -9 "${'$'}OLD_S" 2>/dev/null || true
+                rm -f '${ProfileContext.singboxPidPath}'
+            fi
             ${buildCleanupRulesSnippet()}
+
+            CHECK_OUT=$("${'$'}ACTIVE_BIN" check -c '${ProfileContext.configPath}' 2>&1)
+            if [ ${'$'}? -ne 0 ]; then
+                echo "ERR: ${'$'}CHECK_OUT" >&2
+                exit 1
+            fi
+
+            : > '${ProfileContext.singboxLogPath}'
             touch '${ProfileContext.enabledFlagPath}'
             setsid sh '${ProfileContext.daemonScriptPath}' >/dev/null 2>&1 < /dev/null &
-            sleep 0.8
-            pgrep -f 'sing-box.*user${u}/' >/dev/null && echo "RUNNING"
+            sleep 1
+            if [ -f '${ProfileContext.singboxPidPath}' ] && kill -0 "$(cat '${ProfileContext.singboxPidPath}' 2>/dev/null)" 2>/dev/null; then
+                echo "RUNNING"
+            else
+                LOG_TAIL=$(tail -n 3 '${ProfileContext.singboxLogPath}' 2>/dev/null | tr '\n' ' ')
+                echo "ERR: ${'$'}{LOG_TAIL:-sing-box exited immediately}" >&2
+                exit 1
+            fi
         """.trimIndent()
 
         val res = su(startCmd)
         tmpConfig.delete()
         tmpDaemon.delete()
-        return res.copy(ok = res.out.contains("RUNNING"))
+        val cleanErr = res.err.removePrefix("ERR:").trim()
+        return res.copy(ok = res.out.contains("RUNNING"), err = cleanErr)
     }
 
     suspend fun stopProxy(): CmdResult {
-        val u = ProfileContext.userId
         val cmd = """
             rm -f '${ProfileContext.enabledFlagPath}'
-            pkill -f 'live_daemon.sh.*user${u}/' 2>/dev/null || true
-            pkill -f 'sing-box.*user${u}/' 2>/dev/null || true
+            if [ -f '${ProfileContext.daemonPidPath}' ]; then
+                OLD_D=$(cat '${ProfileContext.daemonPidPath}' 2>/dev/null)
+                [ -n "${'$'}OLD_D" ] && kill -9 "${'$'}OLD_D" 2>/dev/null || true
+                rm -f '${ProfileContext.daemonPidPath}'
+            fi
+            if [ -f '${ProfileContext.singboxPidPath}' ]; then
+                OLD_S=$(cat '${ProfileContext.singboxPidPath}' 2>/dev/null)
+                [ -n "${'$'}OLD_S" ] && kill -9 "${'$'}OLD_S" 2>/dev/null || true
+                rm -f '${ProfileContext.singboxPidPath}'
+            fi
             ${buildCleanupRulesSnippet()}
             echo "STOPPED"
         """.trimIndent()
@@ -99,8 +155,13 @@ object RootEngine {
     }
 
     suspend fun isRunning(): Boolean {
-        val u = ProfileContext.userId
-        val res = su("pgrep -f 'sing-box.*user${u}/' >/dev/null && echo YES")
+        val res = su(
+            """
+            if [ -f '${ProfileContext.singboxPidPath}' ] && kill -0 "$(cat '${ProfileContext.singboxPidPath}' 2>/dev/null)" 2>/dev/null; then
+                echo "YES"
+            fi
+            """.trimIndent()
+        )
         return res.out == "YES"
     }
 
@@ -113,8 +174,6 @@ object RootEngine {
         val dnsPort = ProfileContext.dnsPort
         val table = ProfileContext.routingTable
         val mark = ProfileContext.tproxyMark
-        val blockIpv6 = settings.ipv6Mode == Ipv6Mode.STRICT_BLOCK
-        val bridgeIpv6 = settings.ipv6Mode == Ipv6Mode.BRIDGE_OVER_IPV4
         val hotspot = settings.shareHotspot
         val tcpOnlyProxy = slot.protocol in setOf(
             ProxyProtocol.HTTP,
@@ -125,9 +184,21 @@ object RootEngine {
 
         return """
             #!/system/bin/sh
+            echo $$ > '${ProfileContext.daemonPidPath}'
             # Escape Android app cgroup so low-RAM devices cannot kill this daemon
             echo $$ > /dev/cpuset/tasks 2>/dev/null || true
             echo $$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true
+
+            get_bin() {
+                if '${ProfileContext.BIN_PATH}' version >/dev/null 2>&1; then
+                    echo '${ProfileContext.BIN_PATH}'
+                else
+                    mkdir -p '${ProfileContext.FALLBACK_BIN_DIR}'
+                    cp -f '${ProfileContext.BIN_PATH}' '${ProfileContext.FALLBACK_BIN_PATH}'
+                    chmod 755 '${ProfileContext.FALLBACK_BIN_PATH}'
+                    echo '${ProfileContext.FALLBACK_BIN_PATH}'
+                fi
+            }
 
             apply_rules() {
                 ip rule show | grep -q "fwmark $mark lookup $table" || ip rule add fwmark $mark table $table pref $((1000 + $u))
@@ -185,7 +256,6 @@ object RootEngine {
                 iptables -t nat -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_DNS 2>/dev/null || \
                     iptables -t nat -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_DNS
 
-                # Hotspot client forwarding (tether interfaces only, avoiding wlan0 upstream collision)
                 if [ "${if (hotspot) "1" else "0"}" = "1" ]; then
                     echo 1 > /proc/sys/net/ipv4/ip_forward
                     for IFACE in ap+ swlan+ rndis+ softap+ wlan1 wlan2 bt-pan; do
@@ -198,64 +268,40 @@ object RootEngine {
                     done
                 fi
 
-                # IPv6 Handling with automatic kernel TPROXY capability fallback
-                if [ "${if (blockIpv6) "1" else "0"}" = "1" ]; then
-                    ip6tables -C OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || \
-                        ip6tables -I OUTPUT 1 -m owner --uid-owner $uidRange ! -o lo -j DROP
-                    ip6tables -C OUTPUT -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP 2>/dev/null || \
-                        ip6tables -I OUTPUT 1 -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP
-                    ip6tables -C OUTPUT -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP 2>/dev/null || \
-                        ip6tables -I OUTPUT 1 -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP
+                # Automatic IPv6 TProxy with strict drop fallback if kernel lacks ip6t_TPROXY
+                ip -6 rule show | grep -q "fwmark $mark lookup $table" || ip -6 rule add fwmark $mark table $table pref $((1000 + $u)) 2>/dev/null || true
+                ip -6 route replace local ::/0 dev lo table $table 2>/dev/null || true
+                ip6tables -t mangle -N $chain 2>/dev/null || ip6tables -t mangle -F $chain 2>/dev/null || true
+                ip6tables -t mangle -A $chain -m mark --mark $bypassHex -j RETURN 2>/dev/null || true
+                ip6tables -t mangle -A $chain -d ::1/128 -j RETURN 2>/dev/null || true
+                ip6tables -t mangle -A $chain -d fe80::/10 -j RETURN 2>/dev/null || true
+                ip6tables -t mangle -A $chain -d fc00::/7 -j RETURN 2>/dev/null || true
+                if ip6tables -t mangle -A $chain -p tcp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null; then
+                    ip6tables -t mangle -A $chain -p udp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null || true
+                    ip6tables -t mangle -C PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || \
+                        ip6tables -t mangle -I PREROUTING 1 -m mark --mark $mark -j $chain 2>/dev/null || true
+
+                    ip6tables -t mangle -N ${chain}_OUT 2>/dev/null || ip6tables -t mangle -F ${chain}_OUT 2>/dev/null || true
+                    ip6tables -t mangle -A ${chain}_OUT -m mark --mark $bypassHex -j RETURN 2>/dev/null || true
+                    ip6tables -t mangle -A ${chain}_OUT -d ::1/128 -j RETURN 2>/dev/null || true
+                    ip6tables -t mangle -A ${chain}_OUT -d fe80::/10 -j RETURN 2>/dev/null || true
+                    ip6tables -t mangle -A ${chain}_OUT -p tcp -j MARK --set-mark $mark 2>/dev/null || true
+                    ip6tables -t mangle -A ${chain}_OUT -p udp -j MARK --set-mark $mark 2>/dev/null || true
+                    ip6tables -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
+                        ip6tables -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || true
                 else
-                    ip -6 rule show | grep -q "fwmark $mark lookup $table" || ip -6 rule add fwmark $mark table $table pref $((1000 + $u))
-                    ip -6 route replace local ::/0 dev lo table $table
-                    ip6tables -t mangle -N $chain 2>/dev/null || ip6tables -t mangle -F $chain
-                    ip6tables -t mangle -A $chain -m mark --mark $bypassHex -j RETURN
-                    ip6tables -t mangle -A $chain -d ::1/128 -j RETURN
-                    ip6tables -t mangle -A $chain -d fe80::/10 -j RETURN
-                    ip6tables -t mangle -A $chain -d fc00::/7 -j RETURN
-                    if ip6tables -t mangle -A $chain -p tcp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null; then
-                        ip6tables -t mangle -A $chain -p udp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null
-                        ip6tables -t mangle -C PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || \
-                            ip6tables -t mangle -I PREROUTING 1 -m mark --mark $mark -j $chain
-
-                        ip6tables -t mangle -N ${chain}_OUT 2>/dev/null || ip6tables -t mangle -F ${chain}_OUT
-                        ip6tables -t mangle -A ${chain}_OUT -m mark --mark $bypassHex -j RETURN
-                        ip6tables -t mangle -A ${chain}_OUT -d ::1/128 -j RETURN
-                        ip6tables -t mangle -A ${chain}_OUT -d fe80::/10 -j RETURN
-                        ip6tables -t mangle -A ${chain}_OUT -p tcp -j MARK --set-mark $mark
-                        ip6tables -t mangle -A ${chain}_OUT -p udp -j MARK --set-mark $mark
-                        ip6tables -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
-                            ip6tables -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT
-
-                        if [ "${if (bridgeIpv6) "1" else "0"}" = "1" ]; then
-                            ip6tables -C OUTPUT -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP 2>/dev/null || \
-                                ip6tables -I OUTPUT 1 -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP
-                            ip6tables -C OUTPUT -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP 2>/dev/null || \
-                                ip6tables -I OUTPUT 1 -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP
-                        else
-                            ip6tables -t mangle -N ${chain}_PDNS 2>/dev/null || ip6tables -t mangle -F ${chain}_PDNS
-                            ip6tables -t mangle -A ${chain}_PDNS -m mark --mark $bypassHex -j RETURN
-                            ip6tables -t mangle -A ${chain}_PDNS -p tcp --dport 853 -j MARK --set-mark $mark
-                            ip6tables -t mangle -A ${chain}_PDNS -p udp --dport 853 -j MARK --set-mark $mark
-                            for DNS6_IP in 2001:4860:4860::8888 2001:4860:4860::8844 2606:4700:4700::1111 2606:4700:4700::1001 2620:fe::fe 2620:fe::9; do
-                                ip6tables -t mangle -A ${chain}_PDNS -d ${'$'}DNS6_IP -p udp --dport 443 -j MARK --set-mark $mark
-                            done
-                            ip6tables -t mangle -C OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || \
-                                ip6tables -t mangle -I OUTPUT 1 -m owner --uid-owner 0-9999 -j ${chain}_PDNS
-                        fi
-                    else
-                        # Kernel lacks ip6t_TPROXY: enforce strict IPv6 drop so zero IPv6 leaks occur
-                        ip6tables -C OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || \
-                            ip6tables -I OUTPUT 1 -m owner --uid-owner $uidRange ! -o lo -j DROP
-                    fi
+                    ip6tables -C OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || \
+                        ip6tables -I OUTPUT 1 -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || true
                 fi
             }
 
+            RUN_BIN=$(get_bin)
             while [ -f '${ProfileContext.enabledFlagPath}' ]; do
-                if ! pgrep -f 'sing-box.*user${u}/' >/dev/null 2>&1; then
-                    '${ProfileContext.BIN_PATH}' run -c '${ProfileContext.configPath}' > '${ProfileContext.userDir}/sing-box.log' 2>&1 &
-                    sleep 0.5
+                SPID=$(cat '${ProfileContext.singboxPidPath}' 2>/dev/null)
+                if [ -z "${'$'}SPID" ] || ! kill -0 "${'$'}SPID" 2>/dev/null; then
+                    "${'$'}RUN_BIN" run -c '${ProfileContext.configPath}' >> '${ProfileContext.singboxLogPath}' 2>&1 &
+                    echo $! > '${ProfileContext.singboxPidPath}'
+                    sleep 0.4
                 fi
                 apply_rules
                 sleep 3
@@ -289,14 +335,10 @@ object RootEngine {
             ip route flush table $table 2>/dev/null || true
 
             ip6tables -D OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || true
-            ip6tables -D OUTPUT -m owner --uid-owner 0-9999 -p tcp --dport 853 -j DROP 2>/dev/null || true
-            ip6tables -D OUTPUT -m owner --uid-owner 0-9999 -p udp --dport 853 -j DROP 2>/dev/null || true
             ip6tables -t mangle -D OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || true
-            ip6tables -t mangle -D OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || true
             ip6tables -t mangle -D PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || true
             ip6tables -t mangle -F $chain 2>/dev/null && ip6tables -t mangle -X $chain 2>/dev/null || true
             ip6tables -t mangle -F ${chain}_OUT 2>/dev/null && ip6tables -t mangle -X ${chain}_OUT 2>/dev/null || true
-            ip6tables -t mangle -F ${chain}_PDNS 2>/dev/null && ip6tables -t mangle -X ${chain}_PDNS 2>/dev/null || true
             ip -6 rule del fwmark $mark table $table 2>/dev/null || true
             ip -6 route flush table $table 2>/dev/null || true
         """.trimIndent()
