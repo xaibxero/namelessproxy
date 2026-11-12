@@ -10,6 +10,8 @@ object ProfileContext {
 
     const val BASE_DIR = "/data/adb/namelessproxy"
     const val BIN_PATH = "$BASE_DIR/bin/sing-box"
+    const val FALLBACK_BIN_DIR = "/dev/namelessproxy_bin"
+    const val FALLBACK_BIN_PATH = "$FALLBACK_BIN_DIR/sing-box"
 
     val userDir: String = "$BASE_DIR/user$userId"
     val configPath: String = "$userDir/config.json"
@@ -17,6 +19,9 @@ object ProfileContext {
     val daemonScriptPath: String = "$userDir/live_daemon.sh"
     val enabledFlagPath: String = "$userDir/enabled"
     val bootFlagPath: String = "$userDir/boot_enabled"
+    val daemonPidPath: String = "$userDir/daemon.pid"
+    val singboxPidPath: String = "$userDir/singbox.pid"
+    val singboxLogPath: String = "$userDir/sing-box.log"
 
     // Isolated per-profile TProxy port, DNS port, routing table, and fwmark
     val tproxyPort: Int = 12345 + userId
