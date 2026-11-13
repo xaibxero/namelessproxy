@@ -127,13 +127,6 @@ object SingBoxConfigBuilder {
                     put("listen", "::")
                     put("listen_port", ProfileContext.tproxyPort)
                     put("sniff", true)
-                put("inbounds", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("type", "tproxy")
-                    put("tag", "tproxy-in")
-                    put("listen", "::")
-                    put("listen_port", ProfileContext.tproxyPort)
-                    put("sniff", true)
                     put("sniff_override_destination", false)
                 })
             })
