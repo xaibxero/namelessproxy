@@ -165,6 +165,15 @@ object RootEngine {
         return res.out == "YES"
     }
 
+    suspend fun refreshRulesNow(): CmdResult {
+        val cmd = """
+            if [ -f '${ProfileContext.enabledFlagPath}' ] && [ -f '${ProfileContext.daemonScriptPath}' ]; then
+                sh '${ProfileContext.daemonScriptPath}' --apply-only >/dev/null 2>&1
+            fi
+        """.trimIndent()
+        return su(cmd)
+    }
+
     private fun buildLiveDaemonScript(slot: ProxySlot, settings: ProfileSettings): String {
         val u = ProfileContext.userId
         val chain = "NP_U$u"
@@ -172,7 +181,6 @@ object RootEngine {
         val uidRange = "${ProfileContext.uidStart}-${ProfileContext.uidEnd}"
         val bypassHex = "0x%x".format(ProfileContext.outboundBypassMark)
         val tproxyPort = ProfileContext.tproxyPort
-        val dnsPort = ProfileContext.dnsPort
         val table = ProfileContext.routingTable
         val mark = ProfileContext.tproxyMark
         val hotspot = settings.shareHotspot
@@ -185,10 +193,6 @@ object RootEngine {
 
         return """
             #!/system/bin/sh
-            echo $$ > '${ProfileContext.daemonPidPath}'
-            echo $$ > /dev/cpuset/tasks 2>/dev/null || true
-            echo $$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true
-
             IPT="iptables -w 100"
             IP6T="ip6tables -w 100"
 
@@ -206,11 +210,11 @@ object RootEngine {
             wait_for_listener() {
                 PORT_HEX=$(printf '%04X' $tproxyPort)
                 TRIES=0
-                while [ ${'$'}TRIES -lt 20 ]; do
+                while [ ${'$'}TRIES -lt 25 ]; do
                     if grep -qi ":${'$'}PORT_HEX " /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
                         return 0
                     fi
-                    sleep 0.1
+                    sleep 0.08
                     TRIES=$((TRIES + 1))
                 done
                 return 0
@@ -221,8 +225,9 @@ object RootEngine {
                 ip rule show | grep -q "fwmark $mark lookup $table" || ip rule add fwmark $mark table $table pref $((100 + $u))
                 ip route replace local 0.0.0.0/0 dev lo table $table
 
-                # Box-for-Magisk DIVERT chain for established transparent sockets (xt_socket fast-path)
+                # Multi-user safe DIVERT chain for established transparent sockets (xt_socket fast-path)
                 ${'$'}IPT -t mangle -N $divChain 2>/dev/null || ${'$'}IPT -t mangle -F $divChain
+                ${'$'}IPT -t mangle -A $divChain -m mark ! --mark 0x0 -j ACCEPT
                 ${'$'}IPT -t mangle -A $divChain -j MARK --set-mark $mark
                 ${'$'}IPT -t mangle -A $divChain -j ACCEPT
                 ${'$'}IPT -t mangle -C PREROUTING -p tcp -m socket --transparent -j $divChain 2>/dev/null || \
@@ -230,9 +235,11 @@ object RootEngine {
                 ${'$'}IPT -t mangle -C PREROUTING -p udp -m socket --transparent -j $divChain 2>/dev/null || \
                     ${'$'}IPT -t mangle -I PREROUTING 2 -p udp -m socket --transparent -j $divChain 2>/dev/null || true
 
-                # IPv4 Mangle TProxy chain with full Box-for-Magisk intranet/CGNAT exclusions
+                # IPv4 Mangle TProxy chain: capture port 53 BEFORE private subnet bypasses (catches 192.168.1.1:53 router DNS!)
                 ${'$'}IPT -t mangle -N $chain 2>/dev/null || ${'$'}IPT -t mangle -F $chain
                 ${'$'}IPT -t mangle -A $chain -m mark --mark $bypassHex -j RETURN
+                ${'$'}IPT -t mangle -A $chain -p udp --dport 53 -j TPROXY --on-port $tproxyPort --on-ip 127.0.0.1 --tproxy-mark $mark
+                ${'$'}IPT -t mangle -A $chain -p tcp --dport 53 -j TPROXY --on-port $tproxyPort --on-ip 127.0.0.1 --tproxy-mark $mark
                 for SUBNET in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 255.255.255.255/32; do
                     ${'$'}IPT -t mangle -A $chain -d ${'$'}SUBNET -j RETURN
                 done
@@ -242,10 +249,12 @@ object RootEngine {
                 ${'$'}IPT -t mangle -C PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || \
                     ${'$'}IPT -t mangle -A PREROUTING -m mark --mark $mark -j $chain
 
-                # Per-profile UID OUTPUT chain
+                # Per-profile UID OUTPUT chain (port 53 marked BEFORE local subnet returns)
                 ${'$'}IPT -t mangle -N ${chain}_OUT 2>/dev/null || ${'$'}IPT -t mangle -F ${chain}_OUT
                 ${'$'}IPT -t mangle -A ${chain}_OUT -m mark --mark $bypassHex -j RETURN
-                for SUBNET in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 255.255.255.255/32; do
+                ${'$'}IPT -t mangle -A ${chain}_OUT -p udp --dport 53 -j MARK --set-mark $mark
+                ${'$'}IPT -t mangle -A ${chain}_OUT -p tcp --dport 53 -j MARK --set-mark $mark
+                for SUBNET in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 255.255.255.255/32; do
                     ${'$'}IPT -t mangle -A ${chain}_OUT -d ${'$'}SUBNET -j RETURN
                 done
                 ${'$'}IPT -t mangle -A ${chain}_OUT -p tcp -j MARK --set-mark $mark
@@ -275,30 +284,20 @@ object RootEngine {
                         ${'$'}IPT -I OUTPUT 1 -j ${chain}_UDPDROP
                 fi
 
-                # Port 53 DNS Hijack into sing-box Fake-IP listener
-                ${'$'}IPT -t nat -N ${chain}_DNS 2>/dev/null || ${'$'}IPT -t nat -F ${chain}_DNS
-                ${'$'}IPT -t nat -A ${chain}_DNS -m mark --mark $bypassHex -j RETURN
-                ${'$'}IPT -t nat -A ${chain}_DNS -p udp --dport 53 -j REDIRECT --to-ports $dnsPort
-                ${'$'}IPT -t nat -A ${chain}_DNS -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort
-                ${'$'}IPT -t nat -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_DNS 2>/dev/null || \
-                    ${'$'}IPT -t nat -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_DNS
-
+                # Hotspot client forwarding (tether interfaces only, avoiding wlan0 upstream collision)
                 if [ "${if (hotspot) "1" else "0"}" = "1" ]; then
                     echo 1 > /proc/sys/net/ipv4/ip_forward
                     for IFACE in ap+ swlan+ rndis+ softap+ wlan1 wlan2 bt-pan; do
                         ${'$'}IPT -t mangle -C PREROUTING -i ${'$'}IFACE -j $chain 2>/dev/null || \
                             ${'$'}IPT -t mangle -A PREROUTING -i ${'$'}IFACE -j $chain
-                        ${'$'}IPT -t nat -C PREROUTING -i ${'$'}IFACE -p udp --dport 53 -j REDIRECT --to-ports $dnsPort 2>/dev/null || \
-                            ${'$'}IPT -t nat -A PREROUTING -i ${'$'}IFACE -p udp --dport 53 -j REDIRECT --to-ports $dnsPort
-                        ${'$'}IPT -t nat -C PREROUTING -i ${'$'}IFACE -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort 2>/dev/null || \
-                            ${'$'}IPT -t nat -A PREROUTING -i ${'$'}IFACE -p tcp --dport 53 -j REDIRECT --to-ports $dnsPort
                     done
                 fi
 
-                # IPv6 TProxy + DIVERT with automatic strict-drop fallback
+                # IPv6 TProxy + DIVERT + Port 53 capture before local IPv6 bypasses
                 ip -6 rule show | grep -q "fwmark $mark lookup $table" || ip -6 rule add fwmark $mark table $table pref $((100 + $u)) 2>/dev/null || true
                 ip -6 route replace local ::/0 dev lo table $table 2>/dev/null || true
                 ${'$'}IP6T -t mangle -N $divChain 2>/dev/null || ${'$'}IP6T -t mangle -F $divChain 2>/dev/null || true
+                ${'$'}IP6T -t mangle -A $divChain -m mark ! --mark 0x0 -j ACCEPT 2>/dev/null || true
                 ${'$'}IP6T -t mangle -A $divChain -j MARK --set-mark $mark 2>/dev/null || true
                 ${'$'}IP6T -t mangle -A $divChain -j ACCEPT 2>/dev/null || true
                 ${'$'}IP6T -t mangle -C PREROUTING -p tcp -m socket --transparent -j $divChain 2>/dev/null || \
@@ -308,16 +307,20 @@ object RootEngine {
 
                 ${'$'}IP6T -t mangle -N $chain 2>/dev/null || ${'$'}IP6T -t mangle -F $chain 2>/dev/null || true
                 ${'$'}IP6T -t mangle -A $chain -m mark --mark $bypassHex -j RETURN 2>/dev/null || true
-                for SUB6 in ::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 2001::/32 2001:db8::/32 fc00::/7 fe80::/10 ff00::/8; do
-                    ${'$'}IP6T -t mangle -A $chain -d ${'$'}SUB6 -j RETURN 2>/dev/null || true
-                done
-                if ${'$'}IP6T -t mangle -A $chain -p tcp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null; then
+                if ${'$'}IP6T -t mangle -A $chain -p udp --dport 53 -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null; then
+                    ${'$'}IP6T -t mangle -A $chain -p tcp --dport 53 -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null || true
+                    for SUB6 in ::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 2001::/32 2001:db8::/32 fc00::/7 fe80::/10 ff00::/8; do
+                        ${'$'}IP6T -t mangle -A $chain -d ${'$'}SUB6 -j RETURN 2>/dev/null || true
+                    done
+                    ${'$'}IP6T -t mangle -A $chain -p tcp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null || true
                     ${'$'}IP6T -t mangle -A $chain -p udp -j TPROXY --on-port $tproxyPort --on-ip ::1 --tproxy-mark $mark 2>/dev/null || true
                     ${'$'}IP6T -t mangle -C PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || \
                         ${'$'}IP6T -t mangle -A PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || true
 
                     ${'$'}IP6T -t mangle -N ${chain}_OUT 2>/dev/null || ${'$'}IP6T -t mangle -F ${chain}_OUT 2>/dev/null || true
                     ${'$'}IP6T -t mangle -A ${chain}_OUT -m mark --mark $bypassHex -j RETURN 2>/dev/null || true
+                    ${'$'}IP6T -t mangle -A ${chain}_OUT -p udp --dport 53 -j MARK --set-mark $mark 2>/dev/null || true
+                    ${'$'}IP6T -t mangle -A ${chain}_OUT -p tcp --dport 53 -j MARK --set-mark $mark 2>/dev/null || true
                     for SUB6 in ::/128 ::1/128 fc00::/7 fe80::/10 ff00::/8; do
                         ${'$'}IP6T -t mangle -A ${chain}_OUT -d ${'$'}SUB6 -j RETURN 2>/dev/null || true
                     done
@@ -325,11 +328,30 @@ object RootEngine {
                     ${'$'}IP6T -t mangle -A ${chain}_OUT -p udp -j MARK --set-mark $mark 2>/dev/null || true
                     ${'$'}IP6T -t mangle -C OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || \
                         ${'$'}IP6T -t mangle -I OUTPUT 1 -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || true
+
+                    ${'$'}IP6T -t mangle -N ${chain}_PDNS 2>/dev/null || ${'$'}IP6T -t mangle -F ${chain}_PDNS 2>/dev/null || true
+                    ${'$'}IP6T -t mangle -A ${chain}_PDNS -m mark --mark $bypassHex -j RETURN 2>/dev/null || true
+                    ${'$'}IP6T -t mangle -A ${chain}_PDNS -p tcp --dport 853 -j MARK --set-mark $mark 2>/dev/null || true
+                    ${'$'}IP6T -t mangle -A ${chain}_PDNS -p udp --dport 853 -j MARK --set-mark $mark 2>/dev/null || true
+                    for DNS6_IP in 2001:4860:4860::8888 2001:4860:4860::8844 2606:4700:4700::1111 2606:4700:4700::1001 2620:fe::fe 2620:fe::9; do
+                        ${'$'}IP6T -t mangle -A ${chain}_PDNS -d ${'$'}DNS6_IP -p udp --dport 443 -j MARK --set-mark $mark 2>/dev/null || true
+                    done
+                    ${'$'}IP6T -t mangle -C OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || \
+                        ${'$'}IP6T -t mangle -I OUTPUT 1 -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || true
                 else
                     ${'$'}IP6T -C OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || \
                         ${'$'}IP6T -I OUTPUT 1 -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || true
                 fi
             }
+
+            if [ "$1" = "--apply-only" ]; then
+                apply_rules
+                exit 0
+            fi
+
+            echo $$ > '${ProfileContext.daemonPidPath}'
+            echo $$ > /dev/cpuset/tasks 2>/dev/null || true
+            echo $$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true
 
             RUN_BIN=$(get_bin)
             while [ -f '${ProfileContext.enabledFlagPath}' ]; do
@@ -360,30 +382,28 @@ object RootEngine {
             ${'$'}IPT -t mangle -D PREROUTING -p tcp -m socket --transparent -j $divChain 2>/dev/null || true
             ${'$'}IPT -t mangle -D PREROUTING -p udp -m socket --transparent -j $divChain 2>/dev/null || true
             ${'$'}IPT -t mangle -D PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || true
-            ${'$'}IPT -t nat -D OUTPUT -m owner --uid-owner $uidRange -j ${chain}_DNS 2>/dev/null || true
             ${'$'}IPT -D OUTPUT -j ${chain}_UDPDROP 2>/dev/null || true
             for IFACE in ap+ swlan+ rndis+ softap+ wlan1 wlan2 bt-pan wlan+; do
                 ${'$'}IPT -t mangle -D PREROUTING -i ${'$'}IFACE -j $chain 2>/dev/null || true
-                ${'$'}IPT -t nat -D PREROUTING -i ${'$'}IFACE -p udp --dport 53 -j REDIRECT --to-ports ${ProfileContext.dnsPort} 2>/dev/null || true
-                ${'$'}IPT -t nat -D PREROUTING -i ${'$'}IFACE -p tcp --dport 53 -j REDIRECT --to-ports ${ProfileContext.dnsPort} 2>/dev/null || true
             done
             ${'$'}IPT -t mangle -F $divChain 2>/dev/null && ${'$'}IPT -t mangle -X $divChain 2>/dev/null || true
             ${'$'}IPT -t mangle -F $chain 2>/dev/null && ${'$'}IPT -t mangle -X $chain 2>/dev/null || true
             ${'$'}IPT -t mangle -F ${chain}_OUT 2>/dev/null && ${'$'}IPT -t mangle -X ${chain}_OUT 2>/dev/null || true
             ${'$'}IPT -t mangle -F ${chain}_PDNS 2>/dev/null && ${'$'}IPT -t mangle -X ${chain}_PDNS 2>/dev/null || true
-            ${'$'}IPT -t nat -F ${chain}_DNS 2>/dev/null && ${'$'}IPT -t nat -X ${chain}_DNS 2>/dev/null || true
             ${'$'}IPT -F ${chain}_UDPDROP 2>/dev/null && ${'$'}IPT -X ${chain}_UDPDROP 2>/dev/null || true
             ip rule del fwmark $mark table $table 2>/dev/null || true
             ip route flush table $table 2>/dev/null || true
 
             ${'$'}IP6T -D OUTPUT -m owner --uid-owner $uidRange ! -o lo -j DROP 2>/dev/null || true
             ${'$'}IP6T -t mangle -D OUTPUT -m owner --uid-owner $uidRange -j ${chain}_OUT 2>/dev/null || true
+            ${'$'}IP6T -t mangle -D OUTPUT -m owner --uid-owner 0-9999 -j ${chain}_PDNS 2>/dev/null || true
             ${'$'}IP6T -t mangle -D PREROUTING -p tcp -m socket --transparent -j $divChain 2>/dev/null || true
             ${'$'}IP6T -t mangle -D PREROUTING -p udp -m socket --transparent -j $divChain 2>/dev/null || true
             ${'$'}IP6T -t mangle -D PREROUTING -m mark --mark $mark -j $chain 2>/dev/null || true
             ${'$'}IP6T -t mangle -F $divChain 2>/dev/null && ${'$'}IP6T -t mangle -X $divChain 2>/dev/null || true
             ${'$'}IP6T -t mangle -F $chain 2>/dev/null && ${'$'}IP6T -t mangle -X $chain 2>/dev/null || true
             ${'$'}IP6T -t mangle -F ${chain}_OUT 2>/dev/null && ${'$'}IP6T -t mangle -X ${chain}_OUT 2>/dev/null || true
+            ${'$'}IP6T -t mangle -F ${chain}_PDNS 2>/dev/null && ${'$'}IP6T -t mangle -X ${chain}_PDNS 2>/dev/null || true
             ip -6 rule del fwmark $mark table $table 2>/dev/null || true
             ip -6 route flush table $table 2>/dev/null || true
         """.trimIndent()

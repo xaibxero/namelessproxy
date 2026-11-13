@@ -1,6 +1,9 @@
 package com.xaibxero.namelessproxy.ui
 
 import android.app.Activity
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.view.WindowManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
@@ -8,7 +11,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -22,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -33,7 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xaibxero.namelessproxy.core.*
 import com.xaibxero.namelessproxy.diagnostics.LeakAuditEngine
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.cos
+import kotlin.math.sin
 
 private val AmoledBlack = Color(0xFF000000)
 private val CardSurface = Color(0xFF0A0D14)
@@ -59,6 +65,7 @@ fun NamelessDashboard() {
     // 0 = Proxy Engine, 1 = IPFighter, 2 = DNS Leak, 3 = WebRTC
     var selectedTab by remember { mutableIntStateOf(0) }
     var settings by remember { mutableStateOf(ProfileSettings()) }
+    var isLoaded by remember { mutableStateOf(false) }
     var isConnected by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
     var isError by remember { mutableStateOf(false) }
@@ -71,12 +78,45 @@ fun NamelessDashboard() {
 
     LaunchedEffect(Unit) {
         settings = SettingsStore.load(context)
+        isLoaded = true
         isConnected = RootEngine.isRunning()
         if (isConnected) {
             isError = false
             statusText = "Kernel Active • User ${ProfileContext.userId}"
         }
         slotLatencies = LeakAuditEngine.pingAllSlots(settings.slots)
+    }
+
+    // Auto-persist edits to /data/adb/namelessproxy/user<id>/settings.json so tab switches never lose changes
+    LaunchedEffect(settings, isLoaded) {
+        if (!isLoaded) return@LaunchedEffect
+        delay(350)
+        SettingsStore.save(context, settings)
+    }
+
+    // Instant kernel rule refresh whenever Wi-Fi or Cellular changes while connected
+    DisposableEffect(context, isConnected) {
+        if (!isConnected) return@DisposableEffect onDispose { }
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return@DisposableEffect onDispose { }
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                scope.launch { RootEngine.refreshRulesNow() }
+            }
+            override fun onLost(network: Network) {
+                scope.launch { RootEngine.refreshRulesNow() }
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+        } catch (_: Exception) {
+        }
+        onDispose {
+            try {
+                cm.unregisterNetworkCallback(callback)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     // Apply or clear hardware GPU acceleration flag on the window dynamically
@@ -95,8 +135,8 @@ fun NamelessDashboard() {
     val orbPressed by orbInteraction.collectIsPressedAsState()
     val orbScale by animateFloatAsState(
         targetValue = when {
-            orbPressed -> 0.88f
-            isConnected -> 1.04f
+            orbPressed -> 0.85f
+            isConnected -> 1.05f
             else -> 1.0f
         },
         animationSpec = if (settings.gpuAcceleration) BubblySpring else snap(),
@@ -107,21 +147,45 @@ fun NamelessDashboard() {
         label = "orbCoreColor"
     )
 
-    // Run smooth GPU pulse ring only when connected AND GPU Acceleration is enabled
-    val pulsePhase = if (isConnected && settings.gpuAcceleration) {
-        val infinite = rememberInfiniteTransition(label = "gpuPulse")
-        val anim by infinite.animateFloat(
+    // Smooth GPU RenderThread jelly morph + floating micro-bubbles + sonar pulse
+    val pulsePhase: Float
+    val jellyPhase: Float
+    if (settings.gpuAcceleration) {
+        val infinite = rememberInfiniteTransition(label = "gpuBubbly")
+        val pAnim by infinite.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = LinearEasing),
+                animation = tween(2200, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart
             ),
             label = "pulsePhase"
         )
-        anim
+        val jAnim by infinite.animateFloat(
+            initialValue = 0f,
+            targetValue = (2.0 * Math.PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(3200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "jellyPhase"
+        )
+        pulsePhase = pAnim
+        jellyPhase = jAnim
     } else {
-        0f
+        pulsePhase = 0f
+        jellyPhase = 0f
+    }
+
+    val jellyScaleX = if (settings.gpuAcceleration) {
+        orbScale * (1f + 0.025f * sin(jellyPhase))
+    } else {
+        orbScale
+    }
+    val jellyScaleY = if (settings.gpuAcceleration) {
+        orbScale * (1f + 0.025f * cos(jellyPhase))
+    } else {
+        orbScale
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = AmoledBlack) {
@@ -175,11 +239,20 @@ fun NamelessDashboard() {
                 val navTitles = listOf("Proxy", "IPFighter", "DNS Leak", "WebRTC")
                 navTitles.forEachIndexed { idx, label ->
                     val isTabActive = selectedTab == idx
+                    val tabScale by animateFloatAsState(
+                        targetValue = if (isTabActive) 1.0f else 0.96f,
+                        animationSpec = if (settings.gpuAcceleration) BubblySpring else snap(),
+                        label = "navTab$idx"
+                    )
                     Surface(
                         shape = CircleShape,
                         color = if (isTabActive) NeonMint else Color.Transparent,
                         modifier = Modifier
                             .weight(1f)
+                            .graphicsLayer {
+                                scaleX = tabScale
+                                scaleY = tabScale
+                            }
                             .clip(CircleShape)
                             .clickable { selectedTab = idx }
                     ) {
@@ -199,14 +272,16 @@ fun NamelessDashboard() {
                 }
             }
 
-            // When a Web Tab is tapped, mount & auto-run ONLY that tab; auto-destroy on switch/close
+            // Keyed per tab so switching immediately destroys the old WebView and auto-runs the new one
             if (selectedTab in 1..3) {
-                SingleAutoLeakWebTab(
-                    preset = LeakTabPresets[selectedTab - 1],
-                    gpuAccelerated = settings.gpuAcceleration,
-                    onCloseTab = { selectedTab = 0 },
-                    modifier = Modifier.weight(1f)
-                )
+                key(selectedTab) {
+                    SingleAutoLeakWebTab(
+                        preset = LeakTabPresets[selectedTab - 1],
+                        gpuAccelerated = settings.gpuAcceleration,
+                        onCloseTab = { selectedTab = 0 },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 return@Column
             }
 
@@ -220,14 +295,14 @@ fun NamelessDashboard() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // GPU-Accelerated Bubbly Power Orb
+                // GPU-Accelerated Bubbly Jelly Power Orb
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(164.dp)
+                        .size(172.dp)
                         .graphicsLayer {
-                            scaleX = orbScale
-                            scaleY = orbScale
+                            scaleX = jellyScaleX
+                            scaleY = jellyScaleY
                         }
                         .clickable(
                             interactionSource = orbInteraction,
@@ -258,24 +333,33 @@ fun NamelessDashboard() {
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val center = Offset(size.width / 2f, size.height / 2f)
-                        val baseRadius = size.minDimension * 0.36f
+                        val baseRadius = size.minDimension * 0.35f
 
                         if (isConnected && settings.gpuAcceleration) {
-                            val ringRadius = baseRadius + (size.minDimension * 0.14f * pulsePhase)
-                            val alpha = (1f - pulsePhase) * 0.45f
-                            drawCircle(
-                                color = NeonMint.copy(alpha = alpha),
-                                radius = ringRadius,
-                                center = center,
-                                style = Stroke(width = 2.5.dp.toPx())
-                            )
+                            for (i in 0..1) {
+                                val phase = (pulsePhase + i * 0.5f) % 1f
+                                val ringRadius = baseRadius + (size.minDimension * 0.15f * phase)
+                                val alpha = (1f - phase) * 0.42f
+                                drawCircle(
+                                    color = NeonMint.copy(alpha = alpha),
+                                    radius = ringRadius,
+                                    center = center,
+                                    style = Stroke(width = 2.5.dp.toPx())
+                                )
+                            }
                         }
 
                         drawCircle(
-                            color = if (isConnected) NeonMint.copy(alpha = 0.45f) else HairlineBorder,
-                            radius = baseRadius + 6.dp.toPx(),
+                            brush = Brush.sweepGradient(
+                                colors = if (isConnected) {
+                                    listOf(NeonMint, ElectricCyan, NeonMint)
+                                } else {
+                                    listOf(HairlineBorder, ChipSurface, HairlineBorder)
+                                }
+                            ),
+                            radius = baseRadius + 7.dp.toPx(),
                             center = center,
-                            style = Stroke(width = 1.5.dp.toPx())
+                            style = Stroke(width = 2.dp.toPx())
                         )
 
                         drawCircle(
@@ -283,6 +367,24 @@ fun NamelessDashboard() {
                             radius = baseRadius,
                             center = center
                         )
+
+                        if (settings.gpuAcceleration) {
+                            val bubbleTint = if (isConnected) {
+                                Color.White.copy(alpha = 0.28f)
+                            } else {
+                                NeonMint.copy(alpha = 0.16f)
+                            }
+                            val b1 = Offset(
+                                center.x + cos(jellyPhase) * (baseRadius * 0.44f),
+                                center.y + sin(jellyPhase * 1.2f) * (baseRadius * 0.38f)
+                            )
+                            val b2 = Offset(
+                                center.x + sin(jellyPhase * 0.8f) * (baseRadius * 0.48f),
+                                center.y - cos(jellyPhase * 1.1f) * (baseRadius * 0.40f)
+                            )
+                            drawCircle(color = bubbleTint, radius = 5.5.dp.toPx(), center = b1)
+                            drawCircle(color = bubbleTint, radius = 3.5.dp.toPx(), center = b2)
+                        }
                     }
 
                     Text(
@@ -336,7 +438,7 @@ fun NamelessDashboard() {
                         val hasHost = slot.host.isNotBlank()
                         val pingMs: Int? = slotLatencies[idx]
                         val pillScale by animateFloatAsState(
-                            targetValue = if (selected) 1.03f else 0.98f,
+                            targetValue = if (selected) 1.04f else 0.98f,
                             animationSpec = if (settings.gpuAcceleration) BubblySpring else snap(),
                             label = "slotCard$idx"
                         )
@@ -410,13 +512,20 @@ fun NamelessDashboard() {
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val defaultSlotName = "Slot ${settings.activeSlot + 1}"
+                        val slotHeader = if (activeSlot.label == defaultSlotName || activeSlot.label.isBlank()) {
+                            "$defaultSlotName Config"
+                        } else {
+                            "$defaultSlotName • ${activeSlot.label}"
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Slot ${settings.activeSlot + 1} • ${activeSlot.label}",
+                                text = slotHeader,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
@@ -445,44 +554,52 @@ fun NamelessDashboard() {
                             }
                         }
 
-                        // Protocol Selector Strip
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            ProxyProtocol.entries.forEach { proto ->
-                                val isSelected = activeSlot.protocol == proto
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = {
-                                        val updated = settings.slots.toMutableList().apply {
-                                            this[settings.activeSlot] = activeSlot.copy(protocol = proto)
+                        // 2x4 Grid so ALL 8 Protocols are visible with zero cutoff
+                        val protocolRows = ProxyProtocol.entries.chunked(4)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            protocolRows.forEach { rowProtos ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    rowProtos.forEach { proto ->
+                                        val isSelected = activeSlot.protocol == proto
+                                        val shortLabel = when (proto) {
+                                            ProxyProtocol.SHADOWSOCKS -> "SS"
+                                            else -> proto.name
                                         }
-                                        settings = settings.copy(slots = updated)
-                                    },
-                                    shape = CircleShape,
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = NeonMint,
-                                        selectedLabelColor = AmoledBlack,
-                                        containerColor = ChipSurface,
-                                        labelColor = Color.White
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        enabled = true,
-                                        selected = isSelected,
-                                        borderColor = HairlineBorder,
-                                        selectedBorderColor = NeonMint
-                                    ),
-                                    label = {
-                                        Text(
-                                            text = proto.name,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (isSelected) NeonMint else ChipSurface,
+                                            border = BorderStroke(
+                                                1.dp,
+                                                if (isSelected) NeonMint else HairlineBorder
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(CircleShape)
+                                                .clickable {
+                                                    val updated = settings.slots.toMutableList().apply {
+                                                        this[settings.activeSlot] = activeSlot.copy(protocol = proto)
+                                                    }
+                                                    settings = settings.copy(slots = updated)
+                                                }
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.padding(vertical = 8.dp)
+                                            ) {
+                                                Text(
+                                                    text = shortLabel,
+                                                    color = if (isSelected) AmoledBlack else Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
                                     }
-                                )
+                                }
                             }
                         }
 
@@ -577,6 +694,47 @@ fun NamelessDashboard() {
                                     colors = fieldColors,
                                     modifier = Modifier.fillMaxWidth()
                                 )
+
+                                if (activeSlot.protocol == ProxyProtocol.VLESS) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        listOf("none", "tls", "reality").forEach { sec ->
+                                            val isSec = activeSlot.security.equals(sec, true)
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = if (isSec) NeonMint else ChipSurface,
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isSec) NeonMint else HairlineBorder
+                                                ),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(CircleShape)
+                                                    .clickable {
+                                                        val updated = settings.slots.toMutableList().apply {
+                                                            this[settings.activeSlot] = activeSlot.copy(security = sec)
+                                                        }
+                                                        settings = settings.copy(slots = updated)
+                                                    }
+                                            ) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier.padding(vertical = 7.dp)
+                                                ) {
+                                                    Text(
+                                                        text = sec.uppercase(),
+                                                        color = if (isSec) AmoledBlack else Color.White,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     OutlinedTextField(
                                         value = activeSlot.sni,
@@ -600,12 +758,45 @@ fun NamelessDashboard() {
                                             }
                                             settings = settings.copy(slots = updated)
                                         },
-                                        label = { Text("Transport") },
+                                        label = { Text("tcp / ws / grpc") },
                                         singleLine = true,
                                         shape = RoundedCornerShape(14.dp),
                                         colors = fieldColors,
                                         modifier = Modifier.weight(1f)
                                     )
+                                }
+
+                                if (activeSlot.protocol == ProxyProtocol.VLESS && activeSlot.security.equals("reality", true)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        OutlinedTextField(
+                                            value = activeSlot.realityPublicKey,
+                                            onValueChange = { v ->
+                                                val updated = settings.slots.toMutableList().apply {
+                                                    this[settings.activeSlot] = activeSlot.copy(realityPublicKey = v)
+                                                }
+                                                settings = settings.copy(slots = updated)
+                                            },
+                                            label = { Text("Reality Public Key") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = fieldColors,
+                                            modifier = Modifier.weight(1.4f)
+                                        )
+                                        OutlinedTextField(
+                                            value = activeSlot.realityShortId,
+                                            onValueChange = { v ->
+                                                val updated = settings.slots.toMutableList().apply {
+                                                    this[settings.activeSlot] = activeSlot.copy(realityShortId = v)
+                                                }
+                                                settings = settings.copy(slots = updated)
+                                            },
+                                            label = { Text("Short ID") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = fieldColors,
+                                            modifier = Modifier.weight(0.6f)
+                                        )
+                                    }
                                 }
                             }
 

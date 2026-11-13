@@ -195,6 +195,7 @@ fun SingleAutoLeakWebTab(
                             settings.displayZoomControls = false
                             settings.cacheMode = WebSettings.LOAD_NO_CACHE
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                            settings.userAgentString = settings.userAgentString.replace("; wv", "")
 
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(

@@ -127,13 +127,14 @@ object SingBoxConfigBuilder {
                     put("listen", "::")
                     put("listen_port", ProfileContext.tproxyPort)
                     put("sniff", true)
-                    put("sniff_override_destination", true)
-                })
+                put("inbounds", JSONArray().apply {
                 put(JSONObject().apply {
-                    put("type", "direct")
-                    put("tag", "dns-in")
+                    put("type", "tproxy")
+                    put("tag", "tproxy-in")
                     put("listen", "::")
-                    put("listen_port", ProfileContext.dnsPort)
+                    put("listen_port", ProfileContext.tproxyPort)
+                    put("sniff", true)
+                    put("sniff_override_destination", false)
                 })
             })
 
@@ -152,7 +153,6 @@ object SingBoxConfigBuilder {
                 put("auto_detect_interface", false)
                 put("default_mark", ProfileContext.outboundBypassMark)
                 put("rules", JSONArray().apply {
-                    put(JSONObject().put("inbound", "dns-in").put("outbound", "dns-out"))
                     put(JSONObject().put("protocol", "dns").put("outbound", "dns-out"))
                 })
                 put("final", "proxy-out")
